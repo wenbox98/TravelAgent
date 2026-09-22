@@ -12,6 +12,7 @@ from pydantic import Field, SecretStr, model_validator
 from starlette.responses import Response
 
 from .browser import SessionClosed
+from .login import LoginLifecycle
 from .models import (
     BrowserState,
     ContractModel,
@@ -45,20 +46,30 @@ def error_response(status: int, code: str) -> JSONResponse:
     )
 
 
-def create_app(config: SidecarConfig, service: SidecarService | None = None) -> FastAPI:
+def create_app(
+    config: SidecarConfig,
+    service: SidecarService | None = None,
+    *,
+    login: LoginLifecycle | None = None,
+) -> FastAPI:
     owned = service or SidecarService()
     owned.audit.redactor.register(config.secret)
+    if login is not None:
+        login.audit.redactor.register(config.secret)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             yield
         finally:
-            owned.close()
+            if login is not None:
+                login.shutdown()
+            else:
+                owned.close()
 
     app = FastAPI(
-        title="TravelAgent XHS Readonly Sidecar (offline)",
-        version="0.1.0",
+        title="TravelAgent XHS Readonly Sidecar",
+        version="0.2.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -70,6 +81,7 @@ def create_app(config: SidecarConfig, service: SidecarService | None = None) -> 
         },
     )
     app.state.service = owned
+    app.state.login = login
 
     @app.middleware("http")
     async def boundary(
@@ -124,35 +136,81 @@ def create_app(config: SidecarConfig, service: SidecarService | None = None) -> 
 
     @app.get("/health", response_model=Health)
     def health() -> Health:
-        return Health()
+        return Health() if login is None else Health(mode="login", backend=login_backend())
+
+    def login_backend() -> Literal["fake", "playwright"]:
+        if login is not None and getattr(login.browser.backend, "kind", "fake") == "playwright":
+            return "playwright"
+        return "fake"
+
+    def local_browser_state() -> BrowserState:
+        if login is None:
+            return owned.browser_state()
+        try:
+            session = login.browser.get_session()
+        except SessionClosed:
+            return BrowserState(mode="login", backend=login_backend(), state="CLOSED")
+        return BrowserState(
+            mode="login",
+            backend=login_backend(),
+            state="ACTIVE",
+            session_id=session.session_id,
+        )
 
     @app.get("/v1/browser/session", response_model=BrowserState)
     def browser_state() -> BrowserState:
-        return owned.browser_state()
+        return local_browser_state()
 
     @app.post("/v1/browser/session", response_model=BrowserState)
-    def start_browser() -> BrowserState:
+    def start_browser() -> BrowserState | JSONResponse:
+        if login is not None:
+            return error_response(409, "LOGIN_ONLY")
         return owned.start()
 
     @app.delete("/v1/browser/session", response_model=BrowserState)
-    def close_browser() -> BrowserState:
+    def close_browser() -> BrowserState | JSONResponse:
+        if login is not None:
+            # The login lifecycle must own generation revocation on every close path.
+            if login.cancel().status == "ERROR":
+                return error_response(500, "INTERNAL_ERROR")
+            return local_browser_state()
         return owned.close()
 
     @app.get("/v1/login/status", response_model=LoginState)
     def login_state() -> LoginState:
-        return LoginState()
+        return LoginState() if login is None else login.status()
+
+    @app.post("/v1/login/connect", response_model=LoginState)
+    def connect_login() -> LoginState | JSONResponse:
+        return error_response(409, "LOGIN_NOT_ENABLED") if login is None else login.connect()
+
+    @app.post("/v1/login/resume", response_model=LoginState)
+    def resume_login() -> LoginState | JSONResponse:
+        return error_response(409, "LOGIN_NOT_ENABLED") if login is None else login.resume()
+
+    @app.post("/v1/login/cancel", response_model=LoginState)
+    def cancel_login() -> LoginState | JSONResponse:
+        return error_response(409, "LOGIN_NOT_ENABLED") if login is None else login.cancel()
+
+    @app.post("/v1/login/disconnect", response_model=LoginState)
+    def disconnect_login() -> LoginState | JSONResponse:
+        return error_response(409, "LOGIN_NOT_ENABLED") if login is None else login.disconnect()
 
     @app.post("/v1/feeds/search", response_model=SearchResult)
-    def search(request: SearchRequest) -> SearchResult:
+    def search(request: SearchRequest) -> SearchResult | JSONResponse:
+        if login is not None:
+            return error_response(409, "LOGIN_ONLY")
         return owned.search(request)
 
     @app.post("/v1/feeds/detail", response_model=DetailResult)
-    def detail(request: DetailRequest) -> DetailResult:
+    def detail(request: DetailRequest) -> DetailResult | JSONResponse:
+        if login is not None:
+            return error_response(409, "LOGIN_ONLY")
         return owned.detail(request)
 
     @app.get("/v1/metrics", response_model=NetworkSnapshot)
     def metrics() -> NetworkSnapshot:
-        return owned.observer.snapshot()
+        return owned.observer.snapshot() if login is None else NetworkSnapshot()
 
     route_methods: dict[str, set[str]] = {}
     for route in app.routes:

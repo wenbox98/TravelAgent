@@ -1,4 +1,4 @@
-# XHS upstream provenance｜T02
+# XHS upstream provenance｜T02/T03
 
 ## 固定参考
 
@@ -16,11 +16,15 @@
 | xiaohongshu/search.go:FilterOption | integrations/xhs-sidecar/xhs_sidecar/models.py:SearchFilters | 参照固定枚举；新增requested/applied/status，避免筛选未知冒充已生效 |
 | types.go / xiaohongshu/types.go | models.py:SourceIdentity、AccessLocator、Candidate、RawDetail | 参照note ID/token关系；独立定义严格类型，凭证不进入公共响应 |
 | feed_detail.go | completeness.py:classify_completeness | 没有复用页面抓取代码；HTTP200不证明全文，按文本范围证据保守分类 |
-| browser/browser.go、service.go | browser.py:BrowserManager、service.py:SidecarService | 新建普通浏览器生命周期抽象与Fake；无指纹、无真实启动，复用同一会话 |
+| browser/browser.go、service.go | browser.py:BrowserManager、service.py:SidecarService | T02新建Fake生命周期抽象；T03继续复用同一会话，未导入上游浏览器实现 |
+| xiaohongshu/login.go | ordinary_browser.py:LOGIN_OBSERVATION_SCRIPT | 参照已锁定源码的已登录DOM selector及同页userInfo形状，独立实现只读DOM观察；真实页面适用性未实测 |
+| 非upstream代码 | ordinary_browser.py、profile.py、login.py | 标准Playwright 1.63.0、platformdirs 4.11.12；自有persistent context、profile归属、generation及取消清理，不依赖Go指纹浏览器链 |
 | routes.go、middleware.go | app.py:create_app、redaction.py | 独立只读路由注册、强制本机鉴权、日志字段白名单；没有隐藏/配置关闭的写工具 |
 | 原上游无研究网络计量契约 | observability.py | 导航与HTTP类别分离；NOT_MEASURED/null和SIMULATED，不伪造真实请求数 |
 
 上述为行为/接口参考，不是兼容整个upstream REST响应或二进制。当前也没有把本服务接入TravelResearchService；该业务循环仍未实现。
+
+T03只运行合成离线测试，没有启动真实Chrome/Chromium或访问小红书。普通浏览器依赖、应用launch配置与锁定库默认参数审查见[T03报告](../../reports/T03-implementation.md)；真实登录/重启复用仍NOT_RUN。`vendored_source_files=[]`表示未引入上游源码文件，不表示未参考其DOM和契约行为。
 
 ## 后续同步流程
 

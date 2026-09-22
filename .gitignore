@@ -33,6 +33,8 @@ token.json
 xsec_token*
 storage-state*.json
 browser-profiles/
+browser-profile/
+.travelagent-xhs-profile
 user-data-dir/
 User Data/
 raw-pages/

@@ -1,10 +1,10 @@
 # 03｜小红书数据接入与低操作成本登录
 
 ## 本章解决什么问题
-让普通用户用 UI 正常登录，然后由工具完成少量、有目的的攻略研究；开发者处理浏览器、状态与适配差异。目标不是“永远不触发风控”，也不是把扫码登录宣称成官方授予全站数据权限。
+让普通用户通过官方页面正常登录，并按需复用应用专用会话。T03 只实现登录生命周期与离线验证；不执行搜索、详情或研究，不开发 Electron GUI。研究是后续独立阶段，登录不表示获得内容存储、推理或分享权限。
 
 ## 已核实的技术基线
-2026-09-22 设计审查固定 `xpzouying/xiaohongshu-mcp` 提交 `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`。T02仅参考接口/行为并自建离线sidecar，没有复制或运行完整upstream；未完成真实账号验证。锁定记录在 `contracts/upstream-lock.json`。[S02]
+2026-09-22 设计审查固定 `xpzouying/xiaohongshu-mcp` 提交 `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`。T02 仅参考接口/行为并自建离线 sidecar，没有复制或运行完整 upstream；T03 在同一基础上增加普通 Playwright 浏览器与持久 profile。真实账号验证仍为 NOT_RUN，锁定记录在 `contracts/upstream-lock.json`。[S02]
 
 | 观察到的能力/行为 | 来源 | 对本项目的影响 |
 |---|---|---|
@@ -20,47 +20,61 @@
 小红书官方账号开放文档本次读取失败。因此 **不沿用此前“某 scope 当前已开放/未开放”的未经本次复核结论**。正式 OAuth 能力记为 UNKNOWN；首版是本地第一方网页登录连接，不伪造 OAuth client_id 或 read_notes scope。[S14]
 
 ## 连接体验
-正常路径：打开设置 → 点击“连接小红书” → 扫官方生成二维码/在官方页面登录 → 官方确认 → 本应用显示“已连接”。后续启动复用本应用的专用会话；需要验证时才提示。无手工 Cookie、无 DevTools、无让用户运行 login.exe 的说明。
+T03 采用最小路径：显式 connect → 打开可见的普通 Chrome/Chromium 官方窗口 → 用户扫码或使用官方提供的正常登录方式 → 在同一页面观察登录结果。二维码由官方页面显示，不提取或转发到 CLI。用户无需复制 Cookie、打开 DevTools、导出 JSON 或配置日常浏览器 profile。
 
-首选内嵌二维码展示；当平台要求额外验证时，点击“打开官方登录窗口”，由 launcher 打开本机可见浏览器。若无法安全地延续同一登录上下文，先取消旧会话，再开启一个清楚标记的新官方登录流程；不能读取用户其他浏览器的 profile 来“接管”。
+程序启动和本地 status 不打开浏览器；仅 connect 允许启动并加载官方页面。一个登录流程始终复用同一个 BrowserSession，等待期间只观察当前页 DOM，不反复导航、刷新或创建二维码页。页面自身仍可能产生网络请求，不能把 DOM 观察称为整个浏览器零流量。
 
-网页 UI 中不收集小红书密码或短信验证码，不自行生成第三方二维码。手机扫描电脑屏幕是首版默认方式；纯手机同屏扫码、远端无桌面环境不承诺支持。
+账号密码、短信验证码和安全验证由用户直接在官方窗口处理，应用不收集。遇验证或访问限制暂停自动流程；用户处理后显式 resume，只继续观察当前页面。T03 不承诺远端无桌面登录或纯手机使用。
+
+## 普通浏览器与专用 profile
+
+使用标准 Playwright sync API，浏览器调用在专用工作线程串行执行；通过持久 context 交由浏览器管理 Cookie 与站点存储，不手工导出 Cookie 文件。默认选择已安装的普通 Chrome；Chromium 需由开发者预先安装，启动 sidecar 不自动下载浏览器。实际锁定版本和 launch 配置见 [sidecar README](../integrations/xhs-sidecar/README.md) 与 [T03 实现报告](../reports/T03-implementation.md)。
+
+`platformdirs` 从系统应用数据目录定位 TravelAgent，默认在其 `xhs/browser-profile` 保存专用资料；Windows 对应本机应用数据目录下 `TravelAgent/xhs/browser-profile`，不硬编码用户名。`TRAVEL_XHS_PROFILE_ROOT` 仅供开发/测试覆盖专用根目录，profile 仍为其固定 `browser-profile` 子目录。根目录所有权标记和路径检查防止读取或删除日常 Chrome 数据；拒绝项目内路径、带 Git 祖先的目录、不安全链接及 UNC 共享路径，后者在文件系统探测前拒绝。`get_profile_path()` 只定位，`clear_profile()` 只清理核实归属的专用 profile。
+
+profile 不进入 Git、模型或普通日志。**保存了 profile 与已验证登录有效是两种状态**；profile 目录、Cookie 文件存在及文件时间都不能证明会话有效。
 
 ## 状态机
 ```text
-DISCONNECTED → CONNECTING → QR_READY → WAITING_CONFIRMATION
-                                      → VERIFYING → CONNECTED
-任何等待态 → ACTION_REQUIRED / EXPIRED / ERROR / CANCELED
-CONNECTED → EXPIRED / ACTION_REQUIRED
-任何态 → DISCONNECTING → DISCONNECTED
+无 profile 启动 → DISCONNECTED
+有 profile 启动 → SESSION_PRESENT_UNVERIFIED
+显式 connect → STARTING_BROWSER → CHECKING
+CHECKING → AUTHENTICATED（页面确认有效）
+CHECKING → LOGIN_REQUIRED（已有 profile 但已失效）
+CHECKING → WAITING_USER（首次登录、没有历史 profile）
+LOGIN_REQUIRED / WAITING_USER → 同页观察 → AUTHENTICATED 或 VERIFICATION_REQUIRED
+AUTHENTICATED → 显式 connect → 同页 CHECKING（不导航）
+VERIFICATION_REQUIRED → 显式 resume → 当前页 CHECKING
+取消 → CANCELLED；失败 → ERROR
+断开且关闭/清理均成功 → DISCONNECTED
 ```
 
-SCANNED 不作为持久化必需态：上游未保证可以观察到“已扫码但未确认”。不根据等待秒数伪造该状态。二维码倒计时根据真实 timeout 计算并标为本应用会话时限；若站点更早失效，按检测结果更新。
+`AUTHENTICATED` 仅代表本次页面观察已确认登录，不保证后续永远有效。未知页面不得推断为已登录；无法可靠获取稳定账号 ID 时 `account_identity=UNKNOWN`，不以昵称作为唯一身份。可靠 ID 仅留本机私有内存，不出现在状态响应、日志或模型中。
 
-`session_id + generation` 标识当前会话。旧回调不能覆盖新 generation；重复点击连接在当前有效会话内返回同一个结果，不重复生成二维码。
+`generation + flow_id` 标识当前登录流程。重复或并发 connect 返回同一活动流程，不新增 browser、page 或登录任务。取消、断开、关闭均先使旧 generation 失效；任何晚到观察结果须在同一同步边界核对 generation，失效结果不得改写登录状态或身份。
 
 ## 低请求的登录状态实现
-1. `POST /api/v1/auth/xhs/sessions` 创建本地会话，原子检查已有活动会话。
-2. backend 调用 sidecar 一次生成二维码；二维码只存内存，受本应用同源会话保护返回。
-3. frontend 通过 SSE 或每 2 秒 GET **本地会话缓存**查看状态，不产生额外小红书网络访问。
-4. 监听该专用 cookies 文件的写入完成/sidecar 结构化事件，仅用作“值得核实”的信号，不能只看文件存在就认定登录成功。
-5. 同一个 generation 最多安排一次正常远端核实；网络不确定时最多一次受预算控制的恢复核实。若无法可靠监听，使用有界低频核实退路，计入 auth_probe 指标，不循环新建浏览器。
-6. 核实成功后完成 CONNECTED；记录 last_verified_at、account_scope 的本地匿名 ID，不向模型提供账号昵称/ID。
-7. 重启将旧 CONNECTED 标为“需要核实”，按需核实一次；不用开机定时轮询维持账号活跃。
+1. `GET /v1/login/status` 只读取内存快照，不调用 BrowserManager、页面、Cookie 验证或网络；离线用例连续读取 100 次核对零导航、零外部操作。
+2. `POST /v1/login/connect` 在启动前原子判定活动流程；显式创建一个浏览器、加载专用 profile、导航官方页一次，随后只读当前 DOM。
+3. 有效会话进入 AUTHENTICATED；已有 profile 失效保持 LOGIN_REQUIRED，首次登录为 WAITING_USER，两者均在同一窗口继续观察正常登录。AUTHENTICATED 后再次显式 connect 只在当前 browser/page 核实，不导航。未知解析或浏览器错误不自动重试导航。
+4. `POST /v1/login/resume` 用于人工完成验证后继续观察当前页，不刷新、不新建浏览器。普通 status、重启与后台定时器不会触发远端探活。
+5. `login_status_external_requests=0` 是本地 status 路径的单独保证。真实 connect/login 的全浏览器请求量尚未可靠测量，保持 `NOT_MEASURED`，导航、document/xhr_fetch/image/media/other 和总量为 null，不填写假 0。
 
-设计默认：一个待扫码上下文、一个账号研究通道、用户点击才更新过期二维码。这个默认不是平台安全额度。
+这些是 sidecar 内部接口；[07 章](07-api-contracts.md) 的业务 UI API 仍是后续适配设计，不能混称已开放。
 
 ## 注销与断开
 “断开连接”指撤销本应用保存的本地登录状态，不宣称撤销平台所有会话或官方 OAuth token。
 
-顺序：禁止新 XHS 任务 → cancel 等待与进行中任务 → 关闭本应用拥有的 sidecar/浏览器 → 确認进程结束 → 清理专用会话文件、内存 token 和二维码 → 增加 generation → 标记 DISCONNECTED。
+`POST /v1/login/disconnect`：先增加 generation → 撤销当前等待任务 → 关闭本应用拥有的 BrowserSession → 确认关闭成功后清除专用 profile 与私有身份 → 成功才报告 DISCONNECTED。旧任务无法在清理后重新写回 AUTHENTICATED；删除前确保浏览器不再持有 profile。
 
-仅调用上游删除 cookies 可能不足以阻止一个还在等待扫码的流程再次写入，因此必须测试“注销后晚到扫码成功”的竞态。仅结束已验证归属于本应用的 PID+启动时间/进程树，不杀用户所有 Chrome/Edge。
+Windows 文件占用只允许有限次删除重试。浏览器关闭或 profile 清理失败保持明确 ERROR，不能谎报已退出；不杀用户其他 Chrome/Edge，不删除未核实归属的目录。`POST /v1/login/cancel` 仅取消、关闭并保留 profile，状态为 CANCELLED。
+
+普通程序关闭同样撤销旧任务、关闭浏览器，但保留 profile。下一次启动只进入 SESSION_PRESENT_UNVERIFIED，不联网；用户显式 connect 后才核实并尽量复用。浏览器原生持久化替代原方案的独立 Cookie 文件写入，generation 保护本地结果，关闭后再删除防止旧浏览器继续写盘。
 
 ## 最小只读 sidecar
-首版复用上游的正常网页交互代码，维护范围有限的 patch，不重写私有请求签名。使用 REST 适配，**不开放 /mcp**，避免注册了写工具却只在提示词里说“不准用”。
+T02/T03 使用自有 Python sidecar，upstream 只作静态参考，不运行其浏览器、MCP 或服务。**不开放 /mcp**；不是注册写工具后仅在提示词禁止调用。
 
-以下为审查upstream时的功能白名单，T02自有内部API的实际路径以[sidecar路由表](../integrations/xhs-sidecar/README.md)为准；不是声称当前已实现以下真实登录/读取：
+以下是历史 upstream 协议映射，当前自有内部 API 以 [sidecar 路由表](../integrations/xhs-sidecar/README.md) 为准；T03 login 模式拒绝 search/detail 与旧浏览器 POST 入口，不实现真实读取：
 - GET /health（仅本机）
 - GET /api/v1/login/status
 - GET /api/v1/login/qrcode
@@ -73,6 +87,8 @@ SCANNED 不作为持久化必需态：上游未保证可以观察到“已扫码
 必须完成的 patch/包装要求：loopback 绑定；随机 token 且不经 URL/命令行泄露；删除未用写路由与 MCP；源头日志脱敏；一次导航失败不在多层分别重试；可取消；请求观测；验证码/拒绝访问结构化上报；不新增或启用规避检测功能。每项有具体静态/集成测试。不能只把“发布按钮隐藏”算作只读完成。
 
 ## 适配请求映射
+本节是后续只读研究接入约束，T03 不执行或实现真实 search/detail。
+
 搜索用 POST JSON；`keyword` 是字符串，`filters` 是单个对象。筛选按已读源码支持的枚举校验；首轮默认综合/图文，不因追求新而漏掉经典路线。最新排序仅用于补齐近期信息缺口。[S07][S11]
 
 详情传 `feed_id`、`xsec_token`、`load_all_comments:false`。评论配置不是禁用评论的开关；尤其不能把 `max_comment_items:0` 理解为一定不加载。首屏自然包含的评论只丢弃、不继续展开。具体上游响应封装应按实测更新脱敏契约，不凭文档猜全文字段完整性。[S06][S07]
@@ -96,6 +112,8 @@ PoC 对普通用户的唯一必要动作是点击“连接小红书”并在正�
 
 “开源/个人使用”不是绕过平台规则的理由。v1.1 明确不实现 CAPTCHA 破解、代理池、IP/账号轮换、设备指纹伪装、stealth/anti-detect。遇到 verification/challenge、明确限流或拒绝访问立即暂停。
 
-## T02当前状态
+## T03 当前范围与停止点
 
-本章的真实连接流程仍为T03目标。T02只完成[自有只读sidecar基础](../integrations/xhs-sidecar/README.md)，唯一backend为Fake；不复用upstream指纹浏览器或原二进制。登录status仅报告NOT_IMPLEMENTED/remote_checked=false，未实现二维码。真实会话generation、Cookie持久化和账号验证仍待T03；断开设计先使旧generation失效再清理，详见[修订设计](architecture/xhs-poc-design.md)。
+默认 `offline` 模式继续使用 T02 Fake；显式 `TRAVEL_XHS_SIDECAR_MODE=login` 才选择真实普通浏览器 backend，即使选择该模式，启动也不打开浏览器。T03 只交付代码、契约和离线验证，实际结果见 [T03 实现报告](../reports/T03-implementation.md)。T03-01～T03-18 登记于测试矩阵，测试均使用合成页面/临时 profile，并禁止外部网络。
+
+本轮不得访问真实小红书、打开登录页或扫码。离线门槛通过并完成提交后停止，等待用户再次确认；之后的人工 smoke 只验证登录、关闭/重启、显式复用与断开清理。真实搜索、详情、研究和 G0/G1 验收仍未通过，不进入 T04。

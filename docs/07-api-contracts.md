@@ -1,8 +1,14 @@
 # 07｜API、事件、错误和数据契约
 
-## T02内部sidecar契约
+## T02/T03内部sidecar契约
 
-[xhs-sidecar.openapi.json](../contracts/xhs-sidecar.openapi.json)是独立内部API v0.1.0，由严格Pydantic模型导出并与运行路由离线比对。它不是下面业务OpenAPI/FetchResult的替代物，不改Evidence或SQLite语义。新增SourceIdentity、SearchResult筛选状态、DetailResult完整度与NetworkSnapshot仅作用于sidecar边界；AccessLocator不进入公共schema。当前只有Fake实现，无完整upstream二进制兼容声明。
+[xhs-sidecar.openapi.json](../contracts/xhs-sidecar.openapi.json)是独立内部API v0.2.0，由严格Pydantic模型导出并与运行路由离线比对。它不是下面业务OpenAPI/FetchResult的替代物，不改Evidence或SQLite语义。默认offline保留T02合成读取；显式login模式仅实现普通浏览器登录，搜索、详情和旧POST browser/session返回409 LOGIN_ONLY。无完整upstream二进制兼容声明。
+
+T03增加POST `/v1/login/connect|resume|cancel|disconnect`（四个固定路径），共12个method/path组合。GET `/v1/login/status`只返回本地缓存，不检查Cookie或触发任何浏览器操作。connect首次导航一次；已认证时再次显式connect只观察当前页。resume仅恢复验证暂停后的当前页观察；cancel关闭并保留profile；disconnect关闭后删除专用profile。未启用login的四个POST返回409 LOGIN_NOT_ENABLED。DELETE browser/session在login模式走cancel，失败返回500，不绕过generation撤销。
+
+登录操作成功受理返回200及LoginState；调用者必须读取其中status，ERROR不是已退出或已登录，error_code区分BROWSER_ERROR、LOGIN_TIMEOUT、CLEANUP_FAILED、FLOW_STOP_TIMEOUT。profile存在仅标SESSION_PRESENT_UNVERIFIED。状态含generation、随机flow_id、历史remote_checked、account_identity的KNOWN/UNKNOWN；不含账号ID、Cookie、二维码或profile路径。身份原值只留本机私有内存，AccessLocator也不进入公共schema。NetworkSnapshot与LoginState独立标记login_status_external_requests=0；真实浏览器总流量仍NOT_MEASURED/null。
+
+这些控制接口使用T02的loopback Host/Origin限制与专用Bearer凭证，不开放任意URL或浏览器命令。以下业务API认证/事件/幂等方案仍为后续契约，T03未实现GUI、二维码接口或研究恢复。
 
 ## 机器可读文件
 - `contracts/domain.schema.json`：JSON Schema Draft 2020-12 领域输出。

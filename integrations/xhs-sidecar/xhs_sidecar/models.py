@@ -75,6 +75,8 @@ class RequestCounts(ContractModel):
 
 
 class NetworkSnapshot(ContractModel):
+    # Deterministic local-route property, separate from unmeasured browser traffic.
+    login_status_external_requests: Literal[0] = 0
     measurement: Literal["NOT_MEASURED", "SIMULATED"] = "NOT_MEASURED"
     browser_navigation: int | None = Field(default=None, ge=0)
     requests: RequestCounts = Field(default_factory=RequestCounts)
@@ -160,23 +162,44 @@ class DetailResult(ContractModel):
 
 
 class BrowserState(ContractModel):
-    mode: Literal["offline"] = "offline"
-    backend: Literal["fake"] = "fake"
+    mode: Literal["offline", "login"] = "offline"
+    backend: Literal["fake", "playwright"] = "fake"
     state: Literal["ACTIVE", "CLOSED"]
     session_id: str | None = None
 
 
+LoginStatus = Literal[
+    "NOT_IMPLEMENTED",
+    "DISCONNECTED",
+    "STARTING_BROWSER",
+    "SESSION_PRESENT_UNVERIFIED",
+    "CHECKING",
+    "LOGIN_REQUIRED",
+    "WAITING_USER",
+    "AUTHENTICATED",
+    "VERIFICATION_REQUIRED",
+    "CANCELLED",
+    "ERROR",
+]
+LoginError = Literal["BROWSER_ERROR", "LOGIN_TIMEOUT", "CLEANUP_FAILED", "FLOW_STOP_TIMEOUT"]
+
+
 class LoginState(ContractModel):
-    mode: Literal["offline"] = "offline"
-    status: Literal["NOT_IMPLEMENTED"] = "NOT_IMPLEMENTED"
-    remote_checked: Literal[False] = False
+    mode: Literal["offline", "login"] = "offline"
+    status: LoginStatus = "NOT_IMPLEMENTED"
+    generation: int = Field(default=0, ge=0)
+    flow_id: str | None = None
+    remote_checked: bool = False
+    account_identity: Literal["KNOWN", "UNKNOWN"] = "UNKNOWN"
+    login_status_external_requests: Literal[0] = 0
+    error_code: LoginError | None = None
 
 
 class Health(ContractModel):
     status: Literal["ok"] = "ok"
-    mode: Literal["offline"] = "offline"
-    backend: Literal["fake"] = "fake"
-    contract_version: Literal["0.1.0"] = "0.1.0"
+    mode: Literal["offline", "login"] = "offline"
+    backend: Literal["fake", "playwright"] = "fake"
+    contract_version: Literal["0.2.0"] = "0.2.0"
 
 
 class SidecarError(ContractModel):
@@ -191,6 +214,8 @@ class SidecarError(ContractModel):
         "NOT_FOUND",
         "METHOD_NOT_ALLOWED",
         "BACKEND_CONTRACT_ERROR",
+        "LOGIN_NOT_ENABLED",
+        "LOGIN_ONLY",
     ]
     message: Literal["本地只读服务请求未完成"] = "本地只读服务请求未完成"
 

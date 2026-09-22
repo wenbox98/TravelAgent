@@ -22,6 +22,10 @@ class SensitiveDataRedactor:
         "secret",
         "password",
         "accesstoken",
+        "sessiondata",
+        "accountid",
+        "stableid",
+        "accountstableid",
     }
 
     def __init__(self) -> None:
@@ -70,6 +74,7 @@ class SafeAuditLog:
         "detail_finished",
         "request_failed",
         "request_rejected",
+        "login_observed",
     }
     _labels = {
         "operation": {"health", "session", "login_status", "search", "detail", "metrics"},

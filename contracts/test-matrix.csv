@@ -95,3 +95,21 @@ T02-07,R04;R05;R06;R12;R13,T02,L1/L2,P0,筛选状态诚实,Fake FAILED/UNKNOWN,f
 T02-08,R04;R05;R06;R12;R13,T02,L1/L2,P0,正文完整度保守,HTTP200且正文范围未验证,PARTIAL_TEXT而非FULL_TEXT,NOT_RUN
 T02-09,R04;R05;R06;R12;R13,T02,L1/L2,P0,稳定身份与locator隔离,同ID不同token,source_id相同；token仅私有内存；TTL UNKNOWN,NOT_RUN
 T02-10,R04;R05;R06;R12;R13,T02,L1/L2,P0,网络统计未知,没有网络观测,NOT_MEASURED/null；不返回0请求,NOT_RUN
+T03-01,R05;R06;R13,T03,L1/静态,P0,真实普通浏览器配置,离线替身捕获launch配置并检查依赖,标准Chrome/Chromium；无fingerprint/stealth/UA伪装,NOT_RUN
+T03-02,R05;R12;R13,T03,L1,P0,专用profile与删除边界,系统appdata规则及临时目录覆盖,不读日常Chrome；拒绝仓库/链接/未核实所有权目录,NOT_RUN
+T03-03,R05;R12,T03,L1,P0,已有profile启动,创建合成专用profile后构造服务,SESSION_PRESENT_UNVERIFIED而非AUTHENTICATED,NOT_RUN
+T03-04,R05;R12,T03,L2,P0,本地status高频读取,100次GET login/status,导航与外部操作均0；不创建浏览器,NOT_RUN
+T03-05,R05;R12,T03,L1/L2,P0,显式connect单会话,Fake页面需要正常登录,同一BrowserSession完成导航和观察,NOT_RUN
+T03-06,R05;R12,T03,L1/L2,P0,重复connect幂等,WAITING_USER期间再次连接,相同flow/generation；不新增browser或task,NOT_RUN
+T03-07,R05;R12,T03,L1/L2,P0,并发connect幂等,同时提交两个connect,只有一个登录流程和browser启动,NOT_RUN
+T03-08,R05;R12,T03,L1/L2,P0,正常登录确认,合成当前页返回有效登录,AUTHENTICATED；身份未知不猜测,NOT_RUN
+T03-09,R05;R12,T03,L1/L2,P0,旧session失效,已有profile但页面未登录,LOGIN_REQUIRED；同页允许用户登录,NOT_RUN
+T03-10,R05;R12;R13,T03,L1/L2,P0,官方验证暂停,合成verification/challenge页面,VERIFICATION_REQUIRED并停止自动观察；resume同页,NOT_RUN
+T03-11,R05;R12,T03,L1/L2,P0,disconnect撤销generation,当前等待任务断开,先增加generation再取消/关闭/清理,NOT_RUN
+T03-12,R05;R12,T03,L1/L2,P0,旧登录成功晚到,A断开后B开始且A返回成功,A不能写回AUTHENTICATED或身份,NOT_RUN
+T03-13,R05;R12;R13,T03,L1/L2,P0,断开清理成功,关闭Fake浏览器并删除临时专用profile,profile删除且DISCONNECTED,NOT_RUN
+T03-14,R05;R12;R13,T03,L1/L2,P0,断开清理失败,模拟浏览器关闭或profile文件占用失败,有限重试后ERROR；不谎报断开成功,NOT_RUN
+T03-15,R05;R12,T03,L1/L2,P0,重启恢复无网络,关闭保留profile后创建新服务,待核实；零browser启动/导航直到显式connect,NOT_RUN
+T03-16,R05;R06;R13,T03,L1/L2,P0,登录敏感日志,注入Cookie/xsec/session/auth/QR/account sentinel及异常,捕获全部日志原始敏感值出现0次,NOT_RUN
+T03-17,R05;R12,T03,L1/L2,P0,等待检查复用,重复观察当前合成页面,只有一个browser和一次初始导航；无reload,NOT_RUN
+T03-18,R05;R06;R12,T03,L1/L2,P0,真实网络量未知,未接可靠全浏览器observer,NOT_MEASURED/null；status外部请求单列0,NOT_RUN

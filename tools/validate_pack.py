@@ -307,7 +307,7 @@ def main() -> int:
     out.mkdir(exist_ok=True)
     (out / "document-validation.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     lines = ["# 文档包校验报告", "", f"执行时间（UTC）：{stamp}", "", f"**结果：{passed}/{len(RESULTS)} 项文档校验通过；失败 {len(RESULTS) - passed} 项。**", "",
-             "范围仅为 L0：文档、机器可读契约和合成算例。本命令不执行应用测试；当前应用测试见 T00/T01 实现报告。本命令没有登录小红书、获取真实票价或构建 Windows 发行包。", "",
+             "范围仅为 L0：文档、机器可读契约和合成算例。本命令不执行应用测试；应用测试见各阶段 T00～T03 实现报告。本命令没有登录小红书、获取真实票价或构建 Windows 发行包。", "",
              "| 校验 | 结果 | 说明 |", "|---|---|---|"]
     for r in RESULTS:
         detail = str(r["detail"]).replace("|", "\\|").replace("\n", " ")

@@ -4,7 +4,7 @@
   "repository": "https://github.com/xpzouying/xiaohongshu-mcp",
   "candidate_commit": "8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff",
   "commit_date": "2026-09-22T14:31:32+08:00",
-  "status": "REFERENCE_ONLY_OFFLINE_FOUNDATION",
+  "status": "REFERENCE_ONLY_OWNED_LOGIN_IMPLEMENTED",
   "approved_for_release": false,
   "reviewed_paths": [
     "README.md",
@@ -34,7 +34,7 @@
   "build_platform": null,
   "required_patches": [],
   "official_xhs_oauth_scope_status": "UNKNOWN_OFFICIAL_PAGE_NOT_RETRIEVED",
-  "notes": "Reference only. No upstream implementation copied or modified; no upstream binary or live compatibility claim. No patchset or release artifact exists, so hashes stay null. Ordinary browser process and login remain unimplemented; only Fake backend is executable. Sync requires explicit SHA review, contract updates and offline tests before separately authorized live work.",
+  "notes": "Reference only. No upstream source files vendored or modified; no upstream binary or live compatibility claim. No patchset or release artifact exists, so hashes stay null. T03 independently implements ordinary Playwright persistent browser/login lifecycle; default remains Fake/offline, and real browser/login smoke is NOT_RUN pending user confirmation. Login selector and same-page userInfo structure are behavioral references only. Sync requires explicit SHA review, contract updates and offline tests before separately authorized live work.",
   "integration_strategy": "OWNED_PYTHON_SIDECAR",
   "vendored_source_files": [],
   "modified_upstream_files": [],
@@ -52,7 +52,8 @@
   "reused_reference_contracts": [
     "FilterOption enums",
     "note ID / xsecToken separation",
-    "note metadata / detail fields"
+    "note metadata / detail fields",
+    "login.go authenticated DOM selector and same-page userInfo shape"
   ],
   "provenance_document": "docs/architecture/xhs-upstream-provenance.md"
 }

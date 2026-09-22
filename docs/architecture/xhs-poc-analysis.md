@@ -4,7 +4,17 @@
 
 本审查已获用户接受。T02按新范围选择**独立Python只读sidecar**，upstream仅reference，没有复制或修改Go源码，也不运行其二进制。下文原审查结论保留；“必须patch”的控制目标改由自有服务实现或明确留待后续阶段，不能据此声称upstream原问题已经修复。
 
-已建立Fake普通浏览器会话、路由白名单、源头日志排除、筛选状态、完整度分类、identity/locator分离、未知网络指标。真实Chrome启动、页面交互、Cookie与登录generation仍未实现。见[provenance](xhs-upstream-provenance.md)、[sidecar边界](../../integrations/xhs-sidecar/README.md)和[T02报告](../../reports/T02-implementation.md)。锁文件已同步至下文SHA，approved_for_release仍为false。
+T02 建立 Fake 普通浏览器会话、路由白名单、源头日志排除、筛选状态、完整度分类、identity/locator 分离和未知网络指标；历史结果见 [T02 报告](../../reports/T02-implementation.md)。来源见 [provenance](xhs-upstream-provenance.md)，锁文件已同步至下文 SHA，approved_for_release 仍为 false。
+
+## T03 登录生命周期实施边界
+
+用户已授权 T03 离线实现：在自有 sidecar 的 BrowserManager 后接标准 Playwright 普通 Chrome/Chromium，持久 context 使用系统 appdata 内专用 profile，保留官方窗口供用户正常登录。没有复制 upstream 指纹浏览器或 Cookie 文件写入逻辑；本阶段不提取二维码图片、不实现真实 search/detail、研究或 GUI。
+
+本地 `GET /v1/login/status` 只读缓存；显式 connect 才启动、导航一次，然后在同一页观察 DOM。profile 存在只表示 SESSION_PRESENT_UNVERIFIED。断开先增加 generation、取消任务、关闭自有浏览器，再清 profile；普通关闭保留 profile，重启不联网。challenge 暂停，显式 resume 才在原页继续观察，稳定账号 ID 未知不推断。
+
+这解决 A01/A04～A09 的自有生命周期控制要求，但不代表 upstream 已被修复，也不代表当前网页选择器或真实会话恢复已验证。`login_status_external_requests=0` 只描述本地查询路径；connect 全浏览器流量仍为 NOT_MEASURED/null，A18 的真实网络节省结论继续待测。T03-01～T03-18 的实际离线执行结果以 [T03 实现报告](../../reports/T03-implementation.md) 为准，API 边界见 [sidecar README](../../integrations/xhs-sidecar/README.md)。
+
+**本轮提交并汇报后停止。** 真实浏览器启动、扫码与重启复用 smoke 均为 NOT_RUN，须用户另行确认；真实研究仍属 T04 以后，不因登录代码存在提前执行。
 
 ## 目的
 本文件把 `xpzouying/xiaohongshu-mcp` 视为候选上游能力，不视为官方内容 API，也不视为已经在线验证成功。原设计审查轮只修改两份架构文档，没有编写业务代码、启动 upstream、安装浏览器或访问真实小红书；后续T02范围见开头实施记录。
@@ -30,7 +40,7 @@
 5. 上游错误必须映射为 `NEED_LOGIN / VERIFICATION_REQUIRED / RATE_LIMITED / CONTENT_UNAVAILABLE / PARSE_ERROR ...`，不能一律重试。
 
 ## wrapper 优先策略
-采用 `XhsReadonlyAdapter + 必需 sidecar patch + 普通浏览器`。本次已确认 wrapper 无法满足原实现的浏览器、源头日志、取消和筛选语义要求，patch 不再是可选项。任何 patch 都记录原因、上游 commit、真实 patch hash 和同步方式；尚未实现时不得填造 hash。
+原审查采用 `XhsReadonlyAdapter + 必需 sidecar patch + 普通浏览器`，因为 wrapper 无法满足原实现的浏览器、源头日志、取消和筛选语义要求。T02/T03 选择自有 sidecar 落实控制，不运行或修改 upstream；因此没有 upstream patch hash，不能填造。后续若引入源码 patch，仍须记录原因、commit、真实 hash 与同步方式。
 
 ## 待真实验证
 - Windows/中国大陆网络环境下扫码登录、重启后会话复用和失效恢复。
@@ -172,9 +182,9 @@ detail.time 为int64，结构未声明单位；文档示例像毫秒，应按待
 
 ## 设计审查时的待同步点
 
-T02已同步03、来源登记与锁文件，并新增独立sidecar契约；其余研究/登录流程仍是后续要求。新的内部API不修改T01 Evidence/SQLite/业务OpenAPI语义。
+T02 已同步来源登记与锁文件并新增独立 sidecar 契约；T03 同步 03、登录状态/内部 API、任务/矩阵与验收。研究仍为后续要求。内部 API 不修改 T01 Evidence/SQLite/业务 OpenAPI 语义。
 
-- [03 登录设计](../03-xhs-access-login.md)：旧SHA为历史基线；一个waiter不保证幂等/同步关闭；短生命期token改为应用策略；断开时generation要先失效；普通浏览器替换列必需项。
+- [03 登录设计](../03-xhs-access-login.md)：T03 已改为普通可见窗口和浏览器原生 profile 持久化；status 无网络，generation 先失效再关闭/清理。短生命期 token 仍是应用策略，真实搜索未实现。
 - [04 低请求策略](../04-research-efficiency.md)：一般网络最多一次重试是上限，PoC详情采用更严格的无自动重发；不能同时无条件承诺“一source一次”与自动重试。
 - [锁文件](../../contracts/upstream-lock.json)：显式更新候选/审查路径/补丁，构建后再记录产物hash，验收前保持approved_for_release=false。
 - [领域契约](../../contracts/domain.schema.json)、[OpenAPI](../../contracts/openapi.yaml)、[数据库契约](../../contracts/database.sql)：新筛选状态、会话事件、错误/观测字段需同步契约、实现和测试；本设计字段未自动加入API。
@@ -188,4 +198,4 @@ T02已同步03、来源登记与锁文件，并新增独立sidecar契约；其�
 | SKIPPED（范围外） | 业务实现、upstream构建、浏览器安装、应用和实站测试 |
 | BLOCKED（真实接入） | 必需patch与授权实机验收未完成；登录/重启复用、search/detail稳定性、完整度、HTTP节省均未验证 |
 
-建议用户确认后只进入T02普通浏览器/只读sidecar离线最小改造与契约验证，再依次T03登录生命周期、T04研究循环。实机smoke另行明确授权。本次完成后停止，不进入完整TravelAgent开发或真实批量抓取。
+以上表格保留原设计审查时的结论。T02 已完成；当前 T03 仅实施登录生命周期与离线验收。完成提交后等待用户确认，再单独进行人工登录 smoke；不继续 T04 或真实研究。

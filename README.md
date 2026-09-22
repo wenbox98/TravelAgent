@@ -77,7 +77,15 @@
 
 ## T02只读sidecar离线基础
 
-已增加独立[只读sidecar基础](integrations/xhs-sidecar/README.md)：Fake普通浏览器会话、仅8个method/path组合、源头日志脱敏、筛选/完整度/来源定位/网络统计模型。没有复制或运行完整upstream，没有真实Chrome启动器或小红书网络实现；login/status为NOT_IMPLEMENTED。验证与未实现项见[T02报告](reports/T02-implementation.md)，来源见[provenance](docs/architecture/xhs-upstream-provenance.md)。不代表T03登录、T04研究或G0通过。
+T02 增加独立[只读 sidecar 基础](integrations/xhs-sidecar/README.md)：Fake 普通浏览器会话、路由白名单、源头日志脱敏、筛选/完整度/来源定位/网络模型。历史验证见 [T02 报告](reports/T02-implementation.md)，来源见 [provenance](docs/architecture/xhs-upstream-provenance.md)。没有复制或运行完整 upstream。
+
+## T03 登录生命周期
+
+在 T02 基础上新增标准 Playwright 普通 Chrome/Chromium、系统应用数据目录中的 TravelAgent 专用 profile，以及本地登录状态机。默认仍为 offline Fake；显式 login 模式启动服务也不打开浏览器，只有 connect 才启动可见官方窗口并导航一次。用户在官方窗口正常登录，无 Cookie 复制或二维码提取；等待复用同页，不反复刷新。
+
+`GET /v1/login/status` 只读本地快照；profile 存在只标 SESSION_PRESENT_UNVERIFIED。generation 拒绝取消/断开后的晚到结果；cancel 和关闭保留 profile，disconnect 关闭后清理。验证要求暂停，手工处理后显式 resume 同页继续。login 模式拒绝 search/detail 和旧浏览器 POST 入口。
+
+命令、launch 参数与 profile 边界见 [sidecar README](integrations/xhs-sidecar/README.md)，执行证据记录在 [T03 实现报告](reports/T03-implementation.md)。**本轮仅交付代码与离线验收，真实浏览器启动/扫码 smoke 为 NOT_RUN，提交汇报后等待用户确认。** 不进入 T04，不代表真实登录、研究或 G0 已通过。
 
 ## 离线开发启动（T00/T01）
 
@@ -88,6 +96,6 @@ python scripts/doctor.py
 python scripts/dev.py --mode mock
 ```
 
-打开 `http://127.0.0.1:8765` 查看合成演示；Ctrl+C 停止。本轮未实现研究聊天或真实登录。
+打开 `http://127.0.0.1:8765` 查看合成演示；Ctrl+C 停止。此演示不提供研究聊天或 T03 登录 UI；登录使用上面的独立 sidecar CLI。
 
-测试：`python scripts/check.py --suite unit|contract|integration|security`（分别执行，竖线表示选项）；`e2e` 暂无测试时返回 5/SKIPPED。文档检查使用 `.venv\Scripts\python.exe tools/validate_pack.py` 或激活虚拟环境后运行原命令。运行资料在 Git 忽略的 `.local/`；真实 XHS 在代码和默认配置中关闭。
+测试：`python scripts/check.py --suite unit|contract|integration|security`（分别执行，竖线表示选项）；`e2e` 暂无测试时返回 5/SKIPPED。文档检查使用 `.venv\Scripts\python.exe tools/validate_pack.py` 或激活虚拟环境后运行原命令。合成演示资料在 Git 忽略的 `.local/`；T03 真实 profile 位于仓库外系统应用数据目录。真实浏览器默认关闭，所有自动测试离线。

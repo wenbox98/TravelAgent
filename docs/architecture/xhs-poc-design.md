@@ -2,13 +2,21 @@
 
 ## T02离线落地范围
 
-用户已接受设计审查并授权T02。当前选择自有Python sidecar，upstream只作固定reference，不复制完整服务再动态禁用能力。`integrations/xhs-sidecar/xhs_sidecar`实现Fake普通浏览器会话及内部只读接口，见[边界/路由](../../integrations/xhs-sidecar/README.md)和[内部OpenAPI](../../contracts/xhs-sidecar.openapi.json)。
+T02 经用户授权选择自有 Python sidecar，upstream 只作固定 reference，不复制完整服务再动态禁用能力。该阶段在 `integrations/xhs-sidecar/xhs_sidecar` 实现 Fake 普通浏览器会话及内部只读接口，见 [边界/路由](../../integrations/xhs-sidecar/README.md) 和 [内部 OpenAPI](../../contracts/xhs-sidecar.openapi.json)。
 
-已实现start/get_session/close、会话复用/撤销、源头日志允许字段、筛选状态、保守完整度、私有locator、NOT_MEASURED/SIMULATED网络模型。没有真实Chrome启动器、登录Cookie/QR、页面读取；没有TravelResearchService、RAG或预算/早停循环。下文完整PoC流程继续作为后续设计，不因T02测试声称已经实现。当前无live配置开关或真实站点fallback。
+T02 实现 start/get_session/close、会话复用/撤销、源头日志允许字段、筛选状态、保守完整度、私有 locator、NOT_MEASURED/SIMULATED 网络模型。历史 T02 没有真实 Chrome 启动器；当前 T03 扩展范围见下节。下文完整研究流程仍是后续设计，没有 TravelResearchService、RAG 或预算/早停循环。
 
-T02独立内部契约v0.1.0不冒充T01 FetchResult/Evidence。未观测指标为NOT_MEASURED/null，Fake窗口为SIMULATED；未来COMPLETE/PARTIAL真实覆盖状态需显式扩展契约。T03才引入真实账号scope/generation，当前locator仅绑定Fake BrowserSession，TTL仍UNKNOWN。
+T02 独立内部契约不冒充 T01 FetchResult/Evidence；T03 显式扩展登录契约。未观测指标为 NOT_MEASURED/null，Fake 窗口为 SIMULATED；未来 COMPLETE/PARTIAL 真实覆盖状态需显式扩展契约。T03 登录身份/generation 不使合成 locator 获得真实读取能力，locator 仍只用于 offline Fake，TTL 为 UNKNOWN。
 
-以下保留设计审查的整体目标，源码基线为 `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`。事实依据见[上游分析](xhs-poc-analysis.md)，实际T02状态以上述范围和[T02报告](../../reports/T02-implementation.md)为准。
+## T03 当前实施范围
+
+复用现有 BrowserManager 与 sidecar，只新增标准 Playwright 普通浏览器、专用持久 profile、登录状态机和最小 CLI。默认模式 `offline` 保留 Fake；`TRAVEL_XHS_SIDECAR_MODE=login` 显式选择真实 backend，服务启动仍不打开浏览器。login 模式仅 connect 可以启动并导航；旧 POST browser/session 与 search/detail 返回 409，不提供旁路。无 Electron GUI、二维码图片转发、真实读取或研究功能。
+
+profile 由 platformdirs 定位系统应用数据目录，使用 `TravelAgent/xhs/browser-profile`；开发测试根目录覆盖仍固定 `browser-profile` 子目录并检查所有权及路径，拒绝 Git 目录/祖先、不安全链接与 UNC 共享。浏览器原生持久 context 管理 Cookie/站点存储；不再使用独立 Cookie 导出/监听/原子替换方案。取消/关闭先失效 generation，断开确认 browser 已关闭后才能清 profile，防止旧写入者复活本地数据。
+
+具体路由、启动配置与离线命令见 [sidecar README](../../integrations/xhs-sidecar/README.md)。真实浏览器启动、账号与页面行为尚未实测；本轮离线验证和提交完成后停止，等待用户确认人工登录 smoke，不进入 T04。
+
+以下保留设计审查的整体目标，upstream 参考基线为 `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`。事实依据见 [上游分析](xhs-poc-analysis.md)，T02 历史状态见 [T02 报告](../../reports/T02-implementation.md)，T03 范围以上节及 [T03 实现报告](../../reports/T03-implementation.md) 为准。
 
 **整体目标为 wrapper + 自有只读sidecar + 普通浏览器。** 审查时的upstream patch方案在T02改为独立实现，内部控制要求仍有效。原upstream默认CloakBrowser指纹路径不满足约束，WithStealthJS(false)也未关闭该能力。禁止验证码绕过、指纹伪装、stealth、代理池和IP/账号轮换；遇验证、明确限流或拒绝访问停止。
 
@@ -57,7 +65,10 @@ LLM 经 `LLMProvider` 抽象，至少提供 `MockLLMProvider`；真实模型通�
 首轮 3/6、补查 2/4、会话累计 5/10，均取自 defaults；第二轮复用 Evidence，不自动重置会话。SQLite v1 通过显式 v2 迁移升级，保留既有旅行与预算记录。
 
 ## 登录状态
-`DISCONNECTED → CONNECTING → QR_READY/WAITING_CONFIRMATION → VERIFYING → CONNECTED`；任何步骤可进入 `ACTION_REQUIRED/EXPIRED/ERROR/CANCELED`，断开经 `DISCONNECTING → DISCONNECTED`。状态查询走本地缓存。CONNECTED表示某时点已验证，不保证后续每次可访问。过期时保留预算、revision和政策允许保留的Evidence；纯内存内容进程退出后可能丢失，不能承诺全部恢复。
+
+T03 使用 `DISCONNECTED / STARTING_BROWSER / SESSION_PRESENT_UNVERIFIED / CHECKING / LOGIN_REQUIRED / WAITING_USER / AUTHENTICATED / VERIFICATION_REQUIRED / CANCELLED / ERROR`。启动时仅依据专用 profile 是否存在标记 DISCONNECTED 或 SESSION_PRESENT_UNVERIFIED，不能宣称 AUTHENTICATED。显式 connect 后 STARTING_BROWSER→CHECKING，确认有效才 AUTHENTICATED；已有 profile 失效保持 LOGIN_REQUIRED，首次登录为 WAITING_USER，两者均在同页观察。AUTHENTICATED 后再显式 connect 只在原 browser/page 核实，不重新导航。
+
+status 只读缓存，不核实 Cookie、不访问 browser/page/network。AUTHENTICATED 表示某时点已验证，不保证后续访问。未来研究集成应在过期时保留预算、revision 和允许保留的 Evidence；这不是 T03 已完成的研究恢复能力。
 
 ## 访问预算与并发
 - `max_search_operations=3`、`max_feed_details=6`：PoC 应用护栏，不是平台阈值。
@@ -84,7 +95,9 @@ LLM 经 `LLMProvider` 抽象，至少提供 `MockLLMProvider`；真实模型通�
 10. 预算耗尽 → insufficient_evidence，不继续访问。
 
 ## Smoke test
-真实测试仅在普通浏览器、只读边界、取消/脱敏及离线契约验收通过，且用户本机明确开启 live 模式后进行。输入“国庆从成都去川西玩”，严格遵守预算，并在 `reports/xhs-poc-smoke-test.md` 记录实际搜索/详情次数、导航/网络覆盖、Evidence 数量、正文/摘要完整度、登录或验证问题、失败点和下一步；禁止记录登录材料、账号截图和真实原文数据集。不为测基线额外抓取真实Top-10，也不主动触发风控采集失败样本。
+T03 本轮不执行真实测试。离线门槛全部通过、完成提交并向用户汇报后停止；用户另行确认的人工 smoke 只验证普通窗口、正常登录、关闭、重启待核实、显式会话复用和断开清理，禁止 search/detail 和平台写操作。
+
+旅行研究 smoke 属于后续另行授权阶段，届时才可输入“国庆从成都去川西玩”，按预算记录搜索/详情、网络覆盖、Evidence 与完整度。不能以 T03 的登录授权执行研究；不为基线额外抓 Top-10，不主动触发安全验证，不保存登录材料、账号截图或真实原文数据集。
 
 ## 必需 sidecar 内部控制与 wrapper 边界
 
@@ -98,28 +111,26 @@ LLM 经 `LLMProvider` 抽象，至少提供 `MockLLMProvider`；真实模型通�
 | 可验证读取 | 提供筛选状态、已观察访问错误、字段存在性/完整度线索和source ID，wrapper不能凭空恢复这些事实 |
 | 成本控制 | 导航/网络观测；裁剪隐式导航重试；受控错误和单一预算所有者，不叠加SDK/worker自动重试 |
 
-浏览器供应、平台支持、完整性校验与自有路径在T02实际核对后锁定。当前不选未经验证的安装包、不填假hash、不运行upstream自动CDN下载。health本身不得触发浏览器安装/页面访问。原REST wrapper只能做参数校验、映射、隔离与调度，不能替代上表内部改造。
+T03 锁定标准 Playwright 库，默认使用本机已安装的普通 Chrome；Chromium 须预先安装，不运行 upstream CDN 下载。发行浏览器供应、平台支持和产物完整性仍需独立验收，不能填造 hash。health 本身不得触发浏览器安装或页面访问。原 REST wrapper 只能做参数校验、映射、隔离与调度，不能替代上表内部改造。
 
 ## 登录生命周期细化
 
-1. 以 `session_id + generation` 在创建browser/page之前原子检查已有登录。重复连接返回当前有效会话与二维码，不重调upstream qrcode。UI/CLI GET/SSE只读本地快照，禁止周期性远端探活。
-2. 普通浏览器加载官方登录页，复用DOM读取片段。img是页面src，由可信边界核实形式并仅在本地登录UI展示；异常形式退回可见官方页面，不提供任意URL代理下载。二维码只保留内存。
-3. timeout解析Go duration（当前4m0s/0s）并转换本应用expires_at，不当作平台二维码TTL。等待观察当前DOM，页面自身后台网络也计数。
-4. 优先在同一已加载页确认登录/账号，提交会话快照后发结构化事件；不为成功回调再导航一次。确需远端核实时最多一次，网络不确定时至多一次单独计费的恢复核实，不能循环调用status。
-5. Cookie提交在同一同步边界核对有效generation，采用原子替换和用户专用存储权限；文件存在、saved_at、mtime、seed写入均不证明登录成功。
-6. 登录完成关闭登录页；可以保留自有普通浏览器进程供当前活动研究借页，空闲关闭。此为新实现，非upstream已有能力；少启动进程不等于已测得HTTP减少，留驻后台流量要观测。
-7. 重启恢复受控登录材料，旧CONNECTED标待核实，仅实际读取需要时确认。刷新Cookie及持久化时点由SessionManager管理，不能假定upstream search会保存更新后的Cookie。
+1. 在创建 browser/page 前以同步边界判定已有活动 `flow_id + generation`。重复与并发 connect 返回同一登录流程；每个 generation 最多一个等待任务和 BrowserSession。
+2. `GET /v1/login/status` 只读取本地快照，100 次连续调用必须为零浏览器导航/外部操作。POST connect 才加载专用 profile 并导航官方页一次；不调用 upstream status/qrcode。
+3. 从开始就显示普通官方窗口，不提取二维码图片，不假定 upstream timeout 为平台 TTL。观察器只读当前页 DOM；等待时间上限不是站点会话有效期，页面自身可能产生请求。
+4. 已有 session 有效则 AUTHENTICATED；已有 profile 失效保持 LOGIN_REQUIRED，无历史 profile 为 WAITING_USER，均在同一页等待用户。AUTHENTICATED 后显式 connect 同页再次核实。自动流程不重复导航或刷新；未知错误不做远端恢复重试。稳定账号 ID 可靠时只保存私有本机身份；无法取得为 UNKNOWN，不用昵称推断。
+5. 每次提交观察结果与身份前核对 generation。取消/断开/关闭先增加 generation，再 cancel 等待任务并关闭 browser；失效任务结果被丢弃。浏览器持久化由 context 管理，不另导出 Cookie。
+6. 登录确认后保留当前专用 browser/page；cancel 或程序关闭正常关闭并保留 profile，disconnect 关闭后清 profile。T03 不将该浏览器借给研究，也不提供任意页面操作端点。
+7. 重启检测 profile 只标 SESSION_PRESENT_UNVERIFIED，不自动启动、导航或探活；显式 connect 后才核实。profile 存在和 AUTHENTICATED 必须分开。
 
-账号采用本地匿名account_scope。is_logged_in=true但user_id缺失时，只建临时隔离范围，不凭昵称/布尔值合并历史账号缓存。确认同一账号后，仍须来源政策许可才复用持久Evidence。作者ID用于独立性判断时也在受控边界匿名化。
-
-官方要求人工验证时进入ACTION_REQUIRED并暂停研究。REST没有无头页切换可见窗口的接口；如无法延续上下文，先取消、等待旧上下文结束，再开启明确的新官方流程。用户无需复制Cookie、提供密码/SMS验证码或日常profile路径。
+verification、验证码、明确访问限制进入 VERIFICATION_REQUIRED 并停止自动观察；用户手工完成官方步骤后 POST resume，只在同一 browser/page 恢复观察，不刷新、不重开、不绕过。登录成功也不自动获得来源内容保存权限；未来真实账号缓存隔离需单独完成研究契约。
 
 ### 断开顺序与竞态
 
 1. 原子关闭新任务入口，立即使旧generation失效，拒绝旧Cookie/状态提交。
-2. 取消登录与读取，等待page/browser清理；超时仅终止PID+启动时间/进程树已确认归属本应用的进程。
-3. 确认没有写入者后，删除自有会话材料、内存token/二维码，标记DISCONNECTED。
-4. 保留已消耗账本、缺口及政策允许保留的结果；不能用重新连接清空预算。
+2. 取消登录等待，关闭本应用拥有的 page/context/browser；不杀用户其他浏览器。关闭失败保持 ERROR，不能带着活动写入者删除 profile。
+3. 关闭成功后，仅清除已核实所有权的专用 profile 和私有身份；Windows 文件占用采用有限重试，清理失败 ERROR，全部成功才 DISCONNECTED。
+4. cancel 与应用退出只关闭、保留 profile。未来研究接入仍须保留已消耗账本与允许结果；不能用重连清空预算。
 
 DELETE cookies不等于该流程。revision防旧计划覆盖，generation防撤销登录复活，两者不能混用。晚到结果也不退回已发生的访问额度。
 
@@ -131,7 +142,7 @@ DELETE cookies不等于该流程。revision防旧计划覆盖，generation防撤
 |---|---|---|
 | Search | POST `{keyword,filters:{...}}`；`data.feeds/data.count` | 单对象filters，拒绝未知字段、cursor/page_size/start_date；count仅本批数量 |
 | Detail | POST `{feed_id,xsec_token,load_all_comments:false}`；`data.data.note` | 固定false、不传comment_config；核对note.noteId；剥离comments/token/签名资源 |
-| Login | status布尔与可选账号；qrcode duration字符串 | 转本地事件；upstream401是sidecar鉴权失败，不能当小红书NEED_LOGIN |
+| Login（历史 upstream） | status布尔与可选账号；qrcode duration字符串 | T03 不调用这些接口，自有登录状态/显式 connect；upstream401不能当小红书NEED_LOGIN |
 
 成功/错误封装也不同于本应用FetchResult，必须显式解包。上述是内部协议，不是供模型提交的参数。Go struct把缺失压成零值时，sidecar要补提取元信息；wrapper不自动填日期、作者或正文。
 
@@ -177,6 +188,7 @@ query键采用account_scope、normalized_query、filters、purpose、temporal_sc
 |---|---|
 | search_ops/detail_ops | 已派发业务调用，含失败，不能代替HTTP量 |
 | auth_probes/login_starts | 触达平台的身份核实/官方登录启动，本地状态轮询不计 |
+| login_status_external_requests | T03 本地 status 路径恒为 0，不能推导 connect 或浏览器总体零网络 |
 | browser_starts/page_navigations | 进程启动/实际导航尝试，含失败，两者分开 |
 | filter_actions | 实际筛选操作，产生多少请求由观测确定，不假定一对一 |
 | site_http_requests | 可观察到的站点/资源请求，声明域名分类、时间窗口、子页/worker/后台覆盖；缺测null |
@@ -203,10 +215,10 @@ stop_reason、insufficient_evidence、筛选结果、事件、附加错误/指�
 9. 模拟QR后台/筛选/媒体流量，证明search=0仍可能有HTTP；缺测为null，不能误报0。
 10. 固定合成池对照评测，在相同质量下比较逻辑操作节省，来源支持逐条审查，不由生成模型自评满分。
 
-这些是待实现行为测试，不能记为当前PASS。文档/schema检查不替代应用或实机验收；真实节省率未测得，30%仍仅为离线目标。
+以上保留整体 PoC 验收设计。T02/T03 已覆盖的部分以各阶段实际报告为准，T03-01～T03-18 另行登记并执行；未覆盖的研究行为不能记为 PASS。文档/schema 检查不替代实机验收；真实节省率未测得，30% 仍仅为离线目标。
 
 ## 下一阶段与停止边界
 
-确认本审查后，建议只做T02普通浏览器与只读sidecar离线最小改造，显式同步上游锁、必需patch和契约，然后依次T03登录生命周期、T04研究循环。未满足门禁时实机测试保持SKIPPED/BLOCKED，不用mock代替。
+T02 已完成；当前 T03 仅完成登录生命周期代码和离线验收。提交后给出可复核报告与 smoke 命令，等待用户另行确认人工登录测试。真实登录未执行为 NOT_RUN；真实搜索、详情、研究和 G0/G1 仍未通过。
 
-**T02离线基础完成提交后停止，等待用户确认，不自行进入T03或真实站点工作。**
+**本轮不得自动打开真实浏览器或小红书，不进入 T04。**

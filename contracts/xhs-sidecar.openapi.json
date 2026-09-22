@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "TravelAgent XHS Readonly Sidecar (offline)",
-    "version": "0.1.0"
+    "title": "TravelAgent XHS Readonly Sidecar",
+    "version": "0.2.0"
   },
   "paths": {
     "/health": {
@@ -566,6 +566,458 @@
         ]
       }
     },
+    "/v1/login/connect": {
+      "post": {
+        "summary": "Connect Login",
+        "operationId": "connect_login_v1_login_connect_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method Not Allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SidecarBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/login/resume": {
+      "post": {
+        "summary": "Resume Login",
+        "operationId": "resume_login_v1_login_resume_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method Not Allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SidecarBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/login/cancel": {
+      "post": {
+        "summary": "Cancel Login",
+        "operationId": "cancel_login_v1_login_cancel_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method Not Allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SidecarBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/login/disconnect": {
+      "post": {
+        "summary": "Disconnect Login",
+        "operationId": "disconnect_login_v1_login_disconnect_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method Not Allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SidecarBearer": []
+          }
+        ]
+      }
+    },
     "/v1/feeds/search": {
       "post": {
         "summary": "Search",
@@ -932,13 +1384,19 @@
         "properties": {
           "mode": {
             "type": "string",
-            "const": "offline",
+            "enum": [
+              "offline",
+              "login"
+            ],
             "title": "Mode",
             "default": "offline"
           },
           "backend": {
             "type": "string",
-            "const": "fake",
+            "enum": [
+              "fake",
+              "playwright"
+            ],
             "title": "Backend",
             "default": "fake"
           },
@@ -1129,21 +1587,27 @@
           },
           "mode": {
             "type": "string",
-            "const": "offline",
+            "enum": [
+              "offline",
+              "login"
+            ],
             "title": "Mode",
             "default": "offline"
           },
           "backend": {
             "type": "string",
-            "const": "fake",
+            "enum": [
+              "fake",
+              "playwright"
+            ],
             "title": "Backend",
             "default": "fake"
           },
           "contract_version": {
             "type": "string",
-            "const": "0.1.0",
+            "const": "0.2.0",
             "title": "Contract Version",
-            "default": "0.1.0"
+            "default": "0.2.0"
           }
         },
         "additionalProperties": false,
@@ -1154,21 +1618,84 @@
         "properties": {
           "mode": {
             "type": "string",
-            "const": "offline",
+            "enum": [
+              "offline",
+              "login"
+            ],
             "title": "Mode",
             "default": "offline"
           },
           "status": {
             "type": "string",
-            "const": "NOT_IMPLEMENTED",
+            "enum": [
+              "NOT_IMPLEMENTED",
+              "DISCONNECTED",
+              "STARTING_BROWSER",
+              "SESSION_PRESENT_UNVERIFIED",
+              "CHECKING",
+              "LOGIN_REQUIRED",
+              "WAITING_USER",
+              "AUTHENTICATED",
+              "VERIFICATION_REQUIRED",
+              "CANCELLED",
+              "ERROR"
+            ],
             "title": "Status",
             "default": "NOT_IMPLEMENTED"
           },
+          "generation": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Generation",
+            "default": 0
+          },
+          "flow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flow Id"
+          },
           "remote_checked": {
             "type": "boolean",
-            "const": false,
             "title": "Remote Checked",
             "default": false
+          },
+          "account_identity": {
+            "type": "string",
+            "enum": [
+              "KNOWN",
+              "UNKNOWN"
+            ],
+            "title": "Account Identity",
+            "default": "UNKNOWN"
+          },
+          "login_status_external_requests": {
+            "type": "integer",
+            "const": 0,
+            "title": "Login Status External Requests",
+            "default": 0
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "BROWSER_ERROR",
+                  "LOGIN_TIMEOUT",
+                  "CLEANUP_FAILED",
+                  "FLOW_STOP_TIMEOUT"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
           }
         },
         "additionalProperties": false,
@@ -1177,6 +1704,12 @@
       },
       "NetworkSnapshot": {
         "properties": {
+          "login_status_external_requests": {
+            "type": "integer",
+            "const": 0,
+            "title": "Login Status External Requests",
+            "default": 0
+          },
           "measurement": {
             "type": "string",
             "enum": [
@@ -1483,7 +2016,9 @@
               "SESSION_CLOSED",
               "NOT_FOUND",
               "METHOD_NOT_ALLOWED",
-              "BACKEND_CONTRACT_ERROR"
+              "BACKEND_CONTRACT_ERROR",
+              "LOGIN_NOT_ENABLED",
+              "LOGIN_ONLY"
             ],
             "title": "Code"
           },

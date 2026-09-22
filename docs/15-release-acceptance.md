@@ -3,7 +3,15 @@
 ## 当前状态
 本包创建时 G0～G4 均 NOT_RUN；仅文档完整性校验已运行，具体见 reports/document-validation.md。
 
-T02新增离线基础验收：T02-01～T02-10实际执行见[T02报告](../reports/T02-implementation.md)。只读路由/日志/模型与Fake会话可离线验收，**G0仍未通过**；真实普通浏览器启动、扫码、账号复用/断开、search/detail均未执行。不能把本阶段成功称为小红书集成可用或D1研究预览版。
+T02 新增离线基础验收：T02-01～T02-10 实际执行见 [T02 报告](../reports/T02-implementation.md)。T03 增加普通浏览器登录生命周期的代码和离线验收，实际结果记录在 [T03 实现报告](../reports/T03-implementation.md)。**G0 仍未通过**；真实普通浏览器启动、扫码、账号复用/断开、search/detail 均未执行。不能把本阶段成功称为小红书集成可用或 D1 研究预览版。
+
+## T03 独立交付门槛
+
+T03-01～T03-18 覆盖普通 launch/profile、状态机、本地 status 100 次零外部操作、connect 幂等/并发、有效/失效会话、验证暂停、generation/晚到回调、清理成功/失败、重启待核实、日志 sentinel 与 NOT_MEASURED。全部 unit/integration/contract/security 离线测试、Ruff、Mypy、契约快照、文档校验、git diff --check 通过后，才完成指定本地提交并汇报；执行证据必须来自真实命令输出。
+
+“本地保存 profile”只支持 SESSION_PRESENT_UNVERIFIED，不能据此通过 AUTHENTICATED 门槛。`login_status_external_requests=0` 只证明本地状态查询不触网，不能当作 connect 总网络量；真实全浏览器统计缺测保持 null。
+
+**提交并汇报后停止，等待用户确认。** 本轮不得打开真实浏览器、登录页或扫码。确认后的最小人工 smoke 仅验证普通浏览器、正常登录、关闭/重启、显式复用和 disconnect 清理；搜索、详情、研究和平台写操作仍禁止。该 smoke 即便通过，也不能替代 G0 的后续只读数据通道与 G1 研究门槛。
 
 | 门禁 | 通过条件 | 未通过时允许什么 |
 |---|---|---|

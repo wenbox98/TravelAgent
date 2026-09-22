@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-09-22T15:36:52+00:00",
+  "generated_at_utc": "2026-09-22T16:13:47+00:00",
   "scope": "L0_DOCUMENT_CONTRACT_SYNTHETIC_ONLY",
   "checks": [
     {
@@ -30,7 +30,7 @@
     {
       "check": "MARKDOWN_LINKS",
       "status": "PASS",
-      "detail": "132 relative Markdown link targets exist"
+      "detail": "149 relative Markdown link targets exist"
     },
     {
       "check": "SQL_DRAFT_SMOKE",
@@ -45,7 +45,7 @@
     {
       "check": "TEST_TRACEABILITY",
       "status": "PASS",
-      "detail": "96 historical design rows, R01–R14 mapped, 12 task sheets; execution status is tracked in implementation reports"
+      "detail": "114 historical design rows, R01–R14 mapped, 12 task sheets; execution status is tracked in implementation reports"
     },
     {
       "check": "SYNTHETIC_CORPUS",
@@ -70,7 +70,7 @@
     "negative_contract_fixtures": 5,
     "http_operations": 20,
     "declared_tables_including_fts": 20,
-    "designed_application_test_cases_not_run": 96,
+    "designed_application_test_cases_not_run": 114,
     "codex_task_sheets": 12,
     "synthetic_notes": 12,
     "starter_prompt_scenarios_not_benchmark": 30,

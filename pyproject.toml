@@ -9,6 +9,8 @@ dependencies = [
     "jsonschema[format]==4.26.0",
     "PyYAML==6.0.3",
     "pydantic==2.13.5",
+    "playwright==1.63.0",
+    "platformdirs==4.11.12",
 ]
 
 [dependency-groups]
