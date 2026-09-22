@@ -1,5 +1,9 @@
 # 07｜API、事件、错误和数据契约
 
+## T02内部sidecar契约
+
+[xhs-sidecar.openapi.json](../contracts/xhs-sidecar.openapi.json)是独立内部API v0.1.0，由严格Pydantic模型导出并与运行路由离线比对。它不是下面业务OpenAPI/FetchResult的替代物，不改Evidence或SQLite语义。新增SourceIdentity、SearchResult筛选状态、DetailResult完整度与NetworkSnapshot仅作用于sidecar边界；AccessLocator不进入公共schema。当前只有Fake实现，无完整upstream二进制兼容声明。
+
 ## 机器可读文件
 - `contracts/domain.schema.json`：JSON Schema Draft 2020-12 领域输出。
 - `contracts/openapi.yaml`：OpenAPI 3.1 接口草案。

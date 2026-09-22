@@ -6,7 +6,6 @@ Dependencies: python -m pip install -r tools/requirements-docs.txt
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
 import re
 import sqlite3
@@ -185,7 +184,6 @@ def check_sql():
     try:
         sql = (ROOT / "contracts/database.sql").read_text(encoding="utf-8")
         con.executescript(sql)
-        tables = con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         require(con.execute("PRAGMA foreign_key_check").fetchall() == [], "Foreign key check failed")
         require(con.execute("PRAGMA integrity_check").fetchone()[0] == "ok", "Integrity check failed")
         # Demonstrate FK enforcement without treating this as an implemented repository test.

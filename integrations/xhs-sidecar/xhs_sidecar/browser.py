@@ -1,0 +1,102 @@
+"""Owned ordinary-browser lifecycle. T02 has only an in-memory backend."""
+
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from threading import RLock
+from typing import Literal, Protocol
+from uuid import uuid4
+
+
+class SessionClosed(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__("浏览器会话已关闭")
+
+
+@dataclass(frozen=True)
+class BrowserOptions:
+    engine: Literal["chrome", "chromium"] = "chromium"
+    headless: bool = True
+
+    def __post_init__(self) -> None:
+        if self.engine not in {"chrome", "chromium"} or type(self.headless) is not bool:
+            raise ValueError("普通浏览器配置无效")
+
+
+class BrowserResource(Protocol):
+    def close(self) -> None: ...
+
+
+class BrowserBackend(Protocol):
+    def start(self, options: BrowserOptions) -> BrowserResource: ...
+
+
+class FakeBrowserResource:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeBrowserBackend:
+    kind = "fake"
+
+    def __init__(self) -> None:
+        self.starts = 0
+
+    def start(self, options: BrowserOptions) -> FakeBrowserResource:
+        self.starts += 1
+        return FakeBrowserResource()
+
+
+class BrowserSession:
+    def __init__(self, resource: BrowserResource) -> None:
+        self.session_id = uuid4().hex
+        self._resource = resource
+        self._closed = False
+
+    def require_open(self) -> None:
+        if self._closed:
+            raise SessionClosed()
+
+    def _close(self) -> None:
+        if not self._closed:
+            self._closed = True  # Revoke even if backend cleanup fails.
+            self._resource.close()
+
+
+class BrowserManager:
+    def __init__(
+        self, backend: BrowserBackend | None = None, options: BrowserOptions | None = None
+    ) -> None:
+        self.backend = backend if backend is not None else FakeBrowserBackend()
+        self.options = options or BrowserOptions()
+        self._session: BrowserSession | None = None
+        self._lock = RLock()
+
+    def start(self) -> BrowserSession:
+        with self._lock:
+            if self._session is None:
+                self._session = BrowserSession(self.backend.start(self.options))
+            self._session.require_open()
+            return self._session
+
+    def get_session(self) -> BrowserSession:
+        with self._lock:
+            if self._session is None:
+                raise SessionClosed()
+            self._session.require_open()
+            return self._session
+
+    @contextmanager
+    def lease(self) -> Iterator[BrowserSession]:
+        """Serialize operations and close; no page/navigation API is exposed."""
+        with self._lock:
+            yield self.start()
+
+    def close(self) -> None:
+        with self._lock:
+            session, self._session = self._session, None
+            if session is not None:
+                session._close()

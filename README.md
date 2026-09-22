@@ -75,6 +75,10 @@
 
 **v1.1 仍是开发规格包，不代表已经完成真实小红书登录或实测。**
 
+## T02只读sidecar离线基础
+
+已增加独立[只读sidecar基础](integrations/xhs-sidecar/README.md)：Fake普通浏览器会话、仅8个method/path组合、源头日志脱敏、筛选/完整度/来源定位/网络统计模型。没有复制或运行完整upstream，没有真实Chrome启动器或小红书网络实现；login/status为NOT_IMPLEMENTED。验证与未实现项见[T02报告](reports/T02-implementation.md)，来源见[provenance](docs/architecture/xhs-upstream-provenance.md)。不代表T03登录、T04研究或G0通过。
+
 ## 离线开发启动（T00/T01）
 
 使用 Python 3.14 和 Node 22.12+，先运行 `uv sync --locked`，再在 `apps/web` 运行 `pnpm install --frozen-lockfile` 和 `pnpm build`。返回项目根目录运行：

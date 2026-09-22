@@ -10,37 +10,37 @@
 
 ## S02｜候选基线 commit
 
-来源：<https://github.com/xpzouying/xiaohongshu-mcp/commit/aad2a3d249a347859975ce3b76d3442c4a027780>
+来源：<https://github.com/xpzouying/xiaohongshu-mcp/commit/8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff>
 
-状态：**GitHub API 已读取**。提交 2026-09-10；本包只锁候选，非已验收构建。
+状态：**设计审查以git ls-remote与本地源码核对**。提交2026-09-22；T02固定为reference，不代表已验收构建。详见[provenance](architecture/xhs-upstream-provenance.md)。
 
 ## S03｜routes.go
 
-来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/aad2a3d249a347859975ce3b76d3442c4a027780/routes.go>
+来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff/routes.go>
 
 状态：**已读源码**。用于只读路径白名单。
 
 ## S04｜service.go
 
-来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/aad2a3d249a347859975ce3b76d3442c4a027780/service.go>
+来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff/service.go>
 
-状态：**已读登录相关源码**。二维码生命周期、status 新浏览器、后台保存。
+状态：**已读登录/search/detail相关源码**。每次读取新建浏览器，二维码后台保存不等于完整生命周期管理。
 
 ## S05｜login_session.go
 
-来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/aad2a3d249a347859975ce3b76d3442c4a027780/login_session.go>
+来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff/login_session.go>
 
-状态：**已读源码**。同一时刻一个扫码会话的管理。
+状态：**已读源码**。取消旧waiter的登记管理，不保证创建前幂等或阻止旧Cookie提交。
 
 ## S06｜feed_detail.go
 
-来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/aad2a3d249a347859975ce3b76d3442c4a027780/xiaohongshu/feed_detail.go>
+来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff/xiaohongshu/feed_detail.go>
 
-状态：**已读主要入口源码**。评论开关、默认值、内部重试和日志需审计。
+状态：**已读只读执行路径**。含token日志、评论开关、默认值和重试问题见架构审查；T02没有复制该读取实现。
 
 ## S07｜handlers_api.go
 
-来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/aad2a3d249a347859975ce3b76d3442c4a027780/handlers_api.go>
+来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff/handlers_api.go>
 
 状态：**已读登录/搜索/详情处理源码**。请求封装与错误处理。
 
@@ -64,9 +64,9 @@
 
 ## S11｜search.go
 
-来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/aad2a3d249a347859975ce3b76d3442c4a027780/xiaohongshu/search.go>
+来源：<https://github.com/xpzouying/xiaohongshu-mcp/blob/8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff/xiaohongshu/search.go>
 
-状态：**已读搜索入口源码**。筛选枚举与页面查询逻辑。
+状态：**已读搜索源码**。筛选枚举、候选字段及超时可能返回旧结果；T02仅参考枚举/字段。
 
 ## S12｜历史 issue #599
 

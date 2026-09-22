@@ -6,6 +6,13 @@
 profiles/
 cookies.json
 **/cookies.json
+cookies.*
+.cookies*
+Cookies
+*.session
+.session
+tokens.json
+credentials.json
 *.sqlite
 *.sqlite3
 *.db

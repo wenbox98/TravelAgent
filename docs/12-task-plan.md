@@ -8,7 +8,7 @@ T00、T01 建立可测骨架；T02～T04 优先打通小红书；T05～T07 实�
 |---|---|---|---|
 | T00 | 工程骨架与真实依赖锁 | 无 | [打开](tasks/T00-foundation.md) |
 | T01 | 领域契约、数据库与可重复mock | T00 | [打开](tasks/T01-contracts-mocks.md) |
-| T02 | 锁定和裁剪小红书只读sidecar | T01 | [打开](tasks/T02-xhs-sidecar.md) |
+| T02 | 自有只读sidecar离线基础；upstream仅reference | T01 | [打开](tasks/T02-xhs-sidecar.md) |
 | T03 | 可恢复的用户登录闭环 | T02 | [打开](tasks/T03-login.md) |
 | T04 | 少请求精准研究调度 | T03 | [打开](tasks/T04-research.md) |
 | T05 | 证据抽取、权限与个人资料库 | T04 | [打开](tasks/T05-rag.md) |
@@ -35,4 +35,4 @@ M4：T10～T11，质量报告、干净Windows发行验收和开源准备。
 ## v1.1 PoC 执行说明
 在完整工作台前，先把 T02～T05 当作“小红书研究 PoC”独立里程碑验收：本地连接、受控搜索/详情、Evidence、SQLite 复用和增量补搜。CLI 足以完成该里程碑；Electron/Vue 不应成为数据通路验证的前置条件。
 
-建议 Git 分支：`feature/xhs-research-poc`。小提交分阶段记录：上游审查 → fake adapter/research engine → 登录 → real adapter → CLI → 低访问量 smoke test。真实用户数据、浏览器 profile、session/token、`.env`、真实 SQLite 与小红书原文不得提交。
+用户指定T02分支为`feature/xhs-readonly-sidecar`。顺序为：上游审查 → 自有Fake只读sidecar → 经确认的登录生命周期 → 真实读取适配 → 研究循环 → 经单独授权的低访问量smoke。T02结束停止，不跳到T03。真实用户数据、浏览器profile、session/token、`.env`、真实SQLite与原文不得提交。

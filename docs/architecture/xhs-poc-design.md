@@ -1,8 +1,16 @@
 # XHS 旅行研究 PoC 设计｜2026-09-22 审查修订
 
-本轮仅设计审查，源码基线为 `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`。事实依据和复用边界见 [上游分析](xhs-poc-analysis.md)。以下为待实现要求，不表示当前 mock/骨架已实现；本轮不改业务代码、契约或锁文件，不启动真实站点访问。
+## T02离线落地范围
 
-**采用 wrapper + 必需 sidecar patch + 普通浏览器。** 原 upstream 默认 CloakBrowser 指纹路径不满足约束，WithStealthJS(false) 也未关闭该能力。禁止验证码绕过、指纹伪装、stealth、代理池和IP/账号轮换；遇验证、明确限流或拒绝访问停止。
+用户已接受设计审查并授权T02。当前选择自有Python sidecar，upstream只作固定reference，不复制完整服务再动态禁用能力。`integrations/xhs-sidecar/xhs_sidecar`实现Fake普通浏览器会话及内部只读接口，见[边界/路由](../../integrations/xhs-sidecar/README.md)和[内部OpenAPI](../../contracts/xhs-sidecar.openapi.json)。
+
+已实现start/get_session/close、会话复用/撤销、源头日志允许字段、筛选状态、保守完整度、私有locator、NOT_MEASURED/SIMULATED网络模型。没有真实Chrome启动器、登录Cookie/QR、页面读取；没有TravelResearchService、RAG或预算/早停循环。下文完整PoC流程继续作为后续设计，不因T02测试声称已经实现。当前无live配置开关或真实站点fallback。
+
+T02独立内部契约v0.1.0不冒充T01 FetchResult/Evidence。未观测指标为NOT_MEASURED/null，Fake窗口为SIMULATED；未来COMPLETE/PARTIAL真实覆盖状态需显式扩展契约。T03才引入真实账号scope/generation，当前locator仅绑定Fake BrowserSession，TTL仍UNKNOWN。
+
+以下保留设计审查的整体目标，源码基线为 `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`。事实依据见[上游分析](xhs-poc-analysis.md)，实际T02状态以上述范围和[T02报告](../../reports/T02-implementation.md)为准。
+
+**整体目标为 wrapper + 自有只读sidecar + 普通浏览器。** 审查时的upstream patch方案在T02改为独立实现，内部控制要求仍有效。原upstream默认CloakBrowser指纹路径不满足约束，WithStealthJS(false)也未关闭该能力。禁止验证码绕过、指纹伪装、stealth、代理池和IP/账号轮换；遇验证、明确限流或拒绝访问停止。
 
 ## 验证目标
 输入“国庆从成都去川西玩”，系统在条件不完整时先研究大方向；用户随后说“只有5天，而且不想自驾”，系统复用第一次资料，只补新增 Evidence Gap。
@@ -78,7 +86,7 @@ LLM 经 `LLMProvider` 抽象，至少提供 `MockLLMProvider`；真实模型通�
 ## Smoke test
 真实测试仅在普通浏览器、只读边界、取消/脱敏及离线契约验收通过，且用户本机明确开启 live 模式后进行。输入“国庆从成都去川西玩”，严格遵守预算，并在 `reports/xhs-poc-smoke-test.md` 记录实际搜索/详情次数、导航/网络覆盖、Evidence 数量、正文/摘要完整度、登录或验证问题、失败点和下一步；禁止记录登录材料、账号截图和真实原文数据集。不为测基线额外抓取真实Top-10，也不主动触发风控采集失败样本。
 
-## 必需 sidecar patch 与 wrapper 边界
+## 必需 sidecar 内部控制与 wrapper 边界
 
 | 工作 | 设计要求 |
 |---|---|
@@ -201,4 +209,4 @@ stop_reason、insufficient_evidence、筛选结果、事件、附加错误/指�
 
 确认本审查后，建议只做T02普通浏览器与只读sidecar离线最小改造，显式同步上游锁、必需patch和契约，然后依次T03登录生命周期、T04研究循环。未满足门禁时实机测试保持SKIPPED/BLOCKED，不用mock代替。
 
-**本次设计审查完成后停止，等待用户确认，不继续写业务代码，也不进入真实批量抓取。**
+**T02离线基础完成提交后停止，等待用户确认，不自行进入T03或真实站点工作。**

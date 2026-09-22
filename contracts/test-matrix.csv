@@ -1,4 +1,4 @@
-﻿test_id,requirement_ids,task_ids,level,priority,scenario,input_or_setup,expected_result,initial_status
+test_id,requirement_ids,task_ids,level,priority,scenario,input_or_setup,expected_result,initial_status
 PROD01,R01;R02;R03;R07,T06,L1/L3,P1,仅给模糊目的地和假期,输入无预算交通人数,先提供带假设粗略攻略；未知保持null,NOT_RUN
 PROD02,R01;R02;R03;R07,T06,L1/L3,P1,已经明确的条件不重复问,输入5天、2人、不开车,保留条件并只问有必要的问题,NOT_RUN
 PROD03,R01;R02;R03;R07,T06,L1/L3,P1,回答没想好,交通或预算未决,给比较和建议，不阻塞,NOT_RUN
@@ -85,3 +85,13 @@ XPOC07,R05;R12,T03;T04,L2/L4,P0,平台验证,出现verification/challenge,立即
 XPOC08,R04;R11,T04;T05,L1/L2,P0,摘要完整度,只有结果页摘要,SUMMARY_ONLY且不声称阅读全文,NOT_RUN
 XPOC09,R08;R11,T04,L1/L2,P0,revision竞态,旧任务晚于新revision返回,旧结果OBSOLETE且不覆盖,NOT_RUN
 XPOC10,R04;R05,T04,L1/L2,P0,预算耗尽,仍有关键Evidence Gap,insufficient_evidence且不继续访问,NOT_RUN
+T02-01,R04;R05;R06;R12;R13,T02,L1/L2,P0,普通浏览器默认,Fake BrowserManager,仅chrome/chromium配置；无fingerprint/stealth,NOT_RUN
+T02-02,R04;R05;R06;R12;R13,T02,L1/L2,P0,会话复用,重复和并发start,同一BrowserSession且一次backend启动,NOT_RUN
+T02-03,R04;R05;R06;R12;R13,T02,L1/L2,P0,会话撤销,close后访问旧对象,旧session不可用；handle失效,NOT_RUN
+T02-04,R04;R05;R06;R12;R13,T02,L1/L2,P0,写路由不存在,POST publish/comment/like/follow,404或405而非disabled,NOT_RUN
+T02-05,R04;R05;R06;R12;R13,T02,L1/L2,P0,MCP不存在,mcp/sse/tools调用,404或405；无任意工具代理,NOT_RUN
+T02-06,R04;R05;R06;R12;R13,T02,L1/L2,P0,源头日志脱敏,sentinel字段及异常,captured log中secret出现0次,NOT_RUN
+T02-07,R04;R05;R06;R12;R13,T02,L1/L2,P0,筛选状态诚实,Fake FAILED/UNKNOWN,filter_applied为空；不能声称筛选已生效,NOT_RUN
+T02-08,R04;R05;R06;R12;R13,T02,L1/L2,P0,正文完整度保守,HTTP200且正文范围未验证,PARTIAL_TEXT而非FULL_TEXT,NOT_RUN
+T02-09,R04;R05;R06;R12;R13,T02,L1/L2,P0,稳定身份与locator隔离,同ID不同token,source_id相同；token仅私有内存；TTL UNKNOWN,NOT_RUN
+T02-10,R04;R05;R06;R12;R13,T02,L1/L2,P0,网络统计未知,没有网络观测,NOT_MEASURED/null；不返回0请求,NOT_RUN

@@ -4,7 +4,7 @@
 让普通用户用 UI 正常登录，然后由工具完成少量、有目的的攻略研究；开发者处理浏览器、状态与适配差异。目标不是“永远不触发风控”，也不是把扫码登录宣称成官方授予全站数据权限。
 
 ## 已核实的技术基线
-2026-09-22 读取了 `xpzouying/xiaohongshu-mcp` 的提交 `aad2a3d249a347859975ce3b76d3442c4a027780`（提交时间 2026-09-10）。这只是候选基线，未完成本应用真实账号验证。锁定记录在 `contracts/upstream-lock.json`。[S02]
+2026-09-22 设计审查固定 `xpzouying/xiaohongshu-mcp` 提交 `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`。T02仅参考接口/行为并自建离线sidecar，没有复制或运行完整upstream；未完成真实账号验证。锁定记录在 `contracts/upstream-lock.json`。[S02]
 
 | 观察到的能力/行为 | 来源 | 对本项目的影响 |
 |---|---|---|
@@ -60,7 +60,7 @@ SCANNED 不作为持久化必需态：上游未保证可以观察到“已扫码
 ## 最小只读 sidecar
 首版复用上游的正常网页交互代码，维护范围有限的 patch，不重写私有请求签名。使用 REST 适配，**不开放 /mcp**，避免注册了写工具却只在提示词里说“不准用”。
 
-允许的上游路径：
+以下为审查upstream时的功能白名单，T02自有内部API的实际路径以[sidecar路由表](../integrations/xhs-sidecar/README.md)为准；不是声称当前已实现以下真实登录/读取：
 - GET /health（仅本机）
 - GET /api/v1/login/status
 - GET /api/v1/login/qrcode
@@ -77,7 +77,7 @@ SCANNED 不作为持久化必需态：上游未保证可以观察到“已扫码
 
 详情传 `feed_id`、`xsec_token`、`load_all_comments:false`。评论配置不是禁用评论的开关；尤其不能把 `max_comment_items:0` 理解为一定不加载。首屏自然包含的评论只丢弃、不继续展开。具体上游响应封装应按实测更新脱敏契约，不凭文档猜全文字段完整性。[S06][S07]
 
-`xsec_token`：来自本次合法搜索结果的短生命期定位能力；不猜测、不伪造、不跨账号复用。只存内存映射 `note_handle→provider_locator`，不进入数据库、RAG、日志、模型或分享链接。进程退出后失效；重新定位必须占用显式搜索预算，不能无上限重搜。
+`xsec_token`：来自合法搜索结果的访问定位能力（平台TTL未知，应用只短期保留）；不猜测、不伪造、不跨账号复用。只存内存映射 `note_handle→provider_locator`，不进入数据库、RAG、日志、模型或分享链接。进程退出后失效；重新定位必须占用显式搜索预算，不能无上限重搜。
 
 ## 错误语义
 不能把任何 500 统一解释为账号被封。准确识别 CHALLENGE、AUTH_REQUIRED、RATE_LIMITED、CONTENT_UNAVAILABLE、PARSE_ERROR、NETWORK_ERROR、UNSUPPORTED；不确定时返回受限错误信息，保留诊断代码，不夸大结论。
@@ -95,3 +95,7 @@ PoC 对普通用户的唯一必要动作是点击“连接小红书”并在正�
 连接成功后复用本应用专用本地会话；失效时研究任务进入 `WAITING_AUTH/NEED_LOGIN`，保留已取得 Evidence 与预算账本，重新连接后从缺口继续。二维码刷新只在过期、取消或用户明确刷新时发生；前端/CLI 查询的是本地状态，不以轮询 UI 为理由重复访问站点。
 
 “开源/个人使用”不是绕过平台规则的理由。v1.1 明确不实现 CAPTCHA 破解、代理池、IP/账号轮换、设备指纹伪装、stealth/anti-detect。遇到 verification/challenge、明确限流或拒绝访问立即暂停。
+
+## T02当前状态
+
+本章的真实连接流程仍为T03目标。T02只完成[自有只读sidecar基础](../integrations/xhs-sidecar/README.md)，唯一backend为Fake；不复用upstream指纹浏览器或原二进制。登录status仅报告NOT_IMPLEMENTED/remote_checked=false，未实现二维码。真实会话generation、Cookie持久化和账号验证仍待T03；断开设计先使旧generation失效再清理，详见[修订设计](architecture/xhs-poc-design.md)。

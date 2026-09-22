@@ -1,7 +1,13 @@
 # XHS PoC 上游分析｜2026-09-22 设计审查
 
+## T02后续实施记录
+
+本审查已获用户接受。T02按新范围选择**独立Python只读sidecar**，upstream仅reference，没有复制或修改Go源码，也不运行其二进制。下文原审查结论保留；“必须patch”的控制目标改由自有服务实现或明确留待后续阶段，不能据此声称upstream原问题已经修复。
+
+已建立Fake普通浏览器会话、路由白名单、源头日志排除、筛选状态、完整度分类、identity/locator分离、未知网络指标。真实Chrome启动、页面交互、Cookie与登录generation仍未实现。见[provenance](xhs-upstream-provenance.md)、[sidecar边界](../../integrations/xhs-sidecar/README.md)和[T02报告](../../reports/T02-implementation.md)。锁文件已同步至下文SHA，approved_for_release仍为false。
+
 ## 目的
-本文件把 `xpzouying/xiaohongshu-mcp` 视为候选上游能力，不视为官方内容 API，也不视为已经在线验证成功。本轮只审查设计与源码、修改两份架构文档，没有编写业务代码、启动 upstream、安装浏览器或访问真实小红书。
+本文件把 `xpzouying/xiaohongshu-mcp` 视为候选上游能力，不视为官方内容 API，也不视为已经在线验证成功。原设计审查轮只修改两份架构文档，没有编写业务代码、启动 upstream、安装浏览器或访问真实小红书；后续T02范围见开头实施记录。
 
 **结论：缓存优先、缺口驱动、先筛后读的方向成立；原样运行 upstream 再套 REST wrapper 不满足本项目约束。普通浏览器替换、生命周期、源头脱敏、只读裁剪和可观测性是必需改造。**
 
@@ -40,12 +46,12 @@
 |---|---|
 | 远端 HEAD / main | `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`，`git ls-remote` 与本地干净 checkout 一致 |
 | 提交时间 / 标题 | `2026-09-22T14:31:32+08:00`；`fix(publish): 发布前先建立创作者中心会话 (#855)` |
-| 旧候选 | [upstream-lock.json](../../contracts/upstream-lock.json) 仍为 `aad2a3d249a347859975ce3b76d3442c4a027780`，未获发布批准 |
+| 审查前候选 | [upstream-lock.json](../../contracts/upstream-lock.json) 原为 `aad2a3d249a347859975ce3b76d3442c4a027780`；T02已同步当前固定SHA，仍未获发布批准 |
 | 新旧差异 | 仅 `creator_session.go`、`publish.go`、`publish_video.go`，增加78行；此次审查的 README、登录、搜索、详情、browser/session 文件未变 |
 | 关键依赖 | `headless_browser v0.4.0`，tag 对应 `d28e37c7448672550580fca8ff26404aed09a21f`，额外阅读其源码 |
 | 判定 | 发现的问题主要是原有假设和此前审查遗漏，不能归因于本次 upstream 更新 |
 
-本轮网络仅用于 GitHub 仓库及依赖源码核对。锁文件不改：已阅读的 HEAD 不是已构建/修补/实机验证的发行基线。下阶段显式同步候选、必需补丁和实际产物 hash。
+设计审查轮网络仅用于GitHub及依赖源码核对，当时未改锁文件；T02已按reference-only策略同步。已阅读的HEAD不是已构建/实机验证的发行基线，无patchset/产物时hash保持null。
 
 ### 实际阅读的文件
 
@@ -164,14 +170,16 @@ detail.time 为int64，结构未声明单位；文档示例像毫秒，应按待
 5. 缓存命中必须满足来源权限、账号、用途、时效；权利未知不能为命中率保存原文/衍生数据。纯内存证据退出后可能丢失，不承诺重启零搜索。
 6. 固定合成池离线比较相同质量下操作量；30%只是离线目标。以后授权的极小smoke也不为了对照而真实抓Top-10。
 
-## 本轮未修改文件中的待同步点
+## 设计审查时的待同步点
+
+T02已同步03、来源登记与锁文件，并新增独立sidecar契约；其余研究/登录流程仍是后续要求。新的内部API不修改T01 Evidence/SQLite/业务OpenAPI语义。
 
 - [03 登录设计](../03-xhs-access-login.md)：旧SHA为历史基线；一个waiter不保证幂等/同步关闭；短生命期token改为应用策略；断开时generation要先失效；普通浏览器替换列必需项。
 - [04 低请求策略](../04-research-efficiency.md)：一般网络最多一次重试是上限，PoC详情采用更严格的无自动重发；不能同时无条件承诺“一source一次”与自动重试。
 - [锁文件](../../contracts/upstream-lock.json)：显式更新候选/审查路径/补丁，构建后再记录产物hash，验收前保持approved_for_release=false。
 - [领域契约](../../contracts/domain.schema.json)、[OpenAPI](../../contracts/openapi.yaml)、[数据库契约](../../contracts/database.sql)：新筛选状态、会话事件、错误/观测字段需同步契约、实现和测试；本设计字段未自动加入API。
 
-## 状态与下一阶段
+## 原设计审查时的状态与下一阶段
 
 | 状态 | 本轮结论 |
 |---|---|
