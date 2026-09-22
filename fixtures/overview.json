@@ -1,0 +1,97 @@
+{
+  "trip_id": "trip-synthetic-1",
+  "revision": 0,
+  "status": "PARTIAL",
+  "options": [
+    {
+      "option_id": "option-a",
+      "title": "合成路线A",
+      "area_stays": [
+        {
+          "area_id": "area-a",
+          "display_name": "合成片区A",
+          "days": {
+            "min": 1,
+            "max": 2
+          },
+          "basis": "ASSUMPTION",
+          "evidence_refs": []
+        }
+      ],
+      "highlights": [
+        "用于验证粗略路线卡片，不是实际旅游建议"
+      ],
+      "total_days": {
+        "min": 3,
+        "max": 4
+      },
+      "transport_dependencies": [
+        "交通尚未确认"
+      ],
+      "tradeoffs": [
+        "覆盖与停留时间需要权衡"
+      ],
+      "assumptions": [
+        "仅为界面测试草案"
+      ],
+      "evidence_refs": [],
+      "unverified_items": [
+        "真实路线与报价"
+      ]
+    },
+    {
+      "option_id": "option-b",
+      "title": "合成路线B",
+      "area_stays": [
+        {
+          "area_id": "area-b",
+          "display_name": "合成片区B",
+          "days": {
+            "min": 1,
+            "max": 2
+          },
+          "basis": "ASSUMPTION",
+          "evidence_refs": []
+        }
+      ],
+      "highlights": [
+        "用于验证粗略路线卡片，不是实际旅游建议"
+      ],
+      "total_days": {
+        "min": 5,
+        "max": 6
+      },
+      "transport_dependencies": [
+        "交通尚未确认"
+      ],
+      "tradeoffs": [
+        "覆盖与停留时间需要权衡"
+      ],
+      "assumptions": [
+        "仅为界面测试草案"
+      ],
+      "evidence_refs": [],
+      "unverified_items": [
+        "真实路线与报价"
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "question_id": "q1",
+      "question": "你想集中玩还是多地串联？",
+      "options": [
+        "集中玩",
+        "多地串联",
+        "没想好"
+      ],
+      "recommendation": "先比较方向，再决定交通。",
+      "allow_undecided": true
+    }
+  ],
+  "xhs_status": "UNSUPPORTED",
+  "missing_slots": [
+    "真实小红书研究"
+  ],
+  "is_synthetic": true
+}

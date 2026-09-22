@@ -1,0 +1,17 @@
+[project]
+name = "travel-agent"
+version = "0.1.0"
+description = "TravelAgent offline foundation"
+requires-python = ">=3.14,<3.15"
+dependencies = ["fastapi==0.141.1", "uvicorn==0.53.0", "jsonschema[format]==4.26.0", "PyYAML==6.0.3"]
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "httpx==0.28.1", "uv==0.12.17"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["apps/api"]
+testpaths = ["tests"]
+addopts = "-ra"

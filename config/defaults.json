@@ -1,0 +1,38 @@
+{
+  "config_version": "1.1",
+  "mode": "mock",
+  "bind_host": "127.0.0.1",
+  "preferred_port": 8765,
+  "timezone": "Asia/Shanghai",
+  "worker_count": 1,
+  "xhs_concurrency": 1,
+  "xhs_min_operation_gap_seconds": 8,
+  "overview_budget": {
+    "search_ops": 3,
+    "detail_ops": 6,
+    "vision_images": 2
+  },
+  "refinement_budget": {
+    "search_ops": 2,
+    "detail_ops": 4,
+    "vision_images": 2
+  },
+  "session_hard_budget": {
+    "search_ops": 5,
+    "detail_ops": 10,
+    "vision_images": 4
+  },
+  "outer_network_retries": 1,
+  "load_all_comments": false,
+  "collect_video": false,
+  "remote_auth_probes_per_generation": 2,
+  "local_status_poll_seconds": 2,
+  "network_measurement_default": "UNAVAILABLE",
+  "xhs_live_enabled": false,
+  "telemetry_enabled": false,
+  "trace_external_enabled": false,
+  "share_external_content": false,
+  "knowledge_chunk_capacity_target": 10000,
+  "mock_label_required": true,
+  "remarks": "All numeric limits are application cost/quality guardrails, not platform quotas, safe-rate claims or anti-ban thresholds. Reuse evidence and stop early when sufficient."
+}

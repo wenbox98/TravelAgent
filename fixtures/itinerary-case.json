@@ -1,0 +1,47 @@
+{
+  "is_synthetic": true,
+  "case_id": "AC-to-ABD",
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "available_minutes": 540,
+  "rest_minutes": 60,
+  "leg_minutes": 20,
+  "activities": {
+    "A": 120,
+    "B": 90,
+    "C": 270,
+    "D": 120
+  },
+  "cases": [
+    {
+      "selected": [
+        "A",
+        "C"
+      ],
+      "expected_minutes": 510,
+      "expected_feasible": true,
+      "remaining_minutes": 30
+    },
+    {
+      "selected": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "expected_minutes": 760,
+      "expected_feasible": false,
+      "remaining_minutes": -220
+    },
+    {
+      "selected": [
+        "A",
+        "B",
+        "D"
+      ],
+      "expected_minutes": 470,
+      "expected_feasible": true,
+      "remaining_minutes": 70
+    }
+  ]
+}

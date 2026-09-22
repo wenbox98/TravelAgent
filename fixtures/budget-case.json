@@ -1,0 +1,120 @@
+{
+  "is_synthetic": true,
+  "party_size": 2,
+  "lines": [
+    {
+      "line_id": "train",
+      "label": "往返交通",
+      "category": "TRANSPORT",
+      "unit": "人程",
+      "quantity": 4,
+      "unit_amount": {
+        "min_fen": 18000,
+        "max_fen": 18000,
+        "currency": "CNY"
+      },
+      "status": "ESTIMATED",
+      "included_in_line_id": null,
+      "quote_id": null
+    },
+    {
+      "line_id": "hotel",
+      "label": "酒店",
+      "category": "LODGING",
+      "unit": "间夜",
+      "quantity": 2,
+      "unit_amount": {
+        "min_fen": 32000,
+        "max_fen": 32000,
+        "currency": "CNY"
+      },
+      "status": "ESTIMATED",
+      "included_in_line_id": null,
+      "quote_id": null
+    },
+    {
+      "line_id": "local",
+      "label": "当地交通",
+      "category": "TRANSPORT",
+      "unit": "全程",
+      "quantity": 1,
+      "unit_amount": {
+        "min_fen": 20000,
+        "max_fen": 30000,
+        "currency": "CNY"
+      },
+      "status": "ESTIMATED",
+      "included_in_line_id": null,
+      "quote_id": null
+    },
+    {
+      "line_id": "food",
+      "label": "餐饮",
+      "category": "FOOD",
+      "unit": "全程",
+      "quantity": 1,
+      "unit_amount": {
+        "min_fen": 40000,
+        "max_fen": 60000,
+        "currency": "CNY"
+      },
+      "status": "ESTIMATED",
+      "included_in_line_id": null,
+      "quote_id": null
+    },
+    {
+      "line_id": "activity",
+      "label": "活动",
+      "category": "ACTIVITY",
+      "unit": "人次",
+      "quantity": 2,
+      "unit_amount": {
+        "min_fen": 12000,
+        "max_fen": 12000,
+        "currency": "CNY"
+      },
+      "status": "ESTIMATED",
+      "included_in_line_id": null,
+      "quote_id": null
+    },
+    {
+      "line_id": "reserve",
+      "label": "预留",
+      "category": "RESERVE",
+      "unit": "全程",
+      "quantity": 1,
+      "unit_amount": {
+        "min_fen": 20000,
+        "max_fen": 20000,
+        "currency": "CNY"
+      },
+      "status": "ESTIMATED",
+      "included_in_line_id": null,
+      "quote_id": null
+    }
+  ],
+  "expected_total": {
+    "min_fen": 240000,
+    "max_fen": 270000
+  },
+  "expected_per_person": {
+    "min_fen": 120000,
+    "max_fen": 135000
+  },
+  "unknown_variant": {
+    "line_id": "unpriced",
+    "label": "待查体验",
+    "category": "ACTIVITY",
+    "unit": "项",
+    "quantity": 1,
+    "unit_amount": {
+      "min_fen": null,
+      "max_fen": null,
+      "currency": "CNY"
+    },
+    "status": "UNKNOWN",
+    "included_in_line_id": null,
+    "quote_id": null
+  },
+  "unknown_expected_completeness": "PARTIAL"
+}

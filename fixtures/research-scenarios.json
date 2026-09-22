@@ -1,0 +1,495 @@
+{
+  "is_synthetic": true,
+  "scenarios": [
+    {
+      "scenario_id": "SYN-01",
+      "is_synthetic": true,
+      "category": "模糊需求",
+      "input": "国庆从成都去川西玩",
+      "variant": 1,
+      "expected_unknown_fields": [
+        "budget",
+        "transport",
+        "party_size",
+        "exact_dates"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-02",
+      "is_synthetic": true,
+      "category": "时间已知",
+      "input": "我有3天，从成都出发",
+      "variant": 1,
+      "expected_unknown_fields": [
+        "budget",
+        "transport",
+        "party_size"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-03",
+      "is_synthetic": true,
+      "category": "交通未定",
+      "input": "我选方向B，5天，不知道怎么去",
+      "variant": 1,
+      "expected_unknown_fields": [
+        "transport",
+        "budget",
+        "party_size"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-04",
+      "is_synthetic": true,
+      "category": "预算未知",
+      "input": "两个人玩5天，先看看多少钱",
+      "variant": 1,
+      "expected_unknown_fields": [
+        "budget",
+        "transport"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-05",
+      "is_synthetic": true,
+      "category": "改选",
+      "input": "保留A，不去C，改成ABD",
+      "variant": 1,
+      "expected_unknown_fields": [
+        "transport"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-06",
+      "is_synthetic": true,
+      "category": "时间硬约束",
+      "input": "周日21点前必须到家",
+      "variant": 1,
+      "expected_unknown_fields": [
+        "budget",
+        "transport"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-07",
+      "is_synthetic": true,
+      "category": "重复访问",
+      "input": "沿用刚才的资料，只调整顺序",
+      "variant": 1,
+      "expected_unknown_fields": [
+        "budget"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-08",
+      "is_synthetic": true,
+      "category": "登录过期",
+      "input": "继续我的计划，但需要重新登录",
+      "variant": 1,
+      "expected_unknown_fields": [],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-09",
+      "is_synthetic": true,
+      "category": "资料不完整",
+      "input": "只读取到攻略标题，正文不可访问",
+      "variant": 1,
+      "expected_unknown_fields": [],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-10",
+      "is_synthetic": true,
+      "category": "知识删除",
+      "input": "删除刚保存的来源，不再用于规划",
+      "variant": 1,
+      "expected_unknown_fields": [],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-11",
+      "is_synthetic": true,
+      "category": "模糊需求",
+      "input": "国庆从成都去川西玩",
+      "variant": 2,
+      "expected_unknown_fields": [
+        "budget",
+        "transport",
+        "party_size",
+        "exact_dates"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-12",
+      "is_synthetic": true,
+      "category": "时间已知",
+      "input": "我有3天，从成都出发",
+      "variant": 2,
+      "expected_unknown_fields": [
+        "budget",
+        "transport",
+        "party_size"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-13",
+      "is_synthetic": true,
+      "category": "交通未定",
+      "input": "我选方向B，5天，不知道怎么去",
+      "variant": 2,
+      "expected_unknown_fields": [
+        "transport",
+        "budget",
+        "party_size"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-14",
+      "is_synthetic": true,
+      "category": "预算未知",
+      "input": "两个人玩5天，先看看多少钱",
+      "variant": 2,
+      "expected_unknown_fields": [
+        "budget",
+        "transport"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-15",
+      "is_synthetic": true,
+      "category": "改选",
+      "input": "保留A，不去C，改成ABD",
+      "variant": 2,
+      "expected_unknown_fields": [
+        "transport"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-16",
+      "is_synthetic": true,
+      "category": "时间硬约束",
+      "input": "周日21点前必须到家",
+      "variant": 2,
+      "expected_unknown_fields": [
+        "budget",
+        "transport"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-17",
+      "is_synthetic": true,
+      "category": "重复访问",
+      "input": "沿用刚才的资料，只调整顺序",
+      "variant": 2,
+      "expected_unknown_fields": [
+        "budget"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-18",
+      "is_synthetic": true,
+      "category": "登录过期",
+      "input": "继续我的计划，但需要重新登录",
+      "variant": 2,
+      "expected_unknown_fields": [],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-19",
+      "is_synthetic": true,
+      "category": "资料不完整",
+      "input": "只读取到攻略标题，正文不可访问",
+      "variant": 2,
+      "expected_unknown_fields": [],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-20",
+      "is_synthetic": true,
+      "category": "知识删除",
+      "input": "删除刚保存的来源，不再用于规划",
+      "variant": 2,
+      "expected_unknown_fields": [],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-21",
+      "is_synthetic": true,
+      "category": "模糊需求",
+      "input": "国庆从成都去川西玩",
+      "variant": 3,
+      "expected_unknown_fields": [
+        "budget",
+        "transport",
+        "party_size",
+        "exact_dates"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-22",
+      "is_synthetic": true,
+      "category": "时间已知",
+      "input": "我有3天，从成都出发",
+      "variant": 3,
+      "expected_unknown_fields": [
+        "budget",
+        "transport",
+        "party_size"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-23",
+      "is_synthetic": true,
+      "category": "交通未定",
+      "input": "我选方向B，5天，不知道怎么去",
+      "variant": 3,
+      "expected_unknown_fields": [
+        "transport",
+        "budget",
+        "party_size"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-24",
+      "is_synthetic": true,
+      "category": "预算未知",
+      "input": "两个人玩5天，先看看多少钱",
+      "variant": 3,
+      "expected_unknown_fields": [
+        "budget",
+        "transport"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-25",
+      "is_synthetic": true,
+      "category": "改选",
+      "input": "保留A，不去C，改成ABD",
+      "variant": 3,
+      "expected_unknown_fields": [
+        "transport"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-26",
+      "is_synthetic": true,
+      "category": "时间硬约束",
+      "input": "周日21点前必须到家",
+      "variant": 3,
+      "expected_unknown_fields": [
+        "budget",
+        "transport"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-27",
+      "is_synthetic": true,
+      "category": "重复访问",
+      "input": "沿用刚才的资料，只调整顺序",
+      "variant": 3,
+      "expected_unknown_fields": [
+        "budget"
+      ],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-28",
+      "is_synthetic": true,
+      "category": "登录过期",
+      "input": "继续我的计划，但需要重新登录",
+      "variant": 3,
+      "expected_unknown_fields": [],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-29",
+      "is_synthetic": true,
+      "category": "资料不完整",
+      "input": "只读取到攻略标题，正文不可访问",
+      "variant": 3,
+      "expected_unknown_fields": [],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    },
+    {
+      "scenario_id": "SYN-30",
+      "is_synthetic": true,
+      "category": "知识删除",
+      "input": "删除刚保存的来源，不再用于规划",
+      "variant": 3,
+      "expected_unknown_fields": [],
+      "must_not": [
+        "invent_price",
+        "claim_live_test_passed",
+        "bypass_access_control"
+      ],
+      "network_mode": "DENY"
+    }
+  ],
+  "warning": "These 30 requirement variants are starter cases, not 30 independent, fully annotated retrieval corpora. T10 must expand evaluation data before making quality claims."
+}

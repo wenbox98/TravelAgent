@@ -1,0 +1,9 @@
+{
+  "session_id": "auth-synthetic-1",
+  "generation": 1,
+  "state": "QR_READY",
+  "expires_at": "2026-09-22T10:04:00+08:00",
+  "last_verified_at": null,
+  "qrcode_available": true,
+  "message": "合成登录状态，不含可用二维码"
+}

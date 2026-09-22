@@ -1,0 +1,30 @@
+{
+  "source_id": "source-synthetic-a",
+  "completeness": "FULL_TEXT",
+  "fetched_at": "2026-09-22T10:00:00+08:00",
+  "source_published_at": null,
+  "travel_occurred_at": null,
+  "policy_id": "synthetic-all",
+  "claims": [
+    {
+      "claim_id": "claim-synthetic-a",
+      "source_id": "source-synthetic-a",
+      "topic": "ROUTE",
+      "text": "合成资料：片区A可安排两个半天。",
+      "kind": "AUTHOR_OPINION",
+      "locator": "text:paragraph-1",
+      "support": "SUPPORTED",
+      "valid_from": null,
+      "valid_until": null,
+      "confidence": null
+    }
+  ],
+  "missing_fields": [
+    "真实旅行日期"
+  ],
+  "is_synthetic": true,
+  "source_type": "SYNTHETIC",
+  "source_title": "合成片区资料",
+  "destination": "合成甲区域",
+  "applicable_conditions": []
+}

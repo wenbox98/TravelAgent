@@ -1,0 +1,665 @@
+openapi: 3.1.0
+info:
+  title: TravelAgent local API
+  version: 0.1.1-design
+  description: Design contract, not an implemented server. Loopback-only authenticated
+    local application. Domain contracts now use NEED_LOGIN and VERIFICATION_REQUIRED;
+    evidence includes source metadata, applicability and nullable confidence.
+servers:
+- url: http://127.0.0.1:8765
+security:
+- LocalSession: []
+paths:
+  /api/v1/capabilities:
+    get:
+      operationId: getCapabilities
+      summary: 读取能力状态
+      parameters: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/Capabilities
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/auth/xhs/sessions:
+    post:
+      operationId: startXhsSession
+      summary: 创建或复用登录会话
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: &id001
+          type: string
+          minLength: 1
+          maxLength: 160
+      responses:
+        '201':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/AuthSession
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/AuthStart
+  /api/v1/auth/xhs/sessions/{session_id}:
+    get:
+      operationId: getXhsSession
+      summary: 只查询本地登录状态，不触达平台
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/AuthSession
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/auth/xhs/sessions/{session_id}/qrcode:
+    get:
+      operationId: getXhsQrcode
+      summary: 读取内存二维码
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: 受保护的流或图片
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+              description: 禁止缓存二维码
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/auth/xhs/sessions/{session_id}/open-browser:
+    post:
+      operationId: openOfficialBrowser
+      summary: 打开本应用拥有的官方登录窗口
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: *id001
+      responses:
+        '202':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/Ack
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/auth/xhs/session:
+    delete:
+      operationId: disconnectXhs
+      summary: 停止任务并删除本地专用会话
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/Ack
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/trips:
+    post:
+      operationId: createTrip
+      summary: 创建模糊旅行需求
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: *id001
+      responses:
+        '201':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/Trip
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/TripCreate
+  /api/v1/trips/{trip_id}:
+    get:
+      operationId: getTrip
+      summary: 读取当前确认版本
+      parameters:
+      - name: trip_id
+        in: path
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/Trip
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/trips/{trip_id}/messages:
+    post:
+      operationId: sendTripMessage
+      summary: 开始或推进有界研究
+      parameters:
+      - name: trip_id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: *id001
+      responses:
+        '202':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/JobAccepted
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/MessageCreate
+  /api/v1/trips/{trip_id}/proposals:
+    post:
+      operationId: createProposal
+      summary: 异步生成修改预览
+      parameters:
+      - name: trip_id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: *id001
+      responses:
+        '202':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/JobAccepted
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/ProposalCreate
+  /api/v1/trips/{trip_id}/proposals/{proposal_id}:
+    get:
+      operationId: getProposal
+      summary: 读取已生成预览
+      parameters:
+      - name: trip_id
+        in: path
+        required: true
+        schema: *id001
+      - name: proposal_id
+        in: path
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/Proposal
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/trips/{trip_id}/proposals/{proposal_id}/confirm:
+    post:
+      operationId: confirmProposal
+      summary: 原子确认并递增版本
+      parameters:
+      - name: trip_id
+        in: path
+        required: true
+        schema: *id001
+      - name: proposal_id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/Trip
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/ConfirmRequest
+  /api/v1/jobs/{job_id}:
+    get:
+      operationId: getJob
+      summary: 读取研究任务状态
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/Job
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/jobs/{job_id}/cancel:
+    post:
+      operationId: cancelJob
+      summary: 取消任务，不允许新增请求
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/Ack
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/jobs/{job_id}/resume:
+    post:
+      operationId: resumeJob
+      summary: 按当前generation恢复任务
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: *id001
+      responses:
+        '202':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/JobAccepted
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/ResumeRequest
+  /api/v1/jobs/{job_id}/events:
+    get:
+      operationId: streamJobEvents
+      summary: SSE可恢复进度，不重跑抓取
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema: *id001
+      - name: Last-Event-ID
+        in: header
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: 受保护的流或图片
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: 'id: 1
+
+                event: research.progress
+
+                data: {"event_id":1,"job_id":"job-synthetic","trip_id":"trip-synthetic-1","revision":0,"type":"research.progress","timestamp":"2026-09-22T10:00:00+08:00","safe_data":{"message":"正在整理合成候选","completed_items":1}}
+
+
+                '
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/knowledge/search:
+    post:
+      operationId: searchKnowledge
+      summary: 权限过滤后的知识检索
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/KnowledgeResults
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/KnowledgeQuery
+  /api/v1/knowledge/sources/{source_id}:
+    delete:
+      operationId: deleteSource
+      summary: 立即隐藏，再清理派生内容
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema: *id001
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: *id001
+      responses:
+        '202':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/Ack
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/settings/providers:
+    post:
+      operationId: configureProvider
+      summary: 秘密仅写入本机安全存储，响应不回显
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/Capability
+        default:
+          description: 结构化错误；400/401/403/404/409/422/429/503按语义区分
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/ProviderSetting
+  /api/v1/trips/{trip_id}/overviews/{overview_id}:
+    get:
+      operationId: getOverview
+      summary: 读取已生成的粗略攻略；不触发重新研究
+      description: Job.result_ref.kind=OVERVIEW 时使用 resource_id；仅内存保留的结果在重启后不可用，返回
+        410，不自动重新抓取。
+      parameters:
+      - name: trip_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: overview_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 粗略攻略
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/OverviewResult
+        '401':
+          description: 本应用会话无效
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+        '404':
+          description: 资源不存在
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+        '410':
+          description: 结果已过期或仅内存结果丢失；需用户明确恢复研究
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+components:
+  securitySchemes:
+    LocalSession:
+      type: apiKey
+      in: cookie
+      name: ta_session

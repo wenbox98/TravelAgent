@@ -1,0 +1,223 @@
+{
+  "positive": [
+    {
+      "schema": "TripIntent",
+      "file": "fixtures/trip-intent.json"
+    },
+    {
+      "schema": "AuthSession",
+      "file": "fixtures/auth-session.json"
+    },
+    {
+      "schema": "EvidenceBundle",
+      "file": "fixtures/evidence.json"
+    },
+    {
+      "schema": "OverviewResult",
+      "file": "fixtures/overview.json"
+    },
+    {
+      "schema": "ChoicePatch",
+      "file": "fixtures/choice-patch.json"
+    },
+    {
+      "schema": "FetchResult",
+      "file": "fixtures/fetch-result.json"
+    }
+  ],
+  "negative": [
+    {
+      "name": "negative_party_size",
+      "schema": "TripIntent",
+      "data": {
+        "origin": "成都",
+        "destination_region": "川西",
+        "period_text": "国庆",
+        "start_at": null,
+        "end_at": null,
+        "days": null,
+        "party_size": -2,
+        "budget_cny_fen": null,
+        "transport": null,
+        "constraints": []
+      }
+    },
+    {
+      "name": "unknown_extra_secret_field",
+      "schema": "AuthSession",
+      "data": {
+        "session_id": "auth-synthetic-1",
+        "generation": 1,
+        "state": "QR_READY",
+        "expires_at": "2026-09-22T10:04:00+08:00",
+        "last_verified_at": null,
+        "qrcode_available": true,
+        "message": "合成登录状态，不含可用二维码",
+        "cookie": "SYNTHETIC_SENTINEL_NOT_A_CREDENTIAL"
+      }
+    },
+    {
+      "name": "more_than_two_questions",
+      "schema": "OverviewResult",
+      "data": {
+        "trip_id": "trip-synthetic-1",
+        "revision": 0,
+        "status": "PARTIAL",
+        "options": [
+          {
+            "option_id": "option-a",
+            "title": "合成路线A",
+            "area_stays": [
+              {
+                "area_id": "area-a",
+                "display_name": "合成片区A",
+                "days": {
+                  "min": 1,
+                  "max": 2
+                },
+                "basis": "ASSUMPTION",
+                "evidence_refs": []
+              }
+            ],
+            "highlights": [
+              "用于验证粗略路线卡片，不是实际旅游建议"
+            ],
+            "total_days": {
+              "min": 3,
+              "max": 4
+            },
+            "transport_dependencies": [
+              "交通尚未确认"
+            ],
+            "tradeoffs": [
+              "覆盖与停留时间需要权衡"
+            ],
+            "assumptions": [
+              "仅为界面测试草案"
+            ],
+            "evidence_refs": [],
+            "unverified_items": [
+              "真实路线与报价"
+            ]
+          },
+          {
+            "option_id": "option-b",
+            "title": "合成路线B",
+            "area_stays": [
+              {
+                "area_id": "area-b",
+                "display_name": "合成片区B",
+                "days": {
+                  "min": 1,
+                  "max": 2
+                },
+                "basis": "ASSUMPTION",
+                "evidence_refs": []
+              }
+            ],
+            "highlights": [
+              "用于验证粗略路线卡片，不是实际旅游建议"
+            ],
+            "total_days": {
+              "min": 5,
+              "max": 6
+            },
+            "transport_dependencies": [
+              "交通尚未确认"
+            ],
+            "tradeoffs": [
+              "覆盖与停留时间需要权衡"
+            ],
+            "assumptions": [
+              "仅为界面测试草案"
+            ],
+            "evidence_refs": [],
+            "unverified_items": [
+              "真实路线与报价"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question_id": "q1",
+            "question": "你想集中玩还是多地串联？",
+            "options": [
+              "集中玩",
+              "多地串联",
+              "没想好"
+            ],
+            "recommendation": "先比较方向，再决定交通。",
+            "allow_undecided": true
+          },
+          {
+            "question_id": "q1",
+            "question": "你想集中玩还是多地串联？",
+            "options": [
+              "集中玩",
+              "多地串联",
+              "没想好"
+            ],
+            "recommendation": "先比较方向，再决定交通。",
+            "allow_undecided": true
+          },
+          {
+            "question_id": "q1",
+            "question": "你想集中玩还是多地串联？",
+            "options": [
+              "集中玩",
+              "多地串联",
+              "没想好"
+            ],
+            "recommendation": "先比较方向，再决定交通。",
+            "allow_undecided": true
+          }
+        ],
+        "xhs_status": "UNSUPPORTED",
+        "missing_slots": [
+          "真实小红书研究"
+        ],
+        "is_synthetic": true
+      }
+    },
+    {
+      "name": "external_model_without_inference",
+      "schema": "SourcePolicy",
+      "data": {
+        "policy_id": "unknown-deny",
+        "version": 1,
+        "basis": "UNKNOWN",
+        "basis_note": "来源用途尚未核实",
+        "allow_read": false,
+        "allow_persist_metadata": false,
+        "allow_inference": false,
+        "allow_external_model": true,
+        "allow_persist_raw": false,
+        "allow_persist_derived": false,
+        "allow_embed": false,
+        "allow_export": false,
+        "reviewed_at": null,
+        "expires_at": null
+      }
+    },
+    {
+      "name": "embedding_without_derived_permission",
+      "schema": "SourcePolicy",
+      "data": {
+        "policy_id": "unknown-deny",
+        "version": 1,
+        "basis": "UNKNOWN",
+        "basis_note": "来源用途尚未核实",
+        "allow_read": false,
+        "allow_persist_metadata": false,
+        "allow_inference": false,
+        "allow_external_model": false,
+        "allow_persist_raw": false,
+        "allow_persist_derived": false,
+        "allow_embed": true,
+        "allow_export": false,
+        "reviewed_at": null,
+        "expires_at": null
+      }
+    }
+  ]
+}

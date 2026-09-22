@@ -1,0 +1,85 @@
+{
+  "generated_at_utc": "2026-09-22T14:08:33+00:00",
+  "scope": "L0_DOCUMENT_CONTRACT_SYNTHETIC_ONLY",
+  "checks": [
+    {
+      "check": "JSON_PARSE",
+      "status": "PASS",
+      "detail": "16 JSON files parsed"
+    },
+    {
+      "check": "DOMAIN_SCHEMA",
+      "status": "PASS",
+      "detail": "39 Draft 2020-12 definitions; format checks enabled for fixtures"
+    },
+    {
+      "check": "CONTRACT_REFERENCES",
+      "status": "PASS",
+      "detail": "76 JSON Schema/OpenAPI reference occurrences resolved offline"
+    },
+    {
+      "check": "FIXTURE_SCHEMA",
+      "status": "PASS",
+      "detail": "27 positive objects accepted; 5 negative objects rejected"
+    },
+    {
+      "check": "OPENAPI_STRUCTURAL",
+      "status": "PASS",
+      "detail": "20 operation IDs, local auth, path parameters, write headers and SSE example checked; structural checks, not a full OpenAPI conformance validator"
+    },
+    {
+      "check": "MARKDOWN_LINKS",
+      "status": "PASS",
+      "detail": "102 relative Markdown link targets exist"
+    },
+    {
+      "check": "SQL_DRAFT_SMOKE",
+      "status": "PASS",
+      "detail": "SQLite 3.50.4; 20 declared tables (FTS shadow tables excluded), FK checks, synthetic FTS lookup and cascade deletion passed"
+    },
+    {
+      "check": "SYNTHETIC_ARITHMETIC",
+      "status": "PASS",
+      "detail": "Synthetic AC=510min, ABCD=760min, ABD=470min; total 240000–270000 fen; unknown amount remains null"
+    },
+    {
+      "check": "TEST_TRACEABILITY",
+      "status": "PASS",
+      "detail": "86 historical design rows, R01–R14 mapped, 12 task sheets; execution status is tracked in implementation reports"
+    },
+    {
+      "check": "SYNTHETIC_CORPUS",
+      "status": "PASS",
+      "detail": "12 non-live synthetic notes and 30 starter prompt variants; not a completed quality benchmark"
+    },
+    {
+      "check": "SAFE_DEFAULTS",
+      "status": "PASS",
+      "detail": "Mock-first defaults; comment expansion off; finite budgets; candidate upstream explicitly not release-approved"
+    },
+    {
+      "check": "SOURCE_REGISTER",
+      "status": "PASS",
+      "detail": "19 referenced source IDs present in source register"
+    }
+  ],
+  "counts": {
+    "json_files_checked": 16,
+    "domain_definitions": 39,
+    "positive_contract_fixtures": 27,
+    "negative_contract_fixtures": 5,
+    "http_operations": 20,
+    "declared_tables_including_fts": 20,
+    "designed_application_test_cases_not_run": 86,
+    "codex_task_sheets": 12,
+    "synthetic_notes": 12,
+    "starter_prompt_scenarios_not_benchmark": 30,
+    "main_documents": 16
+  },
+  "passed": 12,
+  "failed": 0,
+  "application_tests": "OUT_OF_SCOPE_SEE_IMPLEMENTATION_REPORTS",
+  "live_xhs": "NOT_RUN",
+  "supplier_live": "NOT_RUN",
+  "windows_release": "NOT_RUN"
+}

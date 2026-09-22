@@ -1,0 +1,37 @@
+{
+  "is_synthetic": true,
+  "policies": [
+    {
+      "policy_id": "synthetic-all",
+      "version": 1,
+      "basis": "SYNTHETIC",
+      "basis_note": "合成夹具",
+      "allow_read": true,
+      "allow_persist_metadata": true,
+      "allow_inference": true,
+      "allow_external_model": true,
+      "allow_persist_raw": true,
+      "allow_persist_derived": true,
+      "allow_embed": true,
+      "allow_export": true,
+      "reviewed_at": "2026-09-22T00:00:00+08:00",
+      "expires_at": null
+    },
+    {
+      "policy_id": "unknown-deny",
+      "version": 1,
+      "basis": "UNKNOWN",
+      "basis_note": "来源用途尚未核实",
+      "allow_read": false,
+      "allow_persist_metadata": false,
+      "allow_inference": false,
+      "allow_external_model": false,
+      "allow_persist_raw": false,
+      "allow_persist_derived": false,
+      "allow_embed": false,
+      "allow_export": false,
+      "reviewed_at": null,
+      "expires_at": null
+    }
+  ]
+}

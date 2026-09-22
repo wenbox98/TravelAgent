@@ -1,0 +1,2270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-agent.example/schema/domain-1.1.json",
+  "title": "TravelAgent v1.1 development contracts",
+  "$comment": "Application contracts; not the upstream Xiaohongshu API. Semantic/business validation is still required.",
+  "$defs": {
+    "SourcePolicy": {
+      "type": "object",
+      "properties": {
+        "allow_read": {
+          "type": "boolean"
+        },
+        "allow_persist_metadata": {
+          "type": "boolean"
+        },
+        "allow_inference": {
+          "type": "boolean"
+        },
+        "allow_external_model": {
+          "type": "boolean"
+        },
+        "allow_persist_raw": {
+          "type": "boolean"
+        },
+        "allow_persist_derived": {
+          "type": "boolean"
+        },
+        "allow_embed": {
+          "type": "boolean"
+        },
+        "allow_export": {
+          "type": "boolean"
+        },
+        "policy_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "basis": {
+          "type": "string",
+          "enum": [
+            "UNKNOWN",
+            "PUBLIC_TERMS_REVIEWED",
+            "EXPLICIT_PERMISSION",
+            "OWNED",
+            "SYNTHETIC"
+          ]
+        },
+        "basis_note": {
+          "type": "string"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "allow_read",
+        "allow_persist_metadata",
+        "allow_inference",
+        "allow_external_model",
+        "allow_persist_raw",
+        "allow_persist_derived",
+        "allow_embed",
+        "allow_export",
+        "policy_id",
+        "version",
+        "basis",
+        "basis_note",
+        "reviewed_at",
+        "expires_at"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "allow_external_model": {
+                "const": true
+              }
+            },
+            "required": [
+              "allow_external_model"
+            ]
+          },
+          "then": {
+            "properties": {
+              "allow_inference": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "allow_embed": {
+                "const": true
+              }
+            },
+            "required": [
+              "allow_embed"
+            ]
+          },
+          "then": {
+            "properties": {
+              "allow_persist_derived": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "basis": {
+                "const": "UNKNOWN"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "allow_persist_raw": {
+                "const": false
+              },
+              "allow_persist_derived": {
+                "const": false
+              },
+              "allow_embed": {
+                "const": false
+              },
+              "allow_export": {
+                "const": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Constraint": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "value": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "array",
+            "object"
+          ]
+        },
+        "provenance": {
+          "type": "string",
+          "enum": [
+            "USER",
+            "ASSUMPTION",
+            "DERIVED",
+            "UNKNOWN"
+          ]
+        },
+        "strength": {
+          "type": "string",
+          "enum": [
+            "HARD",
+            "SOFT",
+            "UNSET"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "provenance",
+        "strength"
+      ],
+      "additionalProperties": false
+    },
+    "TripIntent": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "destination_region": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "period_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "start_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "end_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "days": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "party_size": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "budget_cny_fen": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transport": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "SELF_DRIVE",
+                "CHARTER",
+                "PUBLIC",
+                "FLIGHT",
+                "TRAIN",
+                "MIXED"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Constraint"
+          }
+        }
+      },
+      "required": [
+        "origin",
+        "destination_region",
+        "period_text",
+        "start_at",
+        "end_at",
+        "days",
+        "party_size",
+        "budget_cny_fen",
+        "transport",
+        "constraints"
+      ],
+      "additionalProperties": false
+    },
+    "AuthSession": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "DISCONNECTED",
+            "CONNECTING",
+            "QR_READY",
+            "WAITING_CONFIRMATION",
+            "VERIFYING",
+            "CONNECTED",
+            "EXPIRED",
+            "ACTION_REQUIRED",
+            "DISCONNECTING",
+            "ERROR",
+            "CANCELED"
+          ]
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_verified_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "qrcode_available": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "generation",
+        "state",
+        "expires_at",
+        "last_verified_at",
+        "qrcode_available",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "NoteCandidate": {
+      "type": "object",
+      "properties": {
+        "candidate_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "canonical_url": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "snippet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "published_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "author_cluster": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "note_handle": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "is_synthetic": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "source_id",
+        "canonical_url",
+        "title",
+        "snippet",
+        "published_at",
+        "author_cluster",
+        "note_handle",
+        "is_synthetic"
+      ],
+      "additionalProperties": false
+    },
+    "ResearchMetrics": {
+      "type": "object",
+      "properties": {
+        "search_ops": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detail_ops": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "auth_probes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "page_navigations": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "site_http_requests": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "network_measurement": {
+          "type": "string",
+          "enum": [
+            "COMPLETE",
+            "PARTIAL",
+            "UNAVAILABLE"
+          ]
+        },
+        "image_fetches": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "model_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unique_notes_read": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicate_fetches_avoided": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_hits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_misses": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selected_candidate_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "evidence_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "search_ops",
+        "detail_ops",
+        "auth_probes",
+        "page_navigations",
+        "site_http_requests",
+        "network_measurement",
+        "image_fetches",
+        "model_calls",
+        "unique_notes_read",
+        "duplicate_fetches_avoided"
+      ],
+      "additionalProperties": false
+    },
+    "EvidenceClaim": {
+      "type": "object",
+      "properties": {
+        "claim_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "topic": {
+          "type": "string",
+          "enum": [
+            "ROUTE",
+            "EXPERIENCE",
+            "DURATION",
+            "TRANSPORT",
+            "SEASON",
+            "TRADEOFF",
+            "PRICE",
+            "OPENING",
+            "RESERVATION",
+            "OTHER"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "OBSERVATION",
+            "AUTHOR_OPINION",
+            "OFFICIAL_FACT",
+            "ESTIMATE",
+            "ASSUMPTION"
+          ]
+        },
+        "locator": {
+          "type": "string"
+        },
+        "support": {
+          "type": "string",
+          "enum": [
+            "SUPPORTED",
+            "PARTIAL",
+            "UNKNOWN"
+          ]
+        },
+        "valid_from": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "valid_until": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "claim_id",
+        "source_id",
+        "topic",
+        "text",
+        "kind",
+        "locator",
+        "support",
+        "valid_from",
+        "valid_until",
+        "confidence"
+      ],
+      "additionalProperties": false
+    },
+    "EvidenceBundle": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "completeness": {
+          "type": "string",
+          "enum": [
+            "FULL_TEXT",
+            "PARTIAL_TEXT",
+            "SUMMARY_ONLY",
+            "METADATA_ONLY"
+          ]
+        },
+        "fetched_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source_published_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "travel_occurred_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "policy_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceClaim"
+          }
+        },
+        "missing_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "is_synthetic": {
+          "type": "boolean"
+        },
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "SYNTHETIC",
+            "XHS",
+            "OFFICIAL",
+            "USER",
+            "UNKNOWN"
+          ]
+        },
+        "source_title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "destination": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "applicable_conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Constraint"
+          }
+        }
+      },
+      "required": [
+        "source_id",
+        "completeness",
+        "fetched_at",
+        "source_published_at",
+        "travel_occurred_at",
+        "policy_id",
+        "claims",
+        "missing_fields",
+        "is_synthetic",
+        "source_type",
+        "source_title",
+        "destination",
+        "applicable_conditions"
+      ],
+      "additionalProperties": false
+    },
+    "FetchResult": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "OK",
+            "PARTIAL",
+            "EMPTY",
+            "NEED_LOGIN",
+            "VERIFICATION_REQUIRED",
+            "RATE_LIMITED",
+            "NETWORK_ERROR",
+            "CONTENT_UNAVAILABLE",
+            "PARSE_ERROR",
+            "CONTRACT_ERROR",
+            "UNSUPPORTED",
+            "CANCELED",
+            "ACCESS_POLICY_BLOCKED"
+          ]
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NoteCandidate"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceBundle"
+          }
+        },
+        "metrics": {
+          "$ref": "#/$defs/ResearchMetrics"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "candidates",
+        "evidence",
+        "metrics",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "DayRange": {
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "additionalProperties": false
+    },
+    "AreaStay": {
+      "type": "object",
+      "properties": {
+        "area_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "days": {
+          "$ref": "#/$defs/DayRange"
+        },
+        "basis": {
+          "type": "string",
+          "enum": [
+            "EVIDENCE",
+            "ASSUMPTION"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        }
+      },
+      "required": [
+        "area_id",
+        "display_name",
+        "days",
+        "basis",
+        "evidence_refs"
+      ],
+      "additionalProperties": false
+    },
+    "RouteOption": {
+      "type": "object",
+      "properties": {
+        "option_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "title": {
+          "type": "string"
+        },
+        "area_stays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AreaStay"
+          },
+          "minItems": 1
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_days": {
+          "$ref": "#/$defs/DayRange"
+        },
+        "transport_dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tradeoffs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "unverified_items": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "option_id",
+        "title",
+        "area_stays",
+        "highlights",
+        "total_days",
+        "transport_dependencies",
+        "tradeoffs",
+        "assumptions",
+        "evidence_refs",
+        "unverified_items"
+      ],
+      "additionalProperties": false
+    },
+    "DecisionQuestion": {
+      "type": "object",
+      "properties": {
+        "question_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "question": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "maxItems": 5
+        },
+        "recommendation": {
+          "type": "string"
+        },
+        "allow_undecided": {
+          "const": true
+        }
+      },
+      "required": [
+        "question_id",
+        "question",
+        "options",
+        "recommendation",
+        "allow_undecided"
+      ],
+      "additionalProperties": false
+    },
+    "OverviewResult": {
+      "type": "object",
+      "properties": {
+        "trip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "READY",
+            "PARTIAL"
+          ]
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RouteOption"
+          },
+          "maxItems": 3
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DecisionQuestion"
+          },
+          "maxItems": 2
+        },
+        "xhs_status": {
+          "type": "string",
+          "enum": [
+            "OK",
+            "PARTIAL",
+            "EMPTY",
+            "NEED_LOGIN",
+            "VERIFICATION_REQUIRED",
+            "RATE_LIMITED",
+            "NETWORK_ERROR",
+            "CONTENT_UNAVAILABLE",
+            "PARSE_ERROR",
+            "CONTRACT_ERROR",
+            "UNSUPPORTED",
+            "CANCELED",
+            "ACCESS_POLICY_BLOCKED"
+          ]
+        },
+        "missing_slots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "is_synthetic": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "trip_id",
+        "revision",
+        "status",
+        "options",
+        "questions",
+        "xhs_status",
+        "missing_slots",
+        "is_synthetic"
+      ],
+      "additionalProperties": false
+    },
+    "ChoicePatch": {
+      "type": "object",
+      "properties": {
+        "add_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "uniqueItems": true
+        },
+        "remove_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "uniqueItems": true
+        },
+        "lock_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "uniqueItems": true
+        },
+        "unlock_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "uniqueItems": true
+        },
+        "constraint_updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Constraint"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "TIME",
+            "BUDGET",
+            "PREFERENCE",
+            "UNAVAILABLE",
+            "OTHER",
+            "UNSPECIFIED"
+          ]
+        }
+      },
+      "required": [
+        "add_ids",
+        "remove_ids",
+        "lock_ids",
+        "unlock_ids",
+        "constraint_updates",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "AmountRange": {
+      "type": "object",
+      "properties": {
+        "min_fen": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_fen": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "currency": {
+          "const": "CNY"
+        }
+      },
+      "required": [
+        "min_fen",
+        "max_fen",
+        "currency"
+      ],
+      "additionalProperties": false
+    },
+    "BudgetLine": {
+      "type": "object",
+      "properties": {
+        "line_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "label": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "TRANSPORT",
+            "LODGING",
+            "FOOD",
+            "ACTIVITY",
+            "RESERVE",
+            "DEPOSIT",
+            "OTHER"
+          ]
+        },
+        "unit": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unit_amount": {
+          "$ref": "#/$defs/AmountRange"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "QUOTED",
+            "ESTIMATED",
+            "HISTORICAL",
+            "PAID",
+            "UNKNOWN"
+          ]
+        },
+        "included_in_line_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "quote_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "line_id",
+        "label",
+        "category",
+        "unit",
+        "quantity",
+        "unit_amount",
+        "status",
+        "included_in_line_id",
+        "quote_id"
+      ],
+      "additionalProperties": false
+    },
+    "BudgetResult": {
+      "type": "object",
+      "properties": {
+        "completeness": {
+          "type": "string",
+          "enum": [
+            "COMPLETE",
+            "PARTIAL"
+          ]
+        },
+        "known_total": {
+          "$ref": "#/$defs/AmountRange"
+        },
+        "per_person": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AmountRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unknown_line_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BudgetLine"
+          }
+        },
+        "includes_reserve": {
+          "type": "boolean"
+        },
+        "deposit_fen": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "is_synthetic": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "completeness",
+        "known_total",
+        "per_person",
+        "unknown_line_ids",
+        "lines",
+        "includes_reserve",
+        "deposit_fen",
+        "is_synthetic"
+      ],
+      "additionalProperties": false
+    },
+    "Quote": {
+      "type": "object",
+      "properties": {
+        "quote_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "product_type": {
+          "type": "string",
+          "enum": [
+            "HOTEL",
+            "FLIGHT",
+            "TRAIN",
+            "ACTIVITY"
+          ]
+        },
+        "product_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "AVAILABLE",
+            "SOLD_OUT",
+            "NOT_ON_SALE",
+            "UNKNOWN",
+            "UNSUPPORTED"
+          ]
+        },
+        "amount": {
+          "$ref": "#/$defs/AmountRange"
+        },
+        "price_basis": {
+          "type": "string"
+        },
+        "queried_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "valid_for": {
+          "type": "string"
+        },
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "booking_url": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "is_synthetic": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "quote_id",
+        "provider",
+        "product_type",
+        "product_key",
+        "status",
+        "amount",
+        "price_basis",
+        "queried_at",
+        "valid_for",
+        "conditions",
+        "booking_url",
+        "is_synthetic"
+      ],
+      "additionalProperties": false
+    },
+    "Trip": {
+      "type": "object",
+      "properties": {
+        "trip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "INTAKE",
+            "RESEARCH_OVERVIEW",
+            "WAITING_CHOICE",
+            "REFINE_CONSTRAINTS",
+            "RESEARCH_DETAILS",
+            "BUILD_PLAN",
+            "PREVIEW",
+            "CONFIRMED"
+          ]
+        },
+        "original_request": {
+          "type": "string"
+        },
+        "intent": {
+          "$ref": "#/$defs/TripIntent"
+        },
+        "selected_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "locked_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "overview": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OverviewResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BudgetResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "is_synthetic": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "trip_id",
+        "revision",
+        "phase",
+        "original_request",
+        "intent",
+        "selected_ids",
+        "locked_ids",
+        "overview",
+        "budget",
+        "is_synthetic"
+      ],
+      "additionalProperties": false
+    },
+    "Proposal": {
+      "type": "object",
+      "properties": {
+        "proposal_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "trip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "base_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PENDING",
+            "CONFIRMED",
+            "REJECTED",
+            "OBSOLETE"
+          ]
+        },
+        "patch": {
+          "$ref": "#/$defs/ChoicePatch"
+        },
+        "feasibility": {
+          "type": "string",
+          "enum": [
+            "FEASIBLE",
+            "SOFT_CONFLICT",
+            "INFEASIBLE",
+            "UNKNOWN"
+          ]
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unverified_items": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "calculated_minutes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BudgetResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "proposal_id",
+        "trip_id",
+        "base_revision",
+        "status",
+        "patch",
+        "feasibility",
+        "changes",
+        "violations",
+        "unverified_items",
+        "calculated_minutes",
+        "budget"
+      ],
+      "additionalProperties": false
+    },
+    "Job": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "trip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "research_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "QUEUED",
+            "RUNNING",
+            "WAITING_USER",
+            "WAITING_AUTH",
+            "PAUSED_RATE_LIMIT",
+            "PAUSED_BUDGET",
+            "COMPLETED",
+            "PARTIAL",
+            "FAILED",
+            "CANCELED",
+            "OBSOLETE"
+          ]
+        },
+        "metrics": {
+          "$ref": "#/$defs/ResearchMetrics"
+        },
+        "missing_slots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "result_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResultReference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "job_id",
+        "trip_id",
+        "revision",
+        "generation",
+        "research_session_id",
+        "status",
+        "metrics",
+        "missing_slots",
+        "message",
+        "result_ref"
+      ],
+      "additionalProperties": false
+    },
+    "SafeEvent": {
+      "type": "object",
+      "properties": {
+        "event_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "job_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "trip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "job.started",
+            "research.progress",
+            "auth.required",
+            "research.partial",
+            "overview.ready",
+            "proposal.ready",
+            "job.completed",
+            "job.failed",
+            "job.canceled"
+          ]
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "safe_data": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "completed_items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              }
+            },
+            "result_ref": {
+              "$ref": "#/$defs/ResultReference"
+            }
+          },
+          "required": [
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "event_id",
+        "job_id",
+        "trip_id",
+        "revision",
+        "type",
+        "timestamp",
+        "safe_data"
+      ],
+      "additionalProperties": false
+    },
+    "Capability": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "UNCONFIGURED",
+            "CONFIGURED_UNVERIFIED",
+            "VERIFIED",
+            "FAILED",
+            "UNSUPPORTED"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "last_checked_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "status",
+        "message",
+        "last_checked_at"
+      ],
+      "additionalProperties": false
+    },
+    "Capabilities": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "mock",
+            "live"
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "mode"
+      ],
+      "additionalProperties": false
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "message": {
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "details": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "current_revision": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "job_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "request_id",
+            "retryable",
+            "details"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "Ack": {
+      "type": "object",
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "accepted",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "JobAccepted": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "trip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "job_id",
+        "trip_id",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "AuthStart": {
+      "type": "object",
+      "properties": {
+        "consent_local_session": {
+          "const": true
+        }
+      },
+      "required": [
+        "consent_local_session"
+      ],
+      "additionalProperties": false
+    },
+    "TripCreate": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "additionalProperties": false
+    },
+    "MessageCreate": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "text",
+        "expected_revision"
+      ],
+      "additionalProperties": false
+    },
+    "ProposalCreate": {
+      "type": "object",
+      "properties": {
+        "patch": {
+          "$ref": "#/$defs/ChoicePatch"
+        },
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "patch",
+        "expected_revision"
+      ],
+      "additionalProperties": false
+    },
+    "ConfirmRequest": {
+      "type": "object",
+      "properties": {
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "expected_revision"
+      ],
+      "additionalProperties": false
+    },
+    "ResumeRequest": {
+      "type": "object",
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "AUTH_COMPLETED",
+            "USER_CONTINUE",
+            "BUDGET_EXTENSION"
+          ]
+        },
+        "extra_search_ops": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "extra_detail_ops": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "generation",
+        "reason",
+        "extra_search_ops",
+        "extra_detail_ops"
+      ],
+      "additionalProperties": false
+    },
+    "KnowledgeQuery": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        }
+      },
+      "required": [
+        "query",
+        "limit"
+      ],
+      "additionalProperties": false
+    },
+    "KnowledgeResults": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceBundle"
+          }
+        },
+        "retrieval_mode": {
+          "type": "string",
+          "enum": [
+            "HYBRID",
+            "KEYWORD_ONLY",
+            "UNAVAILABLE"
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "retrieval_mode"
+      ],
+      "additionalProperties": false
+    },
+    "ProviderSetting": {
+      "type": "object",
+      "properties": {
+        "provider_kind": {
+          "type": "string",
+          "enum": [
+            "MODEL",
+            "EMBEDDING",
+            "AMAP",
+            "QUOTE",
+            "OFFICIAL_SEARCH"
+          ]
+        },
+        "provider_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "api_key": {
+          "type": "string",
+          "writeOnly": true
+        },
+        "model_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "consent_external_processing": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "provider_kind",
+        "provider_id",
+        "base_url",
+        "api_key",
+        "model_id",
+        "consent_external_processing"
+      ],
+      "additionalProperties": false
+    },
+    "ResultReference": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "OVERVIEW",
+            "PROPOSAL"
+          ]
+        },
+        "resource_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "availability": {
+          "type": "string",
+          "enum": [
+            "AVAILABLE",
+            "EPHEMERAL",
+            "EXPIRED"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "resource_id",
+        "availability"
+      ],
+      "additionalProperties": false
+    },
+    "ResearchSession": {
+      "type": "object",
+      "properties": {
+        "research_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "trip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "account_scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "budget": {
+          "type": "object",
+          "properties": {
+            "search_ops": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "detail_ops": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "vision_images": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "search_ops",
+            "detail_ops",
+            "vision_images"
+          ],
+          "additionalProperties": false
+        },
+        "spent": {
+          "type": "object",
+          "properties": {
+            "search_ops": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "detail_ops": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "vision_images": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "search_ops",
+            "detail_ops",
+            "vision_images"
+          ],
+          "additionalProperties": false
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policy_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "closed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "research_session_id",
+        "trip_id",
+        "account_scope",
+        "budget",
+        "spent",
+        "generation",
+        "policy_version",
+        "created_at",
+        "closed_at"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

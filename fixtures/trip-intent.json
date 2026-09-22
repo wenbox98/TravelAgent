@@ -1,0 +1,12 @@
+{
+  "origin": "成都",
+  "destination_region": "川西",
+  "period_text": "国庆",
+  "start_at": null,
+  "end_at": null,
+  "days": null,
+  "party_size": null,
+  "budget_cny_fen": null,
+  "transport": null,
+  "constraints": []
+}

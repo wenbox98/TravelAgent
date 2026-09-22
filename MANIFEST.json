@@ -1,0 +1,326 @@
+{
+  "package": "TravelAgent-Codex-v1.1-repository-import",
+  "prepared_on": "2026-09-22",
+  "target_repository": "wenbox98/TravelAgent",
+  "purpose": "design-development-test-specifications-xhs-poc-v1.1",
+  "remote_upload_status": "NOT_UPLOADED",
+  "not_an_implemented_application": true,
+  "excludes_self": true,
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 139,
+      "sha256": "15ed78763a5617ccf31a77d03112d5f53db0a687d75397bdba591a30c658d67b"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 260,
+      "sha256": "51528b3575ce974d258ba4c0ee35cd3519a7d5a91749a39759726ccf55653f5e"
+    },
+    {
+      "path": "00-阅读导航.html",
+      "bytes": 1031,
+      "sha256": "c21b0499a537feec58caff7cf22d855bd01531437e20c2e7b79aa5576bbf3c1e"
+    },
+    {
+      "path": "AGENTS.md",
+      "bytes": 4474,
+      "sha256": "4299460a920617b720d84a4a46498a6177290526339922dda2a405db0494bc28"
+    },
+    {
+      "path": "CODEX_START.md",
+      "bytes": 1987,
+      "sha256": "d705f535bc8254ccdc38a51ec3c370ef146ac3810c1c51f5ecbcc35a69a0edee"
+    },
+    {
+      "path": "README.md",
+      "bytes": 6797,
+      "sha256": "dd8aa429400718617e6326f1adf5045a9801ceedd49cc840057e4597b53ccd59"
+    },
+    {
+      "path": "config/defaults.json",
+      "bytes": 1101,
+      "sha256": "9b30b456f13ba30a3d2c098d0ac8e7ab9d7cd0307e847808c2d5793cd2deacbe"
+    },
+    {
+      "path": "contracts/database.sql",
+      "bytes": 9128,
+      "sha256": "6046b0b7762a8fda7e526f3c3a5edeaaf58a1a0e909e1dc1b7366dd510d81bd3"
+    },
+    {
+      "path": "contracts/domain.schema.json",
+      "bytes": 45009,
+      "sha256": "2edaebb236dd605dc2fc2d71cfbb30125161d4c1f43ca99a851e5ec2f26e2d9e"
+    },
+    {
+      "path": "contracts/openapi.yaml",
+      "bytes": 19005,
+      "sha256": "81dbaf7ce776cc39a10e353a78a29d660dd9dfc3dfb8ee5bdb21fb6c7cf7bed9"
+    },
+    {
+      "path": "contracts/test-matrix.csv",
+      "bytes": 10425,
+      "sha256": "8ad8161ec268910205b2106003fa6561747448394e9249cf0cbd360dfa62f639"
+    },
+    {
+      "path": "contracts/upstream-lock.json",
+      "bytes": 1120,
+      "sha256": "c0067590a1b1c4aa236729e191c74ea9a2f9aad9f71822ad242b8d122be8d7db"
+    },
+    {
+      "path": "docs/01-product.md",
+      "bytes": 4489,
+      "sha256": "734a4320746dd5f56054cb248bcfec47ddad283c4ed0820c0ee6de68b72b6bc2"
+    },
+    {
+      "path": "docs/02-architecture.md",
+      "bytes": 5152,
+      "sha256": "4a3d74ebbed5aa5ace08281fa4ad6e728eb11e102fbe5c29d95a4fbbdca80ee9"
+    },
+    {
+      "path": "docs/03-xhs-access-login.md",
+      "bytes": 9299,
+      "sha256": "3440067a7f0bbabc175264aa31d857d0cbcfe7932413116d88b7617575d7d332"
+    },
+    {
+      "path": "docs/04-research-efficiency.md",
+      "bytes": 8729,
+      "sha256": "73ce8c4fc06fc56606347e1ceb715664def5d13d9847216af494766380b7888a"
+    },
+    {
+      "path": "docs/05-data-rag.md",
+      "bytes": 5279,
+      "sha256": "77cee37196d47ae4c115d300e670df25525b5f01f6b103fb4b6f90d13d5dc5d6"
+    },
+    {
+      "path": "docs/06-agent-planning.md",
+      "bytes": 5399,
+      "sha256": "4f2de66c3cb374c426ccc9acdba963d80b6509a3e33261f9a25b0e496636017a"
+    },
+    {
+      "path": "docs/07-api-contracts.md",
+      "bytes": 5884,
+      "sha256": "ba3890fe5dda3b22115fea4fa913947024d9c6289f47b93ef3a640fb13749794"
+    },
+    {
+      "path": "docs/08-ui-ux.md",
+      "bytes": 3895,
+      "sha256": "34ca22f3f97c2cba9e052380ad4fab62f388fb5554c5434f9a37d9409330db65"
+    },
+    {
+      "path": "docs/09-security-open-source.md",
+      "bytes": 4197,
+      "sha256": "f2146fbf4bf849041a0b2f0a776080533fcba76313905facd56e14acf95c7764"
+    },
+    {
+      "path": "docs/10-test-strategy.md",
+      "bytes": 5760,
+      "sha256": "fb1a84f4092d9364670c3c68680a54e4050d6eec79c86999125b4a382c12054a"
+    },
+    {
+      "path": "docs/11-dev-deploy.md",
+      "bytes": 4987,
+      "sha256": "52ae201a6f35f36d15a80d870ed8a238129a52b8642989fb3fce2212991a897e"
+    },
+    {
+      "path": "docs/12-task-plan.md",
+      "bytes": 3015,
+      "sha256": "d63ddb9b1b9fc944b3ad134f41e363625dce1d9f525d8d7703c782423b6cdb07"
+    },
+    {
+      "path": "docs/13-design-review.md",
+      "bytes": 2665,
+      "sha256": "ef127b29d4b8d2058fa2f7e26e0f2378a0c7ca56144f3e31db1a80343bd56d0a"
+    },
+    {
+      "path": "docs/14-sources.md",
+      "bytes": 4620,
+      "sha256": "97ba644d922a47adf7d3086e539a9fb8843e42f4bd0a39f21cdc6ba586313132"
+    },
+    {
+      "path": "docs/15-release-acceptance.md",
+      "bytes": 2943,
+      "sha256": "ca2654fe1ff81d9db3885e94bff3d07a956160e0823170cf23d3f1aa5f86d377"
+    },
+    {
+      "path": "docs/16-xhs-screening-spec.md",
+      "bytes": 7648,
+      "sha256": "eaae87c298c5813ad489d5b5d2dd2355fa7ef9639756f393268dffad47a1f004"
+    },
+    {
+      "path": "docs/architecture/xhs-poc-analysis.md",
+      "bytes": 1988,
+      "sha256": "9d74dbcee3e0c221bfd63a60073d915aa8eb98748d140fdf499918cc73cd90b7"
+    },
+    {
+      "path": "docs/architecture/xhs-poc-design.md",
+      "bytes": 3782,
+      "sha256": "7690a3dfe331027529e9ae6301cde96db45b8e3d0c268c46d289f431973e1c15"
+    },
+    {
+      "path": "docs/tasks/T00-foundation.md",
+      "bytes": 2655,
+      "sha256": "3c0f975d17c6540eb64944465bcadd4ca5ef7c923466d500a639e27a1d223827"
+    },
+    {
+      "path": "docs/tasks/T01-contracts-mocks.md",
+      "bytes": 2911,
+      "sha256": "4b22cd152735b0d7e9c6f81f238c9eb834eda1b1d4016746812f5dd35bb29804"
+    },
+    {
+      "path": "docs/tasks/T02-xhs-sidecar.md",
+      "bytes": 2871,
+      "sha256": "15b6f312596be868986f7ef441720fa4476d4b433a87e5a505050a83f828c03f"
+    },
+    {
+      "path": "docs/tasks/T03-login.md",
+      "bytes": 3117,
+      "sha256": "72b1db15c68c51b85e865961c44f8d196136e6692c7491a760ecc2dca184a2d4"
+    },
+    {
+      "path": "docs/tasks/T04-research.md",
+      "bytes": 3729,
+      "sha256": "77445920de925471d7c935c81b608a5e4fad180a6f7760b50d4604d594ca364f"
+    },
+    {
+      "path": "docs/tasks/T05-rag.md",
+      "bytes": 2869,
+      "sha256": "53c8cf22623af1e8cd85e6424b64ae87ce9c06b81c5915c5fd074813fd338efc"
+    },
+    {
+      "path": "docs/tasks/T06-overview-agent.md",
+      "bytes": 2764,
+      "sha256": "78b63258e61e8bfd56bde083b8a58d22e76d6f9c59af76ac3e191ae004ea0e31"
+    },
+    {
+      "path": "docs/tasks/T07-planning.md",
+      "bytes": 2808,
+      "sha256": "a83a3d1ac6d9444b6e5f773e5035ab12c17717b4e4a1fbe7c490a9986d84d698"
+    },
+    {
+      "path": "docs/tasks/T08-map-quotes.md",
+      "bytes": 2779,
+      "sha256": "ee5a70c7c57945037e273edf7f98e4e7ac8b8b3c1affc38aec438e89772c9d63"
+    },
+    {
+      "path": "docs/tasks/T09-workbench.md",
+      "bytes": 2596,
+      "sha256": "31642c7223228e5e7ee986d21eee877d20514cb3fd4abd4c1b0f5595ea38dd6d"
+    },
+    {
+      "path": "docs/tasks/T10-quality-live.md",
+      "bytes": 2666,
+      "sha256": "b936f8b55bba04fda552a8714a90763c1a9d3771f444ed01f0818817cf9a4b7c"
+    },
+    {
+      "path": "docs/tasks/T11-release.md",
+      "bytes": 2624,
+      "sha256": "d9b19f644eb952fc7dfc945aafd9353a2f9d84c49797431e75534ce77cb648af"
+    },
+    {
+      "path": "fixtures/auth-session.json",
+      "bytes": 241,
+      "sha256": "53a0ac14e3646cb6b1ccc1f9402bdab36aed88b5643f4849eac3b818cb38412c"
+    },
+    {
+      "path": "fixtures/budget-case.json",
+      "bytes": 2613,
+      "sha256": "a9091e22004894714ad1293742eb6cd0176ef9ed74d45541fff400773259ace6"
+    },
+    {
+      "path": "fixtures/choice-patch.json",
+      "bytes": 157,
+      "sha256": "ae8da2e5be6739208867709d92518e5b71bca234711f9702ac6e7f8c5bf7fe01"
+    },
+    {
+      "path": "fixtures/evidence.json",
+      "bytes": 635,
+      "sha256": "4bed4be956b164de58b169427a508ce86a14c4b686589b3f8e54f92bd71aeee7"
+    },
+    {
+      "path": "fixtures/fetch-result.json",
+      "bytes": 1158,
+      "sha256": "36cf728b758c85bbda284961d01e268ce7b8e16d955010009a7e833da5feb7ed"
+    },
+    {
+      "path": "fixtures/itinerary-case.json",
+      "bytes": 795,
+      "sha256": "2f95a8f9062cbf25e8924ab0c299d213846d61f37be09899f08baeeb44d7a4ad"
+    },
+    {
+      "path": "fixtures/overview.json",
+      "bytes": 2136,
+      "sha256": "e16eb1c5f9194e6b307659724cc291083c1f8508d07f19ddd8207e6d19fa086b"
+    },
+    {
+      "path": "fixtures/policies.json",
+      "bytes": 969,
+      "sha256": "7e5a89302c7fcb79db0d7aef105747ff7a4b539440887a11502919c0a7e34bcc"
+    },
+    {
+      "path": "fixtures/research-pool.json",
+      "bytes": 8620,
+      "sha256": "a07e4a1986d0e5583047284efc18c7e0200e8654d620360d3edca1d0d02a9bc0"
+    },
+    {
+      "path": "fixtures/research-scenarios.json",
+      "bytes": 12302,
+      "sha256": "60a8e2247c8cd5f5a04914485f8f0e325b3aac863cbaeb04418c15dd1cf7f8c6"
+    },
+    {
+      "path": "fixtures/schema-cases.json",
+      "bytes": 6099,
+      "sha256": "5df1e33415f4d83b9dde9907cc505b591019802f0217ecccf16371cda39c0d6f"
+    },
+    {
+      "path": "fixtures/trip-intent.json",
+      "bytes": 230,
+      "sha256": "182a6c7f8cd9b8db380a9c5a76c54d0ebeba5d8d80c108cb941e5c6ab7d501d0"
+    },
+    {
+      "path": "prompts/extract-evidence.md",
+      "bytes": 866,
+      "sha256": "cc50764b849b8df155f92e0702382f7ca98a4e0082faf0bb96c83706f9b345a7"
+    },
+    {
+      "path": "prompts/overview.md",
+      "bytes": 1102,
+      "sha256": "e2055fae78bb1424b3ca9c0772e8ad79e341c19b43a7603f0a94b74fcdbb882f"
+    },
+    {
+      "path": "prompts/revise-plan.md",
+      "bytes": 745,
+      "sha256": "327860438f95689f7c9d888b6bdbb5e28b9c8a7d7ddef32b1cf02c607bfcc255"
+    },
+    {
+      "path": "reports/TEMPLATE-implementation.md",
+      "bytes": 890,
+      "sha256": "5a004352870e3eec6aa5f2563e823f213d2ea12b8e3e784ef8a2dd4d2c55da56"
+    },
+    {
+      "path": "reports/document-validation.json",
+      "bytes": 2726,
+      "sha256": "a5d8781775f4718001adbef27db139e83638781f8a8f64d78b48e34f7c37d5fa"
+    },
+    {
+      "path": "reports/document-validation.md",
+      "bytes": 2279,
+      "sha256": "47eaa2a3e2c9003a7bf8aba55501f5de57af679849239ad358379cc122b0115f"
+    },
+    {
+      "path": "reports/xhs-poc-smoke-test-TEMPLATE.md",
+      "bytes": 1133,
+      "sha256": "1daddfeab52447790134e707bd9cd0adf01eb16a160b8c2cd23853601f9aa610"
+    },
+    {
+      "path": "tools/requirements-docs.txt",
+      "bytes": 102,
+      "sha256": "cd8cea9a10bf844bcb16cecaa8a4e28e6fe7ab5db45f0d2f4fb9745f7c3662ed"
+    },
+    {
+      "path": "tools/validate_pack.py",
+      "bytes": 18029,
+      "sha256": "09a19843bc2978b56feefce2f213d748f9659e03b3b96020ba8df0ab18b0109a"
+    }
+  ]
+}

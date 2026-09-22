@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "observed_at": "2026-09-22",
+  "repository": "https://github.com/xpzouying/xiaohongshu-mcp",
+  "candidate_commit": "aad2a3d249a347859975ce3b76d3442c4a027780",
+  "commit_date": "2026-09-10T03:31:07Z",
+  "status": "SOURCE_ENTRYPOINTS_REVIEWED_NOT_LIVE_TESTED",
+  "approved_for_release": false,
+  "reviewed_paths": [
+    "routes.go",
+    "service.go (login-related portion)",
+    "login_session.go",
+    "handlers_api.go (login/search/detail portion)",
+    "xiaohongshu/search.go (entrypoint portion)",
+    "xiaohongshu/feed_detail.go (entrypoint portion)"
+  ],
+  "artifact_sha256": null,
+  "patchset_sha256": null,
+  "build_platform": null,
+  "required_patches": [
+    "remove_write_routes",
+    "disable_mcp_endpoint",
+    "loopback_binding",
+    "bearer_auth",
+    "source_log_redaction",
+    "bounded_retry",
+    "structured_access_errors",
+    "cancellation",
+    "network_observation"
+  ],
+  "official_xhs_oauth_scope_status": "UNKNOWN_OFFICIAL_PAGE_NOT_RETRIEVED",
+  "notes": "Lock is an observed candidate, not proof of full review, authorization, stability or a successful build."
+}
