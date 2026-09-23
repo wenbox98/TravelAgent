@@ -17,9 +17,13 @@ T04.1 详情窗口 181 个请求、总体 587，bytes=null；历史失败原因�
 
 [T05 实测报告](../reports/T05-xhs-research-loop-smoke.md) 记录 581 项离线测试以及唯一一轮 1 search / 2 detail：复用 profile，取得两篇 PARTIAL_TEXT 和 6 条本地低置信来源摘取；相同请求与 5 天/不自驾增量请求均 search/detail=0/0。浏览器关闭后 context event 增量为 0，结束保留 profile、自有浏览器/sidecar 0。
 
-TEXT_FIRST 阻止 224 次图片加载，但 SEARCH=236、DETAIL=276/285，高于历史 173/181，未证明请求量减少；默认继续 OBSERVE_ONLY。真实 SourcePolicy UNKNOWN 仅允许内存临时研究；没有调用外部模型或验证真实持久化资料库。实测后仅离线修复缓存报告的不确定性提示，未追加实站。
+TEXT_FIRST 阻止 224 次图片加载，SEARCH=236、DETAIL=276/285 与历史 173/181 都是请求事件，其中包含被阻断的尝试，不能解释为实际出网数量。当前仅能说尚未证明减少实际网络成本，默认继续 OBSERVE_ONLY。真实 SourcePolicy UNKNOWN 仅允许内存临时研究；没有调用外部模型或验证真实持久化资料库。实测后仅离线修复缓存报告的不确定性提示，未追加实站。
 
 按下表现有定义，**G0 本机受控只读数据通道通过**（正常登录生命周期、有限搜索正文、只读审查和用途边界已有证据），范围不外推到完整站点兼容性。**G1 仍 NOT PASS**：低置信摘取、正文/图片/旅行时间不完整，真实持久缓存和充分材料的模型质量未验证。因此不宣称 D1/D2、完整产品或发布通过。
+
+## T06 研究质量与持久缓存
+
+新增 SQLite 跨进程缓存、grounding/时效/来源与冲突/coverage 和合成 benchmark，见 [T06 报告](../reports/T06-g1-research-quality.md)。没有真实 LLM 配置，按本阶段规则没有启动真实 smoke，状态 **G1_LIVE_LLM_BLOCKED**。合成质量与 0 XHS 缓存验证不能替代真实来源研究质量；G1 NOT PASS，G0 仍保留既有 PASS，不扩展到 G2–G4。
 
 ## T03 独立交付门槛
 

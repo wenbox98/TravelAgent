@@ -113,7 +113,13 @@ T04 有限技术 Smoke 可以结束；这不自动通过 G0 完整发布门禁�
 
 详见 [实现设计与来源用途边界](docs/architecture/t05-research-loop.md) 和 [T05 执行报告](reports/T05-xhs-research-loop-smoke.md)。UNKNOWN 来源内容只在内存临时研究；没有模型配置时明确使用本地保守摘取，不冒充模型抽取或持久化缓存。历史阶段的停止要求不代表本次新授权阶段已经通过，实际状态以报告为准。
 
-本轮最终离线测试 581 PASS；真实 1 次 search、2 次 detail 取得 6 条低置信 PARTIAL_TEXT 证据，缓存和 5 天/不自驾增量复用均 0 访问。TEXT_FIRST 阻止 224 次图片加载，但请求事件为 SEARCH 236、DETAIL 276/285，高于历史参考，故默认继续 OBSERVE_ONLY。G0 本机受控只读数据通道通过，G1 研究质量未通过；真实 Evidence 只在内存，profile 保留，自有浏览器/sidecar 均已关闭。
+T05 最终离线测试 581 PASS；真实 1 次 search、2 次 detail 取得 6 条低置信 PARTIAL_TEXT 证据，缓存和 5 天/不自驾增量复用均 0 访问。TEXT_FIRST 阻止 224 次图片加载，请求事件 SEARCH 236、DETAIL 276/285 包含被阻断的尝试，不能代表实际出网数量。它尚未证明减少实际网络成本，默认继续 OBSERVE_ONLY。G0 本机受控只读数据通道通过，G1 研究质量未通过；T05 真实 Evidence 只在内存，profile 保留，自有浏览器/sidecar 均已关闭。
+
+## T06 研究质量与持久缓存
+
+新增 SQLite v4 研究约束、证据质量与报告元数据；缓存判断在登录前，跨进程复用和清除研究缓存均有离线验收。正文先 canonicalize，再做有块定位的严格抽取，按来源/条件去重、时效、冲突与 Q1–Q4 coverage 形成可追溯的候选方向。只处理研究材料，不生成最终详细行程。
+
+本机没有真实 LLM 配置，本轮真实状态为 **G1_LIVE_LLM_BLOCKED，G1 未通过**；没有新增小红书访问。合成 benchmark 与示例是离线验收，不是真实川西攻略。用法和数据边界见 [T06 设计](docs/architecture/t06-research-quality.md)，结果见 [T06 报告](reports/T06-g1-research-quality.md)；G0 保留此前 PASS。
 
 ## 离线开发启动（T00/T01）
 
