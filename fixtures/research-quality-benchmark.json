@@ -1,0 +1,57 @@
+{
+  "is_synthetic": true,
+  "description": "虚构地区与作者材料，仅用于离线研究质量验收，不是实际旅行建议。travel_occurred_at 是夹具明确给出的作者元信息，不由发布日期推断。",
+  "assessed_at": "2026-09-24T00:00:00+00:00",
+  "notes": [
+    {
+      "source_id": "synthetic:q06-a",
+      "title": "合成地区青岚环线记录",
+      "published_at": "2026-09-20T00:00:00+00:00",
+      "travel_occurred_at": "2026-09-01T00:00:00+00:00",
+      "blocks": [
+        {"topic": "ROUTE", "text": "青岚环线：经过雾谷和镜湖。"},
+        {"topic": "EXPERIENCE", "text": "青岚环线：以湖畔步行为主。"},
+        {"topic": "DURATION", "text": "青岚环线：作者这次安排五天。"},
+        {"topic": "TRANSPORT", "text": "青岚环线：作者提醒出发路段需要包车。"}
+      ]
+    },
+    {
+      "source_id": "synthetic:q06-b",
+      "title": "合成地区苍原区域记录",
+      "published_at": "2026-09-21T00:00:00+00:00",
+      "travel_occurred_at": "2026-09-10T00:00:00+00:00",
+      "blocks": [
+        {"topic": "ROUTE", "text": "苍原区域：包含溪台和草甸。"},
+        {"topic": "EXPERIENCE", "text": "苍原区域：记录的体验是草甸露营。"},
+        {"topic": "DURATION", "text": "苍原区域：此次停留两天。"},
+        {"topic": "TRANSPORT", "text": "苍原区域：行前需要核对班车安排。"}
+      ]
+    }
+  ],
+  "cases": [
+    {"id":"BQ01","scenario":"multi_route","purpose":"多路线材料不固定补造第三方案","expect":{"direction_count":2,"all_supported":true}},
+    {"id":"BQ02","scenario":"duration_conflict","purpose":"五天宽松与五天很赶保持冲突","expect":{"conflict_count":1,"duration_coverage":"PARTIAL","averaged_claim":false}},
+    {"id":"BQ03","scenario":"within_source_duplicate","purpose":"五天与5天不重复计票","expect":{"evidence_count":1,"source_count":1}},
+    {"id":"BQ04","scenario":"missing_duration","purpose":"缺时长明确缺口","expect":{"duration_coverage":"UNSUPPORTED","duration_gap":true}},
+    {"id":"BQ05","scenario":"image_required","purpose":"路线见图不猜图片","expect":{"image_gap":true,"evidence_count":0}},
+    {"id":"BQ06","scenario":"transport_conflict","purpose":"有班车与无班车不静默合并","expect":{"conflict_count":1,"limitation_coverage":"PARTIAL"}},
+    {"id":"BQ07","scenario":"single_source","purpose":"单来源不概括为充分研究","expect":{"source_gap":true,"sufficient":false}},
+    {"id":"BQ08","scenario":"five_days","purpose":"追加五天保留原证据","expect":{"days_gap":true,"retained_sources":2}},
+    {"id":"BQ09","scenario":"no_self_drive","purpose":"追加不自驾不映射为来源事实","expect":{"transport_gap":true,"source_conditions_invented":false}},
+    {"id":"BQ10","scenario":"cache_hit","purpose":"正预算仍先缓存判断且不登录","expect":{"stop_reason":"EVIDENCE_SUFFICIENT","connect":0,"search":0,"detail":0}},
+    {"id":"BQ11","scenario":"hallucinated_claim","purpose":"正文外知识拒绝成为证据","expect":{"evidence_count":0,"rejected_claims":1}},
+    {"id":"BQ12","scenario":"invalid_block","purpose":"不存在的正文块不能生成正常证据","expect":{"evidence_count":0,"rejected_claims":1}},
+    {"id":"BQ13","scenario":"publication_is_not_travel","purpose":"发布日期不冒充旅行日期","expect":{"publication_preserved":true,"travel_unknown":true}},
+    {"id":"BQ14","scenario":"dom_overlap","purpose":"state包含DOM时不虚假升级全文","expect":{"canonical_relation":"STATE_CONTAINS_DOM","completeness":"PARTIAL_TEXT"}},
+    {"id":"BQ15","scenario":"dom_conflict","purpose":"正文冲突降级并提示缺口","expect":{"canonical_relation":"CONFLICT","confidence":"LOW","conflict_gap":true}},
+    {"id":"BQ16","scenario":"candidate_diversity","purpose":"前两篇避免相似五天模板","expect":{"first_two":["synthetic:rank-a","synthetic:rank-c"]}},
+    {"id":"BQ17","scenario":"selector_fallback","purpose":"模型排序失败仍有确定性结果","expect":{"selector_mode":"DETERMINISTIC_FALLBACK","candidate_count":3}},
+    {"id":"BQ18","scenario":"zero_budget","purpose":"没有材料且预算0保留gap不登录","expect":{"stop_reason":"BUDGET_EXHAUSTED","has_gap":true,"connect":0,"search":0,"detail":0}},
+    {"id":"BQ19","scenario":"dynamic_price","purpose":"当前价格必须重核","expect":{"freshness_category":"HIGHLY_DYNAMIC","freshness_status":"CURRENT_UNVERIFIED"}},
+    {"id":"BQ20","scenario":"stale_experience","purpose":"旧稳定材料不能当当前充分依据","expect":{"freshness_status":"STALE","route_coverage":"PARTIAL"}},
+    {"id":"BQ21","scenario":"unknown_rights","purpose":"未核实来源不调用模型或存派生证据","expect":{"extraction_mode":"POLICY_BLOCKED","provider_called":false,"storage_blocked":true}},
+    {"id":"BQ22","scenario":"clear_cache","purpose":"资料清理后没有报告和Evidence残留","expect":{"source_count_after":0,"report_after":false}},
+    {"id":"BQ23","scenario":"cross_source_duplicate","purpose":"相同摘句保留不同source但不虚构独立性","expect":{"evidence_count":2,"cluster_count":1,"confirmed_independent_sources":0}},
+    {"id":"BQ24","scenario":"combined_constraints","purpose":"5天与不自驾离线增量且Evidence不清空","expect":{"days_gap":true,"transport_gap":true,"retained_sources":2,"connect":0,"search":0,"detail":0}}
+  ]
+}
