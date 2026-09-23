@@ -6,17 +6,33 @@ T02 经用户授权选择自有 Python sidecar，upstream 只作固定 reference
 
 T02 实现 start/get_session/close、会话复用/撤销、源头日志允许字段、筛选状态、保守完整度、私有 locator、NOT_MEASURED/SIMULATED 网络模型。历史 T02 没有真实 Chrome 启动器；当前 T03 扩展范围见下节。下文完整研究流程仍是后续设计，没有 TravelResearchService、RAG 或预算/早停循环。
 
-T02 独立内部契约不冒充 T01 FetchResult/Evidence；T03 显式扩展登录契约。未观测指标为 NOT_MEASURED/null，Fake 窗口为 SIMULATED；未来 COMPLETE/PARTIAL 真实覆盖状态需显式扩展契约。T03 登录身份/generation 不使合成 locator 获得真实读取能力，locator 仍只用于 offline Fake，TTL 为 UNKNOWN。
+T02 独立内部契约不冒充 T01 FetchResult/Evidence；T03 显式扩展登录契约。未观测指标为 NOT_MEASURED/null，Fake 窗口为 SIMULATED；未来 COMPLETE/PARTIAL 真实覆盖状态需显式扩展契约。历史 T03 登录身份/generation 本身不使合成 locator 获得真实读取能力，合成 locator 仍只用于 offline Fake，TTL 为 UNKNOWN；T04 另从当前正常页面取得私有访问定位材料。
 
-## T03 当前实施范围
+## T03 已完成范围与历史边界
 
 复用现有 BrowserManager 与 sidecar，只新增标准 Playwright 普通浏览器、专用持久 profile、登录状态机和最小 CLI。默认模式 `offline` 保留 Fake；`TRAVEL_XHS_SIDECAR_MODE=login` 显式选择真实 backend，服务启动仍不打开浏览器。login 模式仅 connect 可以启动并导航；旧 POST browser/session 与 search/detail 返回 409，不提供旁路。无 Electron GUI、二维码图片转发、真实读取或研究功能。
 
 profile 由 platformdirs 定位系统应用数据目录，使用 `TravelAgent/xhs/browser-profile`；开发测试根目录覆盖仍固定 `browser-profile` 子目录并检查所有权及路径，拒绝 Git 目录/祖先、不安全链接与 UNC 共享。浏览器原生持久 context 管理 Cookie/站点存储；不再使用独立 Cookie 导出/监听/原子替换方案。取消/关闭先失效 generation，断开确认 browser 已关闭后才能清 profile，防止旧写入者复活本地数据。
 
-具体路由、启动配置与离线命令见 [sidecar README](../../integrations/xhs-sidecar/README.md)。真实浏览器启动、账号与页面行为尚未实测；本轮离线验证和提交完成后停止，等待用户确认人工登录 smoke，不进入 T04。
+具体路由、启动配置与离线命令见 [sidecar README](../../integrations/xhs-sidecar/README.md)。历史初次 T03 离线交付时，真实浏览器启动、账号与页面行为尚未实测，并按当时要求停止等待人工登录。后续 [T03.8 验收](../../reports/T03.8-implementation.md) 已通过本机正常登录、重启复用和断开清理，最终 T03 基线为 `ccd329056794d3f29549ff0383f6236ce6373f36`；初次报告的 NOT_RUN 不再代表当前登录状态。
 
-以下保留设计审查的整体目标，upstream 参考基线为 `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`。事实依据见 [上游分析](xhs-poc-analysis.md)，T02 历史状态见 [T02 报告](../../reports/T02-implementation.md)，T03 范围以上节及 [T03 实现报告](../../reports/T03-implementation.md) 为准。
+## T04 当前受限读取范围
+
+本轮按用户新指令执行真实搜索与详情 Smoke，完整 TravelResearchService、RAG、正式 CandidateSelector、Evidence Gap 循环和攻略生成继续保留在未来阶段。独立入口为 `scripts/xhs_read_smoke.py --live`；启动只建立本地状态，显式 `connect` 才以 T03 普通 Playwright Chromium 配置打开官方页面，之后复用同一 BrowserSession。需要登录时由用户在官方窗口正常完成，不能转交 Cookie、token、JSON 或二维码。
+
+CLI 接受 `connect/status/search/detail 0/detail 1/snapshot/quit`。固定 query 为 `成都 川西 国庆 攻略`，硬上限 `max_search_operations=1`、`max_feed_details=2`；该实验预算比后文完整 PoC 设计更严格，不是平台阈值。派发前记账，失败消耗额度，同 source 的成功和失败都防重复读取；已有 `.local/t04-smoke/summary.json` 中读取额度非零时拒绝以重启清零，不自动 fallback。`detail 0/1` 是按标题地区/路线词、正常图文、可用 locator、不同标题确定性选择后的顺序；第一篇足够时不读第二篇，不按最高点赞机械取两篇。
+
+读取仅限当前正常搜索首批和详情初始页提供的字段；不翻页、滚动加载、展开评论、分析图片、下载视频或写入平台。稳定 note ID 构成 SourceIdentity，带 token 的访问链接和 AccessLocator 留在本机私有内存，TTL 为 UNKNOWN。字段标 OBSERVED/DERIVED/NOT_AVAILABLE；发布时间不等于旅行发生时间；加载成功和正文非空不证明 FULL_TEXT，无法证明完整时保持 PARTIAL_TEXT，图片为 IMAGE_NOT_ANALYZED。
+
+此 CLI 使用独立内部 `live_smoke` 摘要，不是 HTTP mode。HTTP 内部契约仍为 0.3.0 的 offline/login，login 的 search/detail 路由继续拒绝真实读取；没有偷偷扩展 T01 FetchResult/Evidence 或现有 NetworkSnapshot。唯一运行摘要为 Git 忽略目录中的 `.local/t04-smoke/summary.json`，只含匿名来源、字段存在性、数量、完整度与统计；正常 `quit` 关闭浏览器但保留 profile，不执行 disconnect。
+
+T04 LiveNetworkObserver 被动订阅正常 context request/response/requestfailed/requestfinished 事件；scope=`context_events_since_attach`，不是全部浏览器/OS 流量，attach 前缺测不填 0。`browser_navigation` 按主 frame 导航请求事件计，业务操作次数另计；document/xhr_fetch/image/media/other 分列，total_bytes 始终 null。LOGIN/SEARCH/DETAIL_1/DETAIL_2 按请求发起时归属，晚到响应仍更新原窗口，OUTSIDE_WINDOW 保留阶段间流量，TOTAL 保留总体。用途规则为 DERIVED，未知 XHR 保留 unknown；不保存完整 URL/query、header 或 body，不为降低数字阻断资源。官方主域及子域 document/xhr/fetch 的 401/403/429 会锁存 ACCESS_RESTRICTED/RATE_LIMITED，入口在导航前后及提交前检查并停止；页面验证/登录失效同样不能绕过。
+
+本次真实 T04 Smoke 总体 PARTIAL：同一 BrowserSession 正常登录进入 AUTHENTICATED，1 次 `成都 川西 国庆 攻略` 搜索获得 20 个去重候选，搜索技术验证 PASS。1 次 detail 已消耗预算，但返回 UNEXPECTED_PAGE，未解析正文，因此 detail FAIL、正文完整度未验证。用户确认浏览器显示正常图文页，不能替代程序数据通道验收。路由别名校验不一致仅作离线修复，失败实因未确证、未实站复测；没有打开第二篇。CLI 已正常 quit，浏览器关闭、profile 保留。
+
+实际 context 请求：SEARCH 173，DETAIL_1 失败前窗口 86（不是完整详情成本），TOTAL 725；主 frame 导航请求 5，字节数未测，默认评论相关请求 1 个标 DERIVED。本次观测不能证明低请求研究策略有效；详情与 G0 仍未通过。完整状态以 [T04 Smoke 报告](../../reports/T04-xhs-read-smoke-test.md) 为准，本轮停止，不进入 T05。
+
+以下保留设计审查的整体目标，不能视为本轮全部实现范围。upstream 参考基线为 `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`，仍是 reference-only，没有复制源码或运行 Go 服务。事实依据见 [上游分析](xhs-poc-analysis.md)，历史阶段见 [T02 报告](../../reports/T02-implementation.md)、[T03 初次报告](../../reports/T03-implementation.md)，当前实际边界以上方 T03.8/T04 段落为准。
 
 **整体目标为 wrapper + 自有只读sidecar + 普通浏览器。** 审查时的upstream patch方案在T02改为独立实现，内部控制要求仍有效。原upstream默认CloakBrowser指纹路径不满足约束，WithStealthJS(false)也未关闭该能力。禁止验证码绕过、指纹伪装、stealth、代理池和IP/账号轮换；遇验证、明确限流或拒绝访问停止。
 
@@ -60,7 +76,7 @@ LLM 经 `LLMProvider` 抽象，至少提供 `MockLLMProvider`；真实模型通�
 
 上述最低字段是概念名称，实际 API 使用 `EvidenceBundle` + `EvidenceClaim`：`claim→claims[].text`、`claim_type→claims[].kind`、`source_locator→claims[].locator`、`published_at→source_published_at`、`travel_time→travel_occurred_at`、`retrieved_at→fetched_at`、`content_completeness→completeness`、`confidence→claims[].confidence`。`source_type/source_title/destination/applicable_conditions` 在 bundle 上。未知置信度为 null；不把模型自评分当完成条件。元信息不得生成正文结论。
 
-统计概念 `research_id→research_session_id`、`search_operations→search_ops`、`detail_operations→detail_ops`；报告序列化时显式映射。`stop_reason/insufficient_evidence` 和候选筛选审计仍由 T04 增加严格契约与测试，T01 未实现研究循环，不能宣称 XPOC 场景通过。
+统计概念 `research_id→research_session_id`、`search_operations→search_ops`、`detail_operations→detail_ops`；未来研究报告序列化时显式映射。研究级 `stop_reason/insufficient_evidence` 和正式候选筛选审计留待后续明确任务扩展严格契约与测试，本轮 T04 受限 Smoke 不实现该循环；不能宣称 XPOC 场景通过。
 
 首轮 3/6、补查 2/4、会话累计 5/10，均取自 defaults；第二轮复用 Evidence，不自动重置会话。SQLite v1 通过显式 v2 迁移升级，保留既有旅行与预算记录。
 
@@ -95,7 +111,7 @@ status 只读缓存，不核实 Cookie、不访问 browser/page/network。AUTHEN
 10. 预算耗尽 → insufficient_evidence，不继续访问。
 
 ## Smoke test
-T03 本轮不执行真实测试。离线门槛全部通过、完成提交并向用户汇报后停止；用户另行确认的人工 smoke 只验证普通窗口、正常登录、关闭、重启待核实、显式会话复用和断开清理，禁止 search/detail 和平台写操作。
+历史 T03 初次离线交付不执行真实测试，完成当时门槛后停止；后续另行授权的 T03.8 人工 smoke 验证普通窗口、正常登录、关闭、重启待核实、显式会话复用和断开清理，该历史登录专项禁止 search/detail 和平台写操作。当前 T04 的受限读取授权与实际结果见本文前部，不能混同阶段范围。
 
 旅行研究 smoke 属于后续另行授权阶段，届时才可输入“国庆从成都去川西玩”，按预算记录搜索/详情、网络覆盖、Evidence 与完整度。不能以 T03 的登录授权执行研究；不为基线额外抓 Top-10，不主动触发安全验证，不保存登录材料、账号截图或真实原文数据集。
 
@@ -136,7 +152,7 @@ DELETE cookies不等于该流程。revision防旧计划覆盖，generation防撤
 
 ## 适配协议与定位能力
 
-仅允许 [03](../03-xhs-access-login.md) 的路径白名单；登录路径只由SessionManager调用，模型只接触本应用业务工具。
+以下表格保留 upstream 协议参考和未来适配要求，不表示 T04 实际调用这些 Go HTTP 接口。T04 通过自有普通浏览器读取正常页面，且不把底层读取能力暴露给模型。未来业务工具仅允许 [03](../03-xhs-access-login.md) 的边界，登录路径由会话管理控制。
 
 | 操作 | upstream协议 | 应用处理 |
 |---|---|---|
@@ -182,7 +198,9 @@ query键采用account_scope、normalized_query、filters、purpose、temporal_sc
 
 无新信息触发重新评估或PARTIAL，不等于缺口解决；取消保持取消，认证/验证保持暂停，不能用HTTP成功代替研究完成。预算、权限和早停由确定性代码控制，外部正文不是工具调用指令。
 
-## 新增观测口径（待契约同步）
+## 完整研究观测口径（未来契约设计）
+
+本节是研究系统的概念口径。T04 已实现上方独立 context 事件快照，不使用下表的 COMPLETE/PARTIAL/UNAVAILABLE 概念作为现有 HTTP 枚举，也不宣称覆盖全部 HTTP 流量。
 
 | 指标 | 口径 |
 |---|---|
@@ -217,8 +235,8 @@ stop_reason、insufficient_evidence、筛选结果、事件、附加错误/指�
 
 以上保留整体 PoC 验收设计。T02/T03 已覆盖的部分以各阶段实际报告为准，T03-01～T03-18 另行登记并执行；未覆盖的研究行为不能记为 PASS。文档/schema 检查不替代实机验收；真实节省率未测得，30% 仍仅为离线目标。
 
-## 下一阶段与停止边界
+## 当前阶段与停止边界
 
-T02 已完成；当前 T03 仅完成登录生命周期代码和离线验收。提交后给出可复核报告与 smoke 命令，等待用户另行确认人工登录测试。真实登录未执行为 NOT_RUN；真实搜索、详情、研究和 G0/G1 仍未通过。
+历史 T03 初次交付的停止要求是：完成离线登录生命周期后等待用户确认，不自动打开真实浏览器、不进入 T04。该阶段要求已由后续显式授权的 T03.8 真实验收推进，T03 最终提交为 `ccd329056794d3f29549ff0383f6236ce6373f36`。
 
-**本轮不得自动打开真实浏览器或小红书，不进入 T04。**
+当前用户授权的 T04 已执行 1 次搜索与 1 次详情；搜索技术验证 PASS，详情因 UNEXPECTED_PAGE 未取得正文，整体 PARTIAL。CLI 已正常关闭并保留 profile，没有增加搜索额度或实站复测离线修复。G0/G1 仍未通过。**本轮停止，等待确认，不进入 T05 或完整研究开发。**

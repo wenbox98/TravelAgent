@@ -12,7 +12,7 @@
 1. 将此包导入 `wenbox98/TravelAgent` 根目录。导入前先检查远端和本地内容，不覆盖已有文件；成功导入后，在 Codex 中选择该仓库即可读取文档，无需再下载聊天附件。
 2. 在 Codex 中打开该目录，把 [CODEX_START.md](CODEX_START.md) 的启动指令整段发给它。
 3. 首次完成 T00、T01 后逐个执行任务，不要求一次生成全部系统。每个任务的产物和验收见 [任务总表](docs/12-task-plan.md)。
-4. 原包只执行过文档校验；当前 T00/T01 的离线实现与实际测试见 [T00 报告](reports/T00-implementation.md)、[T01 报告](reports/T01-implementation.md)。真实小红书登录、读取、调用量和 Windows 发行安装仍为 **NOT_RUN**，不能引用为已通过。
+4. 原包历史上只执行过文档校验；T00/T01 离线实现见 [T00 报告](reports/T00-implementation.md)、[T01 报告](reports/T01-implementation.md)。后续本机登录专项已由 [T03.8 报告](reports/T03.8-implementation.md) 验收；真实读取、访问成本和 Windows 发行安装不能据此视为通过，T04 当前状态见下文。
 
 没有真实账号、Windows 或 API 凭证时，Codex 应完成离线可验证部分，准确记录阻塞项，不得把 mock 结果写成实测。
 
@@ -73,7 +73,7 @@
 - 第一阶段以 CLI 验证登录→搜索→筛选→精读→Evidence→SQLite 复用→增量补搜；Electron/完整工作台继续保留在后续阶段。
 - 新增 XPOC01～XPOC10 验收设计：缓存 0 请求、预算上限、提前停止、去重、增量补搜、登录失效、验证暂停、摘要边界、revision 防覆盖、预算耗尽。
 
-**v1.1 仍是开发规格包，不代表已经完成真实小红书登录或实测。**
+**上述 v1.1 变更说明是历史开发规格，不能单独作为实测证据；后续各阶段的真实状态以对应报告为准。**
 
 ## T02只读sidecar离线基础
 
@@ -85,7 +85,19 @@ T02 增加独立[只读 sidecar 基础](integrations/xhs-sidecar/README.md)：Fa
 
 `GET /v1/login/status` 只读本地快照；profile 存在只标 SESSION_PRESENT_UNVERIFIED。generation 拒绝取消/断开后的晚到结果；cancel 和关闭保留 profile，disconnect 关闭后清理。验证要求暂停，手工处理后显式 resume 同页继续。login 模式拒绝 search/detail 和旧浏览器 POST 入口。
 
-命令、launch 参数与 profile 边界见 [sidecar README](integrations/xhs-sidecar/README.md)。初次离线交付见 [T03 实现报告](reports/T03-implementation.md)；后续经用户授权完成登录识别修复、200 项离线测试及本机真实登录/重启复用/断开清理，执行证据见 [T03.8 验收报告](reports/T03.8-implementation.md)。**T03 登录专项通过并停止，不进入 T04。** 搜索、详情和研究尚未验证，G0 整体仍未通过。
+命令、launch 参数与 profile 边界见 [sidecar README](integrations/xhs-sidecar/README.md)。初次离线交付见 [T03 实现报告](reports/T03-implementation.md)；后续经用户授权完成登录识别修复、200 项离线测试及本机真实登录/重启复用/断开清理，执行证据见 [T03.8 验收报告](reports/T03.8-implementation.md)。**T03 登录专项已通过，最终提交为 `ccd329056794d3f29549ff0383f6236ce6373f36`。** 当时停止于 T03；本轮经用户新授权进入下面的 T04，G0 整体仍未通过。
+
+## T04 真实读取 Smoke（PARTIAL）
+
+T04 仅增加独立人工 CLI `.venv/Scripts/python.exe scripts/xhs_read_smoke.py --live`。启动不打开浏览器，输入 `connect` 后才用 T03 相同的普通 Chromium、专用 profile 和同一个 BrowserSession 正常登录。命令为 `connect/status/search/detail 0/detail 1/snapshot/quit`；`quit` 正常关闭并保留 profile。
+
+一次固定搜索 `成都 川西 国庆 攻略`，最多两篇确定性选择的图文详情；第一篇足够技术验证时不读第二篇。不自动换词、翻页、滚动、展开评论、分析图片、下载视频或执行平台写操作，不实现完整研究服务、RAG 或最终攻略。预算在读取派发前记录，已有非零读取记录时拒绝通过重启重置预算。
+
+输出和 Git 忽略目录中的 `.local/t04-smoke/summary.json` 仅保存匿名字段存在性、数量、完整度与网络统计。网络 scope 为 `context_events_since_attach`，保留窗口外流量和晚到响应，未知字节数为 null；业务 search/detail 次数与真实请求数分列。现有 sidecar HTTP 契约仍是 0.3.0 的 offline/login，`live_smoke` 仅是内部摘要类型。边界和命令见 [sidecar README](integrations/xhs-sidecar/README.md)，结果见 [T04 Smoke 报告](reports/T04-xhs-read-smoke-test.md)。
+
+本次同一 BrowserSession 正常登录为 AUTHENTICATED，1 次上述搜索得到 20 个去重候选，搜索技术验证 PASS。1 次详情已消耗预算，但返回 UNEXPECTED_PAGE，未解析出正文；用户确认浏览器显示正常图文页，不能据此把自动 detail 判为成功。详情验证 FAIL，总体 PARTIAL；路由别名校验不一致仅完成离线修复，实际失败原因未确证，未进行真实复测。CLI 已正常退出并保留 profile。
+
+搜索窗口观测 173 个 context 请求，详情失败前窗口为 86 个（不代表完整详情成本），TOTAL 为 725 个、主 frame 导航请求 5 个；字节数未测。默认评论相关请求有 1 个，分类为 DERIVED，不代表主动展开评论。G0 仍未通过，本轮停止，不进入 T05。
 
 ## 离线开发启动（T00/T01）
 

@@ -3,7 +3,11 @@
 ## 当前状态
 本包创建时 G0～G4 均 NOT_RUN；仅文档完整性校验已运行，具体见 reports/document-validation.md。
 
-T02 新增离线基础验收：T02-01～T02-10 实际执行见 [T02 报告](../reports/T02-implementation.md)。T03 初次离线交付见 [T03 实现报告](../reports/T03-implementation.md)；后续授权的登录识别修复、200 项离线测试、本机 Chromium 人工登录/重启复用/断开清理均通过，实际结果见 [T03.8 验收报告](../reports/T03.8-implementation.md)。**T03 登录专项通过，G0 整体仍未通过**；真实 search/detail 尚未执行。不能把本阶段成功称为完整小红书集成可用或 D1 研究预览版。
+T02 新增离线基础验收：T02-01～T02-10 实际执行见 [T02 报告](../reports/T02-implementation.md)。T03 初次离线交付见 [T03 实现报告](../reports/T03-implementation.md)；后续授权的登录识别修复、200 项离线测试、本机 Chromium 人工登录/重启复用/断开清理均通过，实际结果见 [T03.8 验收报告](../reports/T03.8-implementation.md)。T03 最终基线为 `ccd329056794d3f29549ff0383f6236ce6373f36`。**T03 登录专项通过，G0 整体仍未通过**；不能把登录成功称为完整小红书集成可用或 D1 研究预览版。
+
+后续授权的 [T04 Smoke](../reports/T04-xhs-read-smoke-test.md) 结果为 PARTIAL：同一 BrowserSession 正常登录 AUTHENTICATED；1 次 `成都 川西 国庆 攻略` 搜索得到 20 个去重候选，search PASS。1 次 detail 消耗预算后返回 UNEXPECTED_PAGE，未解析正文，detail FAIL；用户确认正常图文页不能替代自动读取通过。路由别名校验只做离线修复，实因未确证且无实站复测。CLI 已正常 quit 并保留 profile，详情正文和 G0 仍未通过，不进入 T05。
+
+本次网络观测只覆盖 context 事件：SEARCH 173，DETAIL_1 失败前窗口 86（非完整成本），TOTAL 725，主 frame 导航请求 5，字节数未测；默认评论相关请求 1 个属于 DERIVED 分类。该观测不是完整浏览器流量，也不验证低请求研究策略。
 
 ## T03 独立交付门槛
 
@@ -13,7 +17,7 @@ T03.8 补充 T03-19～T03-26：多信号保守判定、验证优先、身份可�
 
 “本地保存 profile”只支持 SESSION_PRESENT_UNVERIFIED，不能据此通过 AUTHENTICATED 门槛。`login_status_external_requests=0` 只证明本地状态查询不触网，不能当作 connect 总网络量；真实全浏览器统计缺测保持 null。
 
-初次 T03 离线交付后已停止；后续用户明确授权的 T03.8 最小人工 smoke 已验证普通浏览器、正常登录、关闭/重启、显式复用和 disconnect 清理。**本次提交并汇报后停止，不进入 T04。** 搜索、详情、研究和平台写操作不在本次范围内。该 smoke 不能替代 G0 的后续只读数据通道与 G1 研究门槛。
+初次 T03 离线交付后已停止；后续用户明确授权的 T03.8 最小人工 smoke 已验证普通浏览器、正常登录、关闭/重启、显式复用和 disconnect 清理。该历史阶段要求“提交并汇报后停止，不进入 T04”，当时搜索、详情、研究和平台写操作不在范围内。后来 T04 经新的明确授权执行，实际结果见上方当前状态；T03 smoke 本身仍不能替代 G0 只读数据通道与 G1 研究门槛。
 
 | 门禁 | 通过条件 | 未通过时允许什么 |
 |---|---|---|

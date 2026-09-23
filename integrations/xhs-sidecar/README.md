@@ -1,6 +1,8 @@
-# XHS Readonly Sidecar｜T03 登录生命周期
+# XHS Readonly Sidecar｜T03 登录生命周期与 T04 受限读取
 
 这是 TravelAgent 自己控制的 Python 服务。upstream 只提供已锁定的设计/字段参考，没有复制、启动或代理完整 Go MCP Server。默认 `offline` 模式保留 T02 Fake；显式 `login` 模式使用普通 Chrome/Chromium，只实现登录生命周期。**启动服务不启动浏览器；经用户授权的本机真实登录、重启复用和断开清理已通过，见 [T03.8 验收报告](../../reports/T03.8-implementation.md)。**
+
+当前基线为 T03 最终提交 `ccd329056794d3f29549ff0383f6236ce6373f36`。T04 另增受限的独立人工 CLI，不扩大现有 HTTP 能力；本次真实 Smoke 总体 PARTIAL，搜索 PASS、详情 FAIL，结果见 [T04 Smoke 报告](../../reports/T04-xhs-read-smoke-test.md)。`live_smoke` 是内部摘要标记，不是新增 HTTP mode；HTTP 契约仍为 `0.3.0`，仅允许 `offline/login`。
 
 ## 实现边界
 
@@ -8,11 +10,11 @@
 - GET login/status 只读取缓存，既不启动浏览器也不观察页面。offline 返回 NOT_IMPLEMENTED；login 模式仅 POST connect 允许启动和一次官方页导航。profile 存在只表示 SESSION_PRESENT_UNVERIFIED，不能把浏览器 ACTIVE 当成已登录。
 - connect 并发/重复请求复用当前 flow_id、generation 和等待任务。登录等待只读当前页 DOM，不导航/刷新。过期 profile 保持 LOGIN_REQUIRED，首次登录进入 WAITING_USER，两者都继续观察，确认后 AUTHENTICATED；此后再次显式 connect 在同一 browser/page 核实，不导航。240 秒等待上限是应用限制，不是平台二维码 TTL。
 - VERIFICATION_REQUIRED 暂停自动观察；用户手工处理后 POST resume 在同页继续。ERROR 后须显式 cancel/disconnect 清理，再决定是否重新 connect；不自动重试。稳定账号 ID 只留私有内存，API 仅报告 KNOWN/UNKNOWN，用户名不作为身份。
-- cancel、disconnect、退出先使 generation 失效，再取消任务并关闭自有浏览器；旧结果不能写回 AUTHENTICATED。cancel/退出保留 profile，disconnect 关闭成功后清理，失败报告 ERROR。重启不联网，显式 connect 才核实旧会话。
+- cancel、disconnect、退出先使 generation 失效，再通过协作停止信号结束流程并关闭自有浏览器；不强制取消正在执行 Playwright API 的 coroutine，旧结果不能写回 AUTHENTICATED。cancel/退出保留 profile，disconnect 关闭成功后清理，失败报告 ERROR。重启不联网，显式 connect 才核实旧会话。
 - SourceIdentity由provider+note_id构成；AccessLocator是不可JSON序列化的内存对象，token使用SecretStr、TTL为UNKNOWN，按BrowserSession隔离。关闭时清理handle和定位材料。
 - filter_requested/filter_applied/filter_status明确区分APPLIED、NOT_REQUESTED、FAILED、UNKNOWN；未确认条件不输出为applied。
 - completeness由提取证据决定；默认合成正文为PARTIAL_TEXT，HTTP200不升级为FULL_TEXT。全文仅指验证后的文本范围，images_read始终false。
-- NetworkObserver 区分导航与 document/xhr_fetch/image/media/other。真实 connect/login 缺测保持 NOT_MEASURED/null；Fake 事件为 SIMULATED。`login_status_external_requests=0` 单独描述 status 路径，不能推导整个浏览器零请求。页面自身可有后台请求，total_bytes 未知时为 null。
+- HTTP NetworkObserver 区分导航与 document/xhr_fetch/image/media/other。既有 login HTTP 网络快照仍保持 NOT_MEASURED/null；Fake 事件为 SIMULATED。T04 CLI 使用独立的 LiveNetworkObserver，口径见下节。`login_status_external_requests=0` 单独描述 status 路径，不能推导整个浏览器零请求。页面自身可有后台请求，total_bytes 未知时为 null。
 - SafeAuditLog在创建LogRecord前只接受固定事件、枚举标签和有界整数；结构化敏感字段不记录。SensitiveDataRedactor另提供递归字段替换、已登记secret值替换和URL/对象删除。不输出异常字符串、请求正文或完整URL；uvicorn访问/原始错误日志关闭。
 
 ## 完整路由表
@@ -110,10 +112,48 @@ mypy strict 覆盖 sidecar 模块，Ruff 覆盖仓库 Python 文件；旧 T00/T0
 .venv/Scripts/python.exe scripts/xhs_login.py disconnect
 ```
 
-如只需取消并保留 profile，使用 `scripts/xhs_login.py cancel`。`TRAVEL_XHS_SIDECAR_MODE=login` 也可配合原始 sidecar 入口；缺省仍为 offline。mode 切换不代替真实测试授权，smoke 全程禁止搜索、feed detail 和平台写操作。
+如只需取消并保留 profile，使用 `scripts/xhs_login.py cancel`。`TRAVEL_XHS_SIDECAR_MODE=login` 也可配合原始 sidecar 入口；缺省仍为 offline。mode 切换不代替真实测试授权。以上是历史 T03 登录专项操作，该专项全程禁止搜索、feed detail 和平台写操作。
 
-## 尚未实现
+## T04 独立 CLI 与实验边界
 
-本次已验证该 Windows 环境的人工正常登录、会话复用与清理；页面未来变化及跨环境稳定性仍需后续验证，浏览器总体网络计量保持 NOT_MEASURED。真实 search/detail、筛选确认、研究预算/去重、RAG、GUI 与发行打包未实现。没有自动联网 integration test。来源许可、供应链与发行仍须独立门禁，T03 登录专项通过不代表 G0 整体通过。
+入口必须显式指定 `--live`；省略时只输出说明并退出。启动 CLI 仅建立本地状态，不打开浏览器或访问站点。输入 `connect` 才以 T03 相同的普通 Playwright Chromium 配置启动浏览器，复用专用 profile 和同一个 BrowserSession；需要登录时仅在打开的官方页面正常登录，不复制 Cookie、token 或二维码。不要同时运行另一实例占用同一 profile。
 
-参考与同步方式见 [upstream provenance](../../docs/architecture/xhs-upstream-provenance.md)，历史结果见 [T02 报告](../../reports/T02-implementation.md) 和 [T03 初次离线交付](../../reports/T03-implementation.md)；当前结果见 [T03.8 验收报告](../../reports/T03.8-implementation.md)。
+```text
+.venv/Scripts/python.exe scripts/xhs_read_smoke.py --live
+# 以下是该进程接受的交互命令，按观察结果逐步执行
+status
+connect
+status
+search
+detail 0
+snapshot
+quit
+```
+
+`search` 使用固定关键词 `成都 川西 国庆 攻略`，硬上限为 1 次；详情硬上限为 2 篇。这是本次实验预算，不是平台安全阈值。预算在派发前记账，失败也消耗额度；同 source 的成功和失败尝试都去重。已有 `.local/t04-smoke/summary.json` 中任一读取额度非零时，拒绝通过重启重置实验预算，不自动 fallback、换关键词或重试。
+
+候选先按稳定 note ID 去重，再确定性选择带川西与路线/攻略等词的正常图文、可用访问定位和不同标题；相关性只是 `DERIVED`，不是正文证据，也不是正式 CandidateSelector。`detail 0`、`detail 1` 指已选列表的顺序，不是原始搜索结果下标。第一篇足以完成技术验证时直接停止，不必执行 `detail 1`。不翻页、滚动加载、展开评论、分析图片、下载视频或执行平台写操作；不实现研究服务、RAG 或最终攻略。
+
+读取当前正常页面已提供的有限字段，缺失信息为 `NOT_AVAILABLE`，不把发布时间当旅行发生时间。SourceIdentity 只含稳定 note ID；AccessLocator 的 token/完整访问链接只在本地私有内存，TTL 为 UNKNOWN。页面加载成功或 `desc` 非空不证明 FULL_TEXT；无法证明文本完整时保持 PARTIAL_TEXT，图片标记 IMAGE_NOT_ANALYZED。
+
+CLI 输出及唯一摘要文件 `.local/t04-smoke/summary.json` 仅含匿名来源标记、字段存在性、数量、完整度和观测统计，不保存原始笔记正文、账号标识或凭据。该目录受 Git 忽略保护。`quit` 正常关闭浏览器并保留专用 profile；它不是 disconnect。报告只摘录脱敏统计，真实内容不得提交 Git。
+
+## T04 网络观测口径
+
+LiveNetworkObserver 只订阅正常 BrowserContext 的 request/response/requestfailed/requestfinished 事件，不额外发请求，不阻断页面资源。scope=`context_events_since_attach`，measurement=`OBSERVED`；attach 前的流量、未暴露给 context 的流量和操作系统后台流量不在覆盖内，未 attach 或未开启的窗口是 NOT_MEASURED/null。total_bytes 始终为 null，不读取 header/body 来拼凑字节数。
+
+- `browser_navigation` 是主 frame 导航 request 事件数量，包括重定向可能产生的新请求，不等于 goto 调用次数或 search/detail 业务操作次数。
+- 请求按 document/xhr_fetch/image/media/other 计数，另按 host、固定 method、响应状态、失败/完成计数聚合；不保存完整 URL/query。用途 comment/analytics/image/media/document/other/unknown 由资源类型、固定 host/path 规则导出，标记 DERIVED；未知 XHR 不冒充正文请求。
+- LOGIN、SEARCH、DETAIL_1、DETAIL_2 按请求发起时划分窗口，晚到响应归原窗口；最终可再次 snapshot 更新响应结果。TOTAL 包含所有已观测事件，OUTSIDE_WINDOW 保留窗口间页面后台请求，不能用窗口之和漏算它。
+- 请求关联使用有界弱引用，丢失和回调错误分别公开 association_losses/callback_errors；响应与失败计数是快照时已观察到的结果，不声明所有请求已结束。HTTP 4xx/5xx 是响应，不自动计为 requestfailed。
+- 只读 `stop_code` 锁存官方主域及子域 document/xhr/fetch 的 429→RATE_LIMITED、401/403→ACCESS_RESTRICTED，关联丢失也不能掩盖已观察到的限制。读取入口在导航前后及提交前检查；页面验证、登录失效、明确拒绝访问均停止自动推进，不尝试绕过。
+
+## 尚未验证或实现
+
+T03.8 已验证该 Windows 环境的人工登录、会话复用与清理。T04 本次同一 BrowserSession 正常登录为 AUTHENTICATED，1 次 `成都 川西 国庆 攻略` 搜索得到 20 个去重候选；1 次 detail 已计入预算，但返回 UNEXPECTED_PAGE，没有解析正文或可报告的正文完整度。用户确认显示正常图文页仅说明人工页面观察，不等于自动详情成功。搜索技术验证 PASS、详情 FAIL，总体 PARTIAL。路由别名校验不一致仅完成离线修复，实站失败原因未确证、修复未实站复测；没有打开第二篇。正常 quit 已关闭浏览器并保留 profile。
+
+本次 SEARCH 观测 173 个 context 请求；DETAIL_1 失败前窗口观测 86 个，不能作为完整详情成本。TOTAL 为 725 个请求、5 个主 frame 导航请求，字节数未测；默认评论相关请求 1 个为 DERIVED 分类，不是主动评论展开。历史 T03 的浏览器总网络量 NOT_MEASURED 不回填为 T04 数字，具体窗口统计以 T04 报告为准。
+
+详情正文读取仍未验证，筛选 UI、完整 TravelResearchService、Evidence Gap 研究循环、RAG、GUI 和发行打包未实现，没有自动联网 integration test。来源许可、供应链与发行仍须独立门禁，G0 整体未通过；本轮停止，不进入 T05。
+
+参考与同步方式见 [upstream provenance](../../docs/architecture/xhs-upstream-provenance.md)，历史结果见 [T02 报告](../../reports/T02-implementation.md) 和 [T03 初次离线交付](../../reports/T03-implementation.md)；登录验收见 [T03.8 报告](../../reports/T03.8-implementation.md)，当前受限读取结果见 [T04 Smoke 报告](../../reports/T04-xhs-read-smoke-test.md)。

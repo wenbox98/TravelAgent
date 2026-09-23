@@ -121,3 +121,18 @@ T03-23,R05;R12,T03,L1,P0,页面状态形态fallback,合成value与_value及直�
 T03-24,R05;R12,T03,L1/L2,P0,未知观察截止与次数上限,持续UNKNOWN或不同信号切换,明确ERROR和安全停止原因；停止轮询,NOT_RUN
 T03-25,R05;R12,T03,L1/L2,P0,晚到结果与有限配置,截止后返回AUTH或配置NaN及Infinity,不接受晚到认证；拒绝无限配置,NOT_RUN
 T03-26,R05;R06;R13,T03,L1/L2,P0,安全证据诊断,合成账号Cookie及二维码sentinel,API及日志只有固定布尔分类；秘密出现0次,NOT_RUN
+T04-01,R06;R13,T04,L1,P0,稳定来源提取,合成页面笔记ID,SourceIdentity只基于note ID,NOT_RUN
+T04-02,R06;R13,T04,L1,P0,访问定位隔离,同ID不同token和观测href,token与source参数不进入SourceIdentity,NOT_RUN
+T04-03,R06;R12,T04,L1,P0,搜索候选去重,同note ID重复出现,只保留一个候选,NOT_RUN
+T04-04,R06,T04,L1,P0,发布日期未知,候选没有发布日期字段,NOT_AVAILABLE且不填旅行日期,NOT_RUN
+T04-05,R06,T04,L1,P0,摘要缺失,候选只有标题,不伪造summary,NOT_RUN
+T04-06,R06;R12,T04,L1,P0,筛选真实性,请求未实现筛选,访问前拒绝且不得APPLIED,NOT_RUN
+T04-07,R06,T04,L1,P0,页面成功不证明全文,HTTP200但范围未知,不得FULL_TEXT,NOT_RUN
+T04-08,R06,T04,L1,P0,正文范围未验证,初始正文非空但完整范围未知,PARTIAL_TEXT,NOT_RUN
+T04-09,R06;R13,T04,L1,P0,未分析图片,笔记提供图片但没有图像分析,IMAGE_NOT_ANALYZED且不生成Evidence,NOT_RUN
+T04-10,R06;R12,T04,L1,P0,详情尝试去重,重复读取成功或失败的note,不重复外部访问,NOT_RUN
+T04-11,R06;R12,T04,L1,P0,缺测网络未知,未附加observer或窗口未开始,total_requests和bytes不能伪造0,NOT_RUN
+T04-12,R06;R13,T04,L1,P0,网络事件脱敏,query与异常包含秘密sentinel,仅输出分类聚合且不保存URL,NOT_RUN
+T04-13,R06;R12,T04,L1,P0,操作与HTTP分开,一次业务操作产生多个合成请求,两个计数分别记录,NOT_RUN
+T04-14,R06;R12,T04,L1,P0,实验搜索硬预算,尝试第二次搜索,最多派发一次且失败占预算,NOT_RUN
+T04-15,R06;R12,T04,L1,P0,实验详情硬预算,尝试第三篇详情,最多派发两篇且失败占预算,NOT_RUN
