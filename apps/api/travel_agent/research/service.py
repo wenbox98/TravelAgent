@@ -26,6 +26,21 @@ class ResearchReader(Protocol):
 
 
 class ResearchService:
+    @staticmethod
+    def _material_gap(code: str) -> ResearchGap:
+        descriptions = {
+            "IMAGE_INFORMATION_REQUIRED": "关键内容指向图片，图片未分析，不能推测",
+            "IMAGE_NOT_ANALYZED": "图片未分析，当前证据仅来自文字",
+            "CONTENT_INCOMPLETE": "正文完整度不足，不能声称已阅读全文",
+            "TRAVEL_TIME_UNKNOWN": "实际旅行时间未知，不能用发布日期替代",
+            "PUBLISH_TIME_UNKNOWN": "来源发布日期未知",
+            "LOCAL_EXTRACTIVE_ONLY": "当前仅本地低置信摘取，尚未经过模型整理或交叉核验",
+            "LLM_UNAVAILABLE_OR_INVALID": "模型不可用或输出不合格，已使用保守摘取",
+            "NO_GROUNDED_CLAIMS": "尚无能定位到实际正文的结论",
+            "UNSUPPORTED_CLAIMS_REJECTED": "不能定位的模型输出已拒绝",
+        }
+        return ResearchGap(code, descriptions.get(code, "正文材料仍存在未验证信息"))
+
     def __init__(self, store: EvidenceStore, reader: ResearchReader,
                  extractor: EvidenceExtractor, policy: SourcePolicy,
                  *, selector: CandidateSelector | None = None,
@@ -56,7 +71,8 @@ class ResearchService:
         modes: list[str] = []
         choices: list[CandidateChoice] = []
         candidate_count = query_count = 0
-        extra_gaps: dict[str, ResearchGap] = {}
+        extra_gaps = {code: self._material_gap(code)
+                      for bundle in evidence for code in bundle["missing_fields"]}
         diagnostic: str | None = None
         fallback_used = False
 
@@ -185,10 +201,7 @@ class ResearchService:
                         return finish("SOURCE_UNAVAILABLE")
                     evidence = self.store.lookup(research_id, request.destination, account_scope)
                     for gap_code in extracted.gaps:
-                        extra_gaps[gap_code] = ResearchGap(gap_code, {
-                            "IMAGE_INFORMATION_REQUIRED": "关键内容指向图片，图片未分析，不能推测",
-                            "IMAGE_NOT_ANALYZED": "图片未分析，当前证据仅来自文字",
-                        }.get(gap_code, "正文材料仍存在未验证信息"))
+                        extra_gaps[gap_code] = self._material_gap(gap_code)
                     gaps = self.evaluator.gaps(request, evidence)
                     if not gaps and "IMAGE_INFORMATION_REQUIRED" not in extra_gaps:
                         return finish("EVIDENCE_SUFFICIENT")

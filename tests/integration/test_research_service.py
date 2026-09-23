@@ -258,3 +258,17 @@ def test_model_permission_is_rechecked_after_search_before_sending_titles(enviro
     reader.search = expire_then_return
     run(service)
     assert selector.allow_external is False
+
+
+def test_cached_report_preserves_material_uncertainty_without_re_extraction(environment, clock):
+    store, policy = environment
+    reader = FakeReader()
+    service = ResearchService(store, reader, EvidenceExtractor(clock=clock), policy)
+    first = run(service)
+    before = (reader.connects, len(reader.searches), len(reader.details))
+    cached = run(service, budget=ResearchBudget(0, 0))
+    assert {gap.gap_id for gap in cached.gaps} == {gap.gap_id for gap in first.gaps}
+    assert "LOCAL_EXTRACTIVE_ONLY" in {gap.gap_id for gap in cached.gaps}
+    assert "CONTENT_INCOMPLETE" in {gap.gap_id for gap in cached.gaps}
+    assert cached.operations == {"search": 0, "detail": 0}
+    assert before == (reader.connects, len(reader.searches), len(reader.details))
