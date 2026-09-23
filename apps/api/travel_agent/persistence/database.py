@@ -18,7 +18,7 @@ def statements(sql):
 
 
 class Database:
-    LATEST_VERSION = 2
+    LATEST_VERSION = 3
 
     def __init__(self, path: Path, *, clock=None, target_version=LATEST_VERSION):
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -50,7 +50,11 @@ class Database:
             if current == 0 and self.connection.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
                 raise ValueError("拒绝初始化非空未知数据库")
             for version in range(current + 1, target + 1):
-                path = PROJECT_ROOT / ("contracts/database.sql" if version == 1 else "contracts/migrations/002_poc.sql")
+                path = PROJECT_ROOT / {
+                    1: "contracts/database.sql",
+                    2: "contracts/migrations/002_poc.sql",
+                    3: "contracts/migrations/003_research.sql",
+                }[version]
                 for statement in statements(path.read_text(encoding="utf-8")):
                     self.connection.execute(statement)
                 if version == 1:

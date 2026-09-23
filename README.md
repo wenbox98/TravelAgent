@@ -107,6 +107,12 @@ T04 仅增加独立人工 CLI `.venv/Scripts/python.exe scripts/xhs_read_smoke.p
 
 T04 有限技术 Smoke 可以结束；这不自动通过 G0 完整发布门禁，也不进入 T05。下一步建议另行授权 T04.2 基线请求优化，当前未实施请求阻断。
 
+## T04.2 / T05 新授权阶段
+
+在 T04.1 基线后增加阶段限定的 TEXT_FIRST、BodyBlock 证据摘取、SQLite 研究元数据、缓存优先的有预算 ResearchService 与增量缺口。默认仍 OBSERVE_ONLY；真实入口为 `scripts/xhs_research_smoke.py --live`，上限固定 1 次搜索、2 次详情，只生成研究材料，不生成完整行程。
+
+详见 [实现设计与来源用途边界](docs/architecture/t05-research-loop.md) 和 [T05 执行报告](reports/T05-xhs-research-loop-smoke.md)。UNKNOWN 来源内容只在内存临时研究；没有模型配置时明确使用本地保守摘取，不冒充模型抽取或持久化缓存。历史阶段的停止要求不代表本次新授权阶段已经通过，实际状态以报告为准。
+
 ## 离线开发启动（T00/T01）
 
 使用 Python 3.14 和 Node 22.12+，先运行 `uv sync --locked`，再在 `apps/web` 运行 `pnpm install --frozen-lockfile` 和 `pnpm build`。返回项目根目录运行：

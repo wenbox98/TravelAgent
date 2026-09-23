@@ -38,6 +38,10 @@ line-length = 100
 select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
-files = ["integrations/xhs-sidecar/xhs_sidecar"]
+files = ["integrations/xhs-sidecar/xhs_sidecar", "apps/api/travel_agent/research", "apps/api/travel_agent/providers/llm.py", "apps/api/travel_agent/providers/mock/llm.py"]
 strict = true
 python_version = "3.14"
+
+[[tool.mypy.overrides]]
+module = ["travel_agent.domain.models", "travel_agent.persistence.database", "travel_agent.persistence.repositories", "travel_agent.settings"]
+follow_imports = "skip"
