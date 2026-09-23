@@ -38,7 +38,7 @@ def test_upgrade_v2_preserves_existing_evidence_and_restart_cache(tmp_path, cloc
         EvidenceRepository(db).save(bundle, policy, account_scope="local")
     with Database(path, clock=clock) as db:
         store = EvidenceStore(db)
-        assert db.version == 3
+        assert db.version == 4
         assert [item.to_dict() for item in store.lookup(
             "new-question", bundle["destination"], "local",
         )] == [bundle.to_dict()]
@@ -50,7 +50,7 @@ def test_upgrade_v2_preserves_existing_evidence_and_restart_cache(tmp_path, cloc
         assert [item.to_dict() for item in store.lookup("research", None, "local")] == [bundle.to_dict()]
         assert store.lookup("research", "另一地区", "local") == ()
         assert store.lookup("research", None, "other") == ()
-        assert db.connection.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 3
+        assert db.connection.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 4
 
 
 def test_duplicate_source_reuses_without_overwrite_or_duplicate_claims(clock, fixture_data):
@@ -267,3 +267,112 @@ def test_sensitive_metadata_rejected_and_failed_finish_rolls_back(clock):
         assert store.finish(run, 0, [], {"evidence_count": 0})
         summary = db.connection.execute("SELECT summary_json FROM research_runs").fetchone()[0]
         assert json.loads(summary) == {"evidence_count": 0}
+
+
+def quality_material(fixture_data):
+    bundle, policy = material(fixture_data)
+    data = bundle.to_dict()
+    locator = "note-body:v2:STATE:" + "a" * 64 + f":chars:0-{len(data['claims'][0]['text'])}"
+    data["claims"][0].update(locator=locator, confidence=0.6)
+    data["claim_metadata"] = {data["claims"][0]["claim_id"]: {
+        "source_block_ids": [0], "body_origin": "STATE", "extraction_method": "MOCK",
+        "extraction_basis": "合成正文直接引用", "confidence_level": "MEDIUM",
+        "applicable_conditions": [], "canonical_relation": "EQUAL",
+        "truncation_risk": False, "block_locators": [locator],
+    }}
+    return EvidenceBundle(data), policy
+
+
+def test_v4_metadata_constraints_and_report_restore(tmp_path, clock, fixture_data):
+    bundle, policy = quality_material(fixture_data)
+    path = tmp_path / "quality.sqlite3"
+    with Database(path, clock=clock, target_version=3):
+        pass
+    with Database(path, clock=clock) as db:
+        store = EvidenceStore(db)
+        run = store.begin("quality", 1, request() | {"days": 5, "no_self_drive": True}, "local")
+        store.save_evidence(run, 1, bundle, policy, {"body_chars": 17})
+        assert store.finish(run, 1, [{"gap_id": "DAYS_FIT", "description": "五天适配性未核实"}], {
+            "source_count": 1, "evidence_count": 1, "body": "SECRET_RAW_BODY_NOT_FOR_REPORT",
+            "coverage": [{"question_id": "Q1_ROUTES", "status": "SUPPORTED", "claim_count": 1,
+                          "source_count": 1, "reason": "DIRECT_GROUNDED_REFERENCE"}],
+            "locator_coverage": 1.0, "freshness": {"STABLE_EXPERIENCE": 1},
+        })
+    with Database(path, clock=clock) as db:
+        store = EvidenceStore(db)
+        assert store.lookup("quality", None, "local")[0].to_dict() == bundle.to_dict()
+        restored = store.load_report("quality", "local")
+        assert restored["rebuild_required"] is True
+        assert restored["claim_ids"] == [bundle["claims"][0]["claim_id"]]
+        assert restored["source_ids"] == [bundle["source_id"]]
+        assert restored["summary"]["coverage"][0]["status"] == "SUPPORTED"
+        assert {item["name"]: item["value"] for item in restored["constraints"]} == {
+            "days": 5, "no_self_drive": True,
+        }
+        assert store.load_report("quality", "other") is None
+        assert "SECRET_RAW_BODY_NOT_FOR_REPORT" not in "\n".join(db.connection.iterdump())
+        current = store.begin("quality", 1, request() | {"days": 5, "no_self_drive": True}, "local")
+        store.register_policy(current, 1, SourcePolicy(policy.to_dict() | {
+            "version": 2, "allow_read": False,
+        }))
+        assert store.load_report("quality", "local") is None
+
+
+def test_clear_cache_is_scoped_atomic_and_does_not_touch_profile(tmp_path, clock, fixture_data):
+    bundle, policy = quality_material(fixture_data)
+    profile = tmp_path / "separate-browser-profile" / "sentinel"
+    profile.parent.mkdir()
+    profile.write_text("profile-must-remain", encoding="utf-8")
+    with Database(tmp_path / "clear.sqlite3", clock=clock) as db:
+        store = EvidenceStore(db)
+        old_run = None
+        for scope in ("local", "other"):
+            data = bundle.to_dict()
+            old_claim = data["claims"][0]["claim_id"]
+            source_id, claim_id = "source-" + scope, "claim-" + scope
+            data["source_id"] = source_id
+            data["claims"][0].update(source_id=source_id, claim_id=claim_id)
+            data["claim_metadata"] = {claim_id: data["claim_metadata"][old_claim]}
+            run = store.begin("research-" + scope, 0, request() | {"days": 5}, scope)
+            if scope == "local":
+                old_run = run
+            store.save_evidence(run, 0, EvidenceBundle(data), policy, {})
+            store.record_query(run, 0, "合成交通")
+            store.reserve_operation(run, 0, "SEARCH", "query-1", 1)
+            store.finish(run, 0, [{"gap_id": "DAYS_FIT", "description": "五天适配性未核实"}], {})
+            db.connection.execute(
+                "INSERT INTO chunks(chunk_id,source_id,text,pretokenized_text,metadata_json,content_hash) "
+                "VALUES(?,?,?,?,'{}','synthetic')", ("chunk-" + scope, source_id, "测试文本", "测试文本"),
+            )
+            db.connection.execute("INSERT INTO chunks_fts VALUES(?,?)", ("chunk-" + scope, "测试文本"))
+            db.connection.execute("INSERT INTO lineage VALUES(?, 'research_report', ?)", (source_id, run))
+        db.connection.execute("CREATE TRIGGER reject_clear BEFORE DELETE ON sources "
+                              "WHEN OLD.account_scope='local' BEGIN SELECT RAISE(ABORT,'blocked'); END")
+        with pytest.raises(Exception, match="blocked"):
+            store.clear_research_cache("local")
+        assert store.load_report("research-local", "local") is not None
+        assert db.connection.execute("SELECT count(*) FROM research_constraints").fetchone()[0] == 2
+        db.connection.execute("DROP TRIGGER reject_clear")
+        counts = store.clear_research_cache("local")
+        assert counts["sources"] == counts["questions"] == 1
+        assert store.load_report("research-local", "local") is None
+        assert store.lookup("research-local", None, "local") == ()
+        assert not store.finish(old_run, 0, [], {})
+        assert store.load_report("research-other", "other") is not None
+        for table in ("research_questions", "research_runs", "research_constraints", "research_reports",
+                      "research_gaps", "research_queries", "research_ops", "source_snapshots",
+                      "research_run_sources", "sources", "claims", "chunks", "chunks_fts", "lineage"):
+            assert db.connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 1
+        assert db.connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert profile.read_text(encoding="utf-8") == "profile-must-remain"
+
+
+def test_clear_temporary_cache_invalidates_old_results(clock, fixture_data):
+    bundle, policy = material(fixture_data, temporary=True)
+    with Database(Path(":memory:"), clock=clock) as db:
+        store = EvidenceStore(db, temporary=True)
+        old = store.begin("research", 0, request(), "local")
+        store.save_evidence(old, 0, bundle, policy, {})
+        store.clear_research_cache("local")
+        assert store.lookup("research", bundle["destination"], "local") == ()
+        assert not store.save_evidence(old, 0, bundle, policy, {})

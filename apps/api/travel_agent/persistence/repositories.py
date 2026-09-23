@@ -89,6 +89,9 @@ class EvidenceRepository:
             raise PermissionError("来源策略不允许保存证据")
         if evidence["is_synthetic"] and policy["basis"] != "SYNTHETIC":
             raise PermissionError("合成证据需要合成来源策略")
+        claim_metadata = evidence.to_dict().get("claim_metadata")
+        if claim_metadata is not None and self.db.version < 4:
+            raise ValueError("证据质量元信息需要数据库 v4")
         with self.db.transaction() as con:
             existing = con.execute("SELECT account_scope FROM sources WHERE source_id=?", (evidence["source_id"],)).fetchone()
             if existing:
@@ -98,6 +101,9 @@ class EvidenceRepository:
                 raise ValueError("策略变化必须递增版本")
             con.execute("INSERT OR IGNORE INTO source_policies VALUES(?,?,?,?,?)", (policy["policy_id"], policy["version"], encode(policy.to_dict()), policy["reviewed_at"], policy["expires_at"]))
             con.execute("INSERT INTO sources(source_id,provider,account_scope,title,completeness,policy_id,policy_version,fetched_at,published_at,travel_occurred_at,is_synthetic,source_type,destination,applicable_conditions_json,missing_fields_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (evidence["source_id"], evidence["source_type"], account_scope, evidence["source_title"], evidence["completeness"], policy["policy_id"], policy["version"], evidence["fetched_at"], evidence["source_published_at"], evidence["travel_occurred_at"], int(evidence["is_synthetic"]), evidence["source_type"], evidence["destination"], encode(evidence["applicable_conditions"]), encode(evidence["missing_fields"])))
+            if claim_metadata is not None:
+                con.execute("UPDATE sources SET claim_metadata_json=? WHERE source_id=?",
+                            (encode(claim_metadata), evidence["source_id"]))
             for claim in evidence["claims"]:
                 con.execute("INSERT INTO claims(claim_id,source_id,topic,text,kind,locator,support,valid_from,valid_until,confidence) VALUES(?,?,?,?,?,?,?,?,?,?)", tuple(claim[k] for k in ("claim_id", "source_id", "topic", "text", "kind", "locator", "support", "valid_from", "valid_until", "confidence")))
 
@@ -108,7 +114,11 @@ class EvidenceRepository:
         claims = []
         for claim in self.db.connection.execute("SELECT * FROM claims WHERE source_id=? AND deleted_at IS NULL ORDER BY rowid", (source_id,)):
             claims.append({k: claim[k] for k in ("claim_id", "source_id", "topic", "text", "kind", "locator", "support", "valid_from", "valid_until", "confidence")})
-        return EvidenceBundle({"source_id": source_id, "source_type": row["source_type"], "source_title": row["title"], "destination": row["destination"], "applicable_conditions": json.loads(row["applicable_conditions_json"]), "missing_fields": json.loads(row["missing_fields_json"]), "completeness": row["completeness"], "fetched_at": row["fetched_at"], "source_published_at": row["published_at"], "travel_occurred_at": row["travel_occurred_at"], "policy_id": row["policy_id"], "claims": claims, "is_synthetic": bool(row["is_synthetic"])})
+        data = {"source_id": source_id, "source_type": row["source_type"], "source_title": row["title"], "destination": row["destination"], "applicable_conditions": json.loads(row["applicable_conditions_json"]), "missing_fields": json.loads(row["missing_fields_json"]), "completeness": row["completeness"], "fetched_at": row["fetched_at"], "source_published_at": row["published_at"], "travel_occurred_at": row["travel_occurred_at"], "policy_id": row["policy_id"], "claims": claims, "is_synthetic": bool(row["is_synthetic"])}
+        if "claim_metadata_json" in row.keys() and row["claim_metadata_json"] is not None:
+            active = {claim["claim_id"] for claim in claims}
+            data["claim_metadata"] = {key: value for key, value in json.loads(row["claim_metadata_json"]).items() if key in active}
+        return EvidenceBundle(data)
 
     def delete(self, source_id, account_scope):
         with self.db.transaction() as con:

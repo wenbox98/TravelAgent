@@ -21,6 +21,7 @@ _REQUEST_TEXT = {"departure", "destination", "time_hint", "research_question", "
 _REQUEST_COUNT = {"days", "budget_cny_fen", "traveler_count"}
 _SUMMARY_COUNT = {
     "revision", "cache_sources", "query_count", "candidate_count", "source_count", "evidence_count",
+    "conflict_count", "candidate_direction_count", "unsupported_claims", "grounded_claim_count",
 }
 
 
@@ -83,7 +84,39 @@ def _summary(data: dict[str, Any]) -> dict[str, Any]:
     if "operations" in data:
         output["operations"] = {kind: _count(data["operations"].get(kind, 0))
                                 for kind in ("search", "detail")}
+    if "coverage" in data:
+        output["coverage"] = []
+        for row in data["coverage"]:
+            status = _identifier(row["status"])
+            if status not in {"SUPPORTED", "PARTIAL", "UNSUPPORTED"}:
+                raise ValueError("覆盖状态无效")
+            output["coverage"].append({
+                "question_id": _identifier(row["question_id"]), "status": status,
+                "claim_count": _count(row.get("claim_count", len(row.get("claim_ids", [])))),
+                "source_count": _count(row.get("source_count", len(row.get("source_ids", [])))),
+                "reason": _text(row["reason"], 240),
+            })
+    if "source_independence" in data:
+        values = data["source_independence"]
+        output["source_independence"] = {
+            key: _count(values[key])
+            for key in ("distinct_sources", "group_count", "confirmed_independent_sources")
+        } | {"status": _identifier(values["status"])}
+    if "freshness" in data:
+        output["freshness"] = _count_tree(data["freshness"])
+    if "locator_coverage" in data:
+        value = data["locator_coverage"]
+        if value is not None and (type(value) not in {int, float} or not 0 <= value <= 1):
+            raise ValueError("定位覆盖率须为 0 到 1 或未知")
+        output["locator_coverage"] = value
     return output
+
+
+def _count_tree(data: Any, depth: int = 0) -> dict[str, Any]:
+    if not isinstance(data, dict) or depth > 2:
+        raise ValueError("研究分类计数无效")
+    return {_identifier(key): _count_tree(value, depth + 1) if isinstance(value, dict)
+            else _count(value) for key, value in data.items()}
 
 
 def _snapshot(data: dict[str, Any], bundle: EvidenceBundle) -> dict[str, Any]:
@@ -116,8 +149,8 @@ class EvidenceStore:
     def __init__(self, db: Database, *, temporary: bool = False) -> None:
         if temporary and db.path != Path(":memory:"):
             raise ValueError("临时研究只允许内存数据库")
-        if db.version < 3:
-            raise ValueError("研究资料库需要迁移至 v3")
+        if db.version < 4:
+            raise ValueError("研究资料库需要迁移至 v4")
         self.db = db
         self.temporary = temporary
         self.repository = EvidenceRepository(db)
@@ -149,6 +182,13 @@ class EvidenceStore:
             run_id = "run-" + uuid4().hex
             con.execute("INSERT INTO research_runs VALUES(?,?,?,?,'RUNNING',NULL,?,NULL)",
                         (run_id, research_id, revision, payload, self.db.stamp()))
+            values = json.loads(payload)
+            for name in ("days", "no_self_drive", "budget_cny_fen", "transport",
+                         "traveler_count", "time_hint"):
+                value = values.get(name)
+                if value is not None and not (name == "no_self_drive" and value is False):
+                    con.execute("INSERT OR IGNORE INTO research_constraints VALUES(?,?,?,?,'USER')",
+                                (research_id, revision, name, encode(value)))
         return run_id
 
     def _current(self, run_id: str, revision: int) -> sqlite3.Row | None:
@@ -263,6 +303,8 @@ class EvidenceStore:
                 raise PermissionError("合成证据需要合成来源策略")
             if _PRIVATE.search(encode(bundle.to_dict())):
                 raise ValueError("证据含不允许的访问材料")
+            if any(not claim.get("locator") for claim in bundle["claims"]):
+                raise ValueError("无正文定位的结论不能作为正常证据保存")
             existing = con.execute(
                 "SELECT account_scope FROM sources WHERE source_id=? UNION "
                 "SELECT account_scope FROM source_snapshots WHERE source_id=?", (source_id, source_id),
@@ -302,15 +344,87 @@ class EvidenceStore:
     def finish(self, run_id: str, revision: int, gaps: list[dict[str, Any]],
                summary: dict[str, Any]) -> bool:
         with self.db.transaction() as con:
-            if self._current(run_id, revision) is None:
+            run = self._current(run_id, revision)
+            if run is None:
                 return False
             for gap in gaps:
                 metadata = _gap(gap)
                 con.execute("INSERT OR REPLACE INTO research_gaps VALUES(?,?,?)",
                             (run_id, metadata["gap_id"], encode(metadata)))
+            safe = encode(_summary(summary))
+            request = json.loads(run["request_json"])
+            evidence = self.lookup(run["research_id"], request.get("destination"), run["account_scope"])
+            source_ids = sorted({_identifier(bundle["source_id"]) for bundle in evidence})
+            claim_ids = sorted({_identifier(claim["claim_id"])
+                                for bundle in evidence for claim in bundle["claims"]})
+            con.execute("INSERT INTO research_reports VALUES(?,?,?,?,?)",
+                        (run_id, safe, encode(source_ids), encode(claim_ids), self.db.stamp()))
             con.execute("UPDATE research_runs SET status='FINISHED',summary_json=?,finished_at=? "
-                        "WHERE run_id=?", (encode(_summary(summary)), self.db.stamp(), run_id))
+                        "WHERE run_id=?", (safe, self.db.stamp(), run_id))
         return True
+
+    def load_report(self, research_id: str, account_scope: str) -> dict[str, Any] | None:
+        """Return local metadata and handles; reconstruct text/quality from current Evidence.
+
+        Revoked, expired or deleted sources invalidate this stored view. Historical
+        coverage is not a new freshness judgment; callers must rebuild before display.
+        """
+        row = self.db.connection.execute(
+            "SELECT p.*,r.research_id,r.revision,r.request_json FROM research_reports p "
+            "JOIN research_runs r ON p.run_id=r.run_id JOIN research_questions q "
+            "ON q.research_id=r.research_id WHERE q.research_id=? AND q.account_scope=? "
+            "AND q.current_revision=r.revision AND r.status='FINISHED' "
+            "ORDER BY r.rowid DESC LIMIT 1", (research_id, account_scope),
+        ).fetchone()
+        if row is None:
+            return None
+        request = json.loads(row["request_json"])
+        evidence = self.lookup(research_id, request.get("destination"), account_scope)
+        sources = {bundle["source_id"] for bundle in evidence}
+        claims = {claim["claim_id"] for bundle in evidence for claim in bundle["claims"]}
+        source_ids, claim_ids = json.loads(row["source_handles_json"]), json.loads(row["claim_handles_json"])
+        summary = json.loads(row["metadata_json"])
+        if (not set(source_ids) <= sources or not set(claim_ids) <= claims
+            or summary.get("source_count", len(source_ids)) != len(source_ids)
+            or summary.get("evidence_count", len(claim_ids)) != len(claim_ids)):
+            return None
+        constraints = [{"name": item["name"], "value": json.loads(item["value_json"]),
+                        "provenance": item["provenance"]} for item in self.db.connection.execute(
+            "SELECT * FROM research_constraints WHERE research_id=? AND revision=? ORDER BY name",
+            (research_id, row["revision"]),
+        )]
+        gaps = [json.loads(item[0]) for item in self.db.connection.execute(
+            "SELECT metadata_json FROM research_gaps WHERE run_id=? ORDER BY gap_id", (row["run_id"],),
+        )]
+        return {"run_id": row["run_id"], "research_id": research_id, "revision": row["revision"],
+                "request": request, "constraints": constraints, "gaps": gaps, "summary": summary,
+                "source_ids": source_ids, "claim_ids": claim_ids, "rebuild_required": True}
+
+    def clear_research_cache(self, account_scope: str) -> dict[str, int]:
+        """Delete this scope's research cache atomically; no authentication dependencies.
+
+        Source policies are shared governance configuration and are retained. Deletion
+        is logical SQLite deletion, not a claim about backups or physical SSD erasure.
+        """
+        scope = _identifier(account_scope)
+        with self.db.transaction() as con:
+            count_queries = {
+                "questions": "SELECT count(*) FROM research_questions WHERE account_scope=?",
+                "runs": "SELECT count(*) FROM research_runs WHERE research_id IN "
+                        "(SELECT research_id FROM research_questions WHERE account_scope=?)",
+                "sources": "SELECT count(*) FROM sources WHERE account_scope=?",
+                "claims": "SELECT count(*) FROM claims WHERE source_id IN "
+                          "(SELECT source_id FROM sources WHERE account_scope=?)",
+                "snapshots": "SELECT count(*) FROM source_snapshots WHERE account_scope=?",
+            }
+            counts = {name: int(con.execute(query, (scope,)).fetchone()[0])
+                      for name, query in count_queries.items()}
+            # sources -> claims/chunks/lineage; chunks' existing trigger deletes FTS rows.
+            con.execute("DELETE FROM research_questions WHERE account_scope=?", (scope,))
+            con.execute("DELETE FROM source_snapshots WHERE account_scope=?", (scope,))
+            con.execute("DELETE FROM sources WHERE account_scope=?", (scope,))
+        self._temporary = {key: value for key, value in self._temporary.items() if key[0] != scope}
+        return counts
 
     def queries(self, research_id: str) -> set[str]:
         return {row[0] for row in self.db.connection.execute(

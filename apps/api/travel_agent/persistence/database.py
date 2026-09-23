@@ -18,7 +18,7 @@ def statements(sql):
 
 
 class Database:
-    LATEST_VERSION = 3
+    LATEST_VERSION = 4
 
     def __init__(self, path: Path, *, clock=None, target_version=LATEST_VERSION):
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -54,6 +54,7 @@ class Database:
                     1: "contracts/database.sql",
                     2: "contracts/migrations/002_poc.sql",
                     3: "contracts/migrations/003_research.sql",
+                    4: "contracts/migrations/004_research_quality.sql",
                 }[version]
                 for statement in statements(path.read_text(encoding="utf-8")):
                     self.connection.execute(statement)

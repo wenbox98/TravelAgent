@@ -16,6 +16,48 @@ def validator(name):
     return Draft202012Validator(schema | {"$ref": f"#/$defs/{name}"}, format_checker=FormatChecker())
 
 
+def _claim_assessments(bundle):
+    claims = {claim["claim_id"]: claim for claim in bundle["claims"]}
+    if len(claims) != len(bundle["claims"]):
+        raise ValueError("证据标识重复")
+    for claim_id, assessment in bundle["claim_metadata"].items():
+        if claim_id not in claims:
+            raise ValueError("质量记录引用未知证据")
+        claim = claims[claim_id]
+        level = assessment["confidence_level"]
+        if claim["confidence"] != {"LOW": 0.25, "MEDIUM": 0.6, "HIGH": 0.8}[level]:
+            raise ValueError("证据等级与兼容数值不一致")
+        method = assessment["extraction_method"]
+        if method == "MOCK" and not bundle["is_synthetic"]:
+            raise ValueError("真实来源不能引用模拟抽取")
+        if ((method == "LOCAL_EXTRACTIVE" or assessment["canonical_relation"] == "CONFLICT") and level != "LOW"
+            or level == "HIGH" and (bundle["completeness"] != "FULL_TEXT" or assessment["truncation_risk"]
+                                    or not assessment["applicable_conditions"])):
+            raise ValueError("证据等级超过可核验范围")
+        locators = assessment["block_locators"]
+        if len(locators) != len(assessment["source_block_ids"]):
+            raise ValueError("正文块引用与定位数量不一致")
+        ranges = []
+        versions = set()
+        for locator in locators:
+            version, span = locator.rsplit(":chars:", 1)
+            start, end = map(int, span.split("-"))
+            if start >= end or (":v2:" in version and version.split(":")[2] != assessment["body_origin"]):
+                raise ValueError("正文块定位与来源不一致")
+            versions.add(version)
+            ranges.append((start, end))
+        matched = re.fullmatch(r"(.+):chars:([0-9]+)-([0-9]+)", claim["locator"] or "")
+        if not matched or versions != {matched[1]}:
+            raise ValueError("证据未绑定同一正文版本")
+        start, end = int(matched[2]), int(matched[3])
+        if end - start != len(claim["text"]) or not any(low <= start < end <= high for low, high in ranges):
+            raise ValueError("证据定位不在引用正文块内")
+        private = json.dumps(assessment, ensure_ascii=False)
+        if re.search(r"(?i)https?://|xsec[_-]?token|access[_-]?token|authorization|cookie\s*[:=]|"
+                     r"session\s*[:=]|bearer\s+|[?&]token=|SECRET_(?:COOKIE|XSEC|SESSION|AUTHORIZATION|QR)", private):
+            raise ValueError("质量记录含敏感访问材料")
+
+
 def semantics(value):
     if isinstance(value, list):
         for item in value:
@@ -40,6 +82,8 @@ def semantics(value):
             raise ValueError("仅元信息不能生成正文结论")
         if value["is_synthetic"] != (value["source_type"] == "SYNTHETIC"):
             raise ValueError("合成来源标志不一致")
+        if "claim_metadata" in value:
+            _claim_assessments(value)
     if "network_measurement" in value and value["network_measurement"] == "UNAVAILABLE" and value.get("site_http_requests") is not None:
         raise ValueError("不可观测 HTTP 请求数必须为 null")
     if "spent" in value and "budget" in value:
