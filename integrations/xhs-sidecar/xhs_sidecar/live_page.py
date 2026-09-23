@@ -15,6 +15,7 @@ from .detail_detection import (
 from .live_observability import LiveNetworkObserver
 from .ordinary_browser import OrdinaryBrowserBackend, OrdinaryBrowserResource
 from .profile import ProfileStore
+from .resource_policy import ResourcePolicy, ResourcePolicyController, ResourcePolicyError
 
 _split_uncached = cast(Callable[[str], SplitResult], getattr(urlsplit, "__wrapped__"))
 
@@ -101,7 +102,10 @@ DETAIL_SCRIPT = r"""id => {
 class LiveBrowserBackend(OrdinaryBrowserBackend):
     """Reuse ordinary launch exactly; attach observation before the login navigation."""
 
-    def __init__(self, profile: ProfileStore, observer: LiveNetworkObserver) -> None:
+    def __init__(
+        self, profile: ProfileStore, observer: LiveNetworkObserver,
+        *, resource_policy: ResourcePolicy = ResourcePolicy.OBSERVE_ONLY,
+    ) -> None:
         super().__init__(profile)
         self.observer = observer
         self.resource: OrdinaryBrowserResource | None = None
@@ -110,6 +114,12 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
         self.login_window_open = False
         self.last_read_diagnostic: str | None = None
         self.detail_diagnostic: dict[str, object] | None = None
+        self.resource_policy = ResourcePolicyController(observer, resource_policy)
+        self._search_windows = 0
+
+    def disable_text_first(self) -> None:
+        """Disable optimization after external parsing fails, without navigation."""
+        self.resource_policy.disable()
 
     def start(self, options: BrowserOptions) -> OrdinaryBrowserResource:
         resource = super().start(options)
@@ -172,15 +182,19 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
 
     def _read(
         self, session: BrowserSession, url: str, *, note_id: str | None, detail_number: int = 0,
-        keyword: str | None = None,
+        keyword: str | None = None, search_window: str = "SEARCH",
     ) -> object:
         resource = self._owned(session)
+        cleanup_failed = False
 
         def operation() -> PageRead:
+            nonlocal cleanup_failed
             page = resource._page
             if page is None:
                 return PageRead(stop="BROWSER_ERROR")
             started = False
+            policy_started = False
+            read_succeeded = False
             initial_route = detail_route(url, note_id) if note_id is not None else None
             status: int | None = None
             redirects: int | None = None
@@ -216,9 +230,13 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
                     }
                     return PageRead(stop="ACCESS_LOCATOR_INVALID", diagnostic="LOCAL_LOCATOR_INVALID")
                 self.observer.start_window(
-                    "SEARCH" if note_id is None else "DETAIL_1" if detail_number == 1 else "DETAIL_2"
+                    search_window if note_id is None else f"DETAIL_{detail_number}"
                 )
                 started = True
+                policy_started = True
+                self.resource_policy.begin(
+                    resource._context, "SEARCH" if note_id is None else "DETAIL",
+                )
                 deadline = monotonic() + 17
                 self.goto_attempts += 1
                 response = page.goto(url, wait_until="domcontentloaded", timeout=9_000)
@@ -276,6 +294,7 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
                         payload["http_status"] = status
                         assert self.detail_diagnostic is not None
                         self.detail_diagnostic["stability"] = "TWO_MATCHING_OBSERVATIONS_1500MS"
+                        read_succeeded = True
                         return PageRead(payload=payload)
                     stop = self._guard(resource)
                     if stop:
@@ -298,6 +317,7 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
                             return PageRead(stop="UNEXPECTED_PAGE", diagnostic="FINAL_STATE_INVALID")
                         if isinstance(payload, dict):
                             payload["http_status"] = status
+                        read_succeeded = True
                         return PageRead(payload=payload)
                     page.wait_for_timeout(250)
                 return PageRead(stop="UNKNOWN" if note_id is not None else "PARSE_ERROR",
@@ -306,6 +326,11 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
                 # Never stringify Playwright errors: navigation URLs carry credentials.
                 return PageRead(stop="BROWSER_ERROR", diagnostic="DRIVER_ERROR")
             finally:
+                if policy_started:
+                    try:
+                        self.resource_policy.end(success=read_succeeded)
+                    except ResourcePolicyError:
+                        cleanup_failed = True
                 if started:
                     self.observer.finish_window()
 
@@ -314,8 +339,11 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
             if resource._revoked or resource._closed:
                 raise LiveReadStopped("STALE_SESSION")
             result = resource._run(operation)
+        if cleanup_failed:
+            result = PageRead(stop="BROWSER_ERROR", diagnostic="RESOURCE_POLICY_CLEANUP")
         self.last_read_diagnostic = result.diagnostic
         if result.stop is not None:
+            self.resource_policy.disable()
             raise LiveReadStopped(result.stop)
         return result.payload
 
@@ -326,13 +354,25 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
         return page.evaluate(DETAIL_SCRIPT, note_id)
 
     def search(self, session: BrowserSession, keyword: str) -> object:
-        url = "https://www.xiaohongshu.com/search_result?" + urlencode({
-            "keyword": keyword, "source": "web_explore_feed",
-        })
-        return self._read(session, url, note_id=None, keyword=keyword)
+        resource = self._owned(session)
+        with resource._lock:
+            if self._search_windows >= 3:
+                raise LiveReadStopped("BUDGET_EXHAUSTED")
+            self._search_windows += 1
+            url = "https://www.xiaohongshu.com/search_result?" + urlencode({
+                "keyword": keyword, "source": "web_explore_feed",
+            })
+            return self._read(
+                session, url, note_id=None, keyword=keyword,
+                search_window=(
+                    "SEARCH" if self._search_windows == 1 else f"SEARCH_{self._search_windows}"
+                ),
+            )
 
     def detail(
         self, session: BrowserSession, *, href: str, note_id: str, detail_number: int,
     ) -> object:
         # href is a parser-validated private locator, never a CLI-supplied URL.
+        if type(detail_number) is not int or not 1 <= detail_number <= 6:
+            raise LiveReadStopped("BUDGET_EXHAUSTED")
         return self._read(session, href, note_id=note_id, detail_number=detail_number)

@@ -99,7 +99,10 @@ def test_categories_main_frame_navigation_and_status_outcomes(observed):
     assert result.measurement == "OBSERVED"
     assert result.scope == "context_events_since_attach"
     assert result.browser_navigation == 1
-    assert result.requests == {"document": 2, "xhr_fetch": 2, "image": 1, "media": 1, "other": 1}
+    assert result.requests == {
+        "document": 2, "xhr_fetch": 2, "image": 1, "media": 1,
+        "font": 0, "stylesheet": 0, "script": 1, "other": 0,
+    }
     assert result.total_requests == 7
     assert result.response_status == {"200": 2, "302": 1, "404": 1, "500": 1, "206": 1}
     assert result.failed_requests == 1  # HTTP 4xx/5xx are responses, not transport failures.
@@ -394,3 +397,34 @@ def test_response_without_request_event_can_still_latch_stop(observed):
     assert observer.stop_code == "ACCESS_RESTRICTED"
     assert observer.snapshot().total_requests == 0
     assert observer.snapshot().response_status == {}
+
+
+def test_text_resource_categories_are_explicit_and_total_is_not_adjusted(observed):
+    context, observer = observed
+    observer.start_window("SEARCH")
+    requests = [FakeRequest(kind) for kind in ("font", "script", "stylesheet", "websocket")]
+    for request in requests:
+        context.emit("request", request)
+    window = observer.record_route_event("font", "attempted")
+    observer.record_route_event("font", "blocked", window=window)
+    snapshot = observer.finish_window()
+    assert snapshot.requests["font"] == snapshot.requests["script"] == 1
+    assert snapshot.requests["stylesheet"] == snapshot.requests["other"] == 1
+    assert snapshot.total_requests == 4  # Blocked is not subtracted from observed events.
+    assert snapshot.blocked_requests == 1
+    assert snapshot.route_attempts == 1
+
+
+def test_route_outcome_keeps_its_captured_window_after_stage_transition(observed):
+    _, observer = observed
+    observer.start_window("SEARCH")
+    observer.record_resource_policy("TEXT_FIRST", routing_enabled=True)
+    window = observer.record_route_event("image", "attempted")
+    observer.finish_window()
+    observer.start_window("DETAIL_1")
+    observer.record_resource_policy("OBSERVE_ONLY")
+    observer.record_route_event("image", "blocked", window=window)
+    assert observer.snapshot("SEARCH").blocked_requests == 1
+    assert observer.snapshot("DETAIL_1").blocked_requests == 0
+    assert observer.snapshot("DETAIL_1").routing_cache_affected is True
+    assert observer.snapshot().resource_policy == "MIXED"

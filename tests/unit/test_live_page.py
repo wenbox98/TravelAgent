@@ -12,6 +12,7 @@ import pytest
 
 from xhs_sidecar.browser import BrowserSession, LoginObservation
 from xhs_sidecar.detail_detection import DETAIL_EVIDENCE_SCRIPT, DetailPageEvidence, detail_route
+from xhs_sidecar.resource_policy import ResourcePolicy, ResourcePolicyController
 from xhs_sidecar.live_page import (
     DETAIL_SCRIPT, SEARCH_SCRIPT, LiveBrowserBackend, LiveReadStopped,
 )
@@ -283,6 +284,7 @@ class FakeResource:
         self._closed = False
         self._revoked = False
         self.observations = list(observations)
+        self._context = FakeRoutingContext()
 
     def _observe(self):
         if len(self.observations) > 1:
@@ -305,14 +307,36 @@ class FakeObserver:
     def finish_window(self):
         self.finishes += 1
 
+    def record_resource_policy(self, policy, *, routing_enabled=False):
+        pass
 
-def fake_backend(page=None, observations=None):
+
+class FakeRoutingContext:
+    def __init__(self):
+        self.handlers = []
+        self.route_calls = self.unroute_calls = 0
+        self.remove_error = False
+
+    def route(self, pattern, handler):
+        self.route_calls += 1
+        self.handlers.append((pattern, handler))
+
+    def unroute(self, pattern, handler):
+        self.unroute_calls += 1
+        if self.remove_error:
+            raise RuntimeError("synthetic cleanup failure")
+        self.handlers.remove((pattern, handler))
+
+
+def fake_backend(page=None, observations=None, policy=ResourcePolicy.OBSERVE_ONLY):
     page = page if page is not None else FakePage()
     resource = FakeResource(page, observations or [clean_observation()])
     backend = object.__new__(LiveBrowserBackend)
     backend.resource = resource
     backend.observer = FakeObserver()
     backend.goto_attempts = 0
+    backend._search_windows = 0
+    backend.resource_policy = ResourcePolicyController(backend.observer, policy)
     return backend, BrowserSession(resource), page
 
 
@@ -516,3 +540,84 @@ def test_redirect_count_comes_from_main_document_chain_not_other_301_events():
     backend.detail(session, href="https://www.xiaohongshu.com/explore/synthetic-note",
                    note_id="synthetic-note", detail_number=1)
     assert backend.detail_diagnostic["redirect_count"] == 2
+
+
+def test_text_first_is_installed_only_around_successful_search():
+    backend, session, page = fake_backend(policy=ResourcePolicy.TEXT_FIRST)
+    context = backend.resource._context
+    original = page.goto
+    observed_policy = []
+
+    def navigate(*args, **kwargs):
+        observed_policy.append(backend.resource_policy.snapshot())
+        assert len(context.handlers) == 1
+        return original(*args, **kwargs)
+
+    page.goto = navigate
+    backend.search(session, "合成研究关键词")
+    assert observed_policy[0]["phase"] == "SEARCH"
+    assert observed_policy[0]["active"] == "TEXT_FIRST"
+    assert context.route_calls == context.unroute_calls == 1
+    assert context.handlers == []
+    assert backend.resource_policy.snapshot()["active"] == "OBSERVE_ONLY"
+    assert len(page.goto_calls) == 1
+
+
+def test_r18_detail_failure_disables_policy_and_requires_explicit_fallback_call():
+    backend, session, page = fake_backend(
+        page=FakePage(goto_error=RuntimeError("SECRET_XSEC_T05")), policy=ResourcePolicy.TEXT_FIRST,
+    )
+    context = backend.resource._context
+    href = "https://www.xiaohongshu.com/explore/synthetic-note?xsec_token=private"
+    with pytest.raises(LiveReadStopped, match="BROWSER_ERROR"):
+        backend.detail(session, href=href, note_id="synthetic-note", detail_number=1)
+    assert len(page.goto_calls) == 1
+    assert context.handlers == []
+    assert backend.resource_policy.snapshot()["optimization_disabled"] is True
+    page.goto_error = None
+    backend.detail(session, href=href, note_id="synthetic-note", detail_number=2)
+    assert len(page.goto_calls) == 2
+    assert context.route_calls == 1  # Fallback is OBSERVE_ONLY, no second route installation.
+    assert backend.observer.windows == ["DETAIL_1", "DETAIL_2"]
+
+
+def test_policy_cleanup_failure_prevents_successful_payload_commit():
+    backend, session, page = fake_backend(policy=ResourcePolicy.TEXT_FIRST)
+    backend.resource._context.remove_error = True
+    with pytest.raises(LiveReadStopped, match="BROWSER_ERROR"):
+        backend.search(session, "合成研究关键词")
+    assert backend.last_read_diagnostic == "RESOURCE_POLICY_CLEANUP"
+    assert backend.resource_policy.snapshot()["active"] == "OBSERVE_ONLY"
+    assert backend.resource_policy.snapshot()["route_handler_installed"] is True
+    assert backend.observer.finishes == 1
+    assert len(page.goto_calls) == 1
+
+
+def test_backend_can_disable_text_first_after_external_parser_failure_without_visit():
+    backend, session, page = fake_backend(policy=ResourcePolicy.TEXT_FIRST)
+    backend.search(session, "合成研究关键词")
+    backend.disable_text_first()
+    assert len(page.goto_calls) == 1
+    backend.search(session, "合成缺口关键词")
+    assert backend.resource._context.route_calls == 1
+    assert backend.observer.windows == ["SEARCH", "SEARCH_2"]
+
+
+def test_multiple_research_searches_use_distinct_bounded_windows():
+    backend, session, page = fake_backend()
+    for keyword in ("合成一", "合成二", "合成三"):
+        backend.search(session, keyword)
+    with pytest.raises(LiveReadStopped, match="BUDGET_EXHAUSTED"):
+        backend.search(session, "合成四")
+    assert backend.observer.windows == ["SEARCH", "SEARCH_2", "SEARCH_3"]
+    assert len(page.goto_calls) == 3
+
+
+@pytest.mark.parametrize("number", [0, 7, True, -1])
+def test_detail_window_limit_is_checked_before_navigation(number):
+    backend, session, page = fake_backend()
+    with pytest.raises(LiveReadStopped, match="BUDGET_EXHAUSTED"):
+        backend.detail(session, href="https://www.xiaohongshu.com/explore/synthetic-note",
+                       note_id="synthetic-note", detail_number=number)
+    assert page.goto_calls == []
+    assert backend.observer.windows == []

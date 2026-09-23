@@ -16,9 +16,12 @@ from weakref import WeakKeyDictionary
 
 from playwright.sync_api import BrowserContext, Request, Response
 
-_CATEGORIES = ("document", "xhr_fetch", "image", "media", "other")
+_CATEGORIES = ("document", "xhr_fetch", "image", "media", "font", "stylesheet", "script", "other")
 _PURPOSES = ("comment", "analytics", "image", "media", "document", "other", "unknown")
-_LABELS = frozenset({"LOGIN", "SEARCH", "DETAIL_1", "DETAIL_2"})
+_LABELS = frozenset({
+    "LOGIN", "SEARCH", "SEARCH_2", "SEARCH_3",
+    "DETAIL_1", "DETAIL_2", "DETAIL_3", "DETAIL_4", "DETAIL_5", "DETAIL_6",
+})
 _METHODS = frozenset({"GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH", "DELETE"})
 _COMMENT_SEGMENTS = frozenset({"comment", "comments"})
 _ANALYTICS_SEGMENTS = frozenset({"analytics", "collect", "beacon", "track", "tracking"})
@@ -54,6 +57,14 @@ class LiveNetworkSnapshot:
     callback_errors: int | None = None
     elapsed_seconds: float | None = None
     window_finished: bool = False
+    resource_policy: str | None = None
+    routing_cache_affected: bool | None = None
+    route_attempts: int | None = None
+    blocked_requests: int | None = None
+    continued_requests: int | None = None
+    route_errors: int | None = None
+    blocked_by_category: dict[str, int] | None = None
+    continued_by_category: dict[str, int] | None = None
 
 
 @dataclass
@@ -71,6 +82,12 @@ class _Counts:
     purposes: dict[str, int] = field(default_factory=lambda: dict.fromkeys(_PURPOSES, 0))
     association_losses: int = 0
     callback_errors: int = 0
+    resource_policies: set[str] = field(default_factory=set)
+    routing_cache_affected: bool = False
+    route_attempts: int = 0
+    route_errors: int = 0
+    blocked: dict[str, int] = field(default_factory=lambda: dict.fromkeys(_CATEGORIES, 0))
+    continued: dict[str, int] = field(default_factory=lambda: dict.fromkeys(_CATEGORIES, 0))
 
 
 @dataclass
@@ -83,6 +100,11 @@ def _increment(counts: dict[str, int], key: str) -> None:
     counts[key] = counts.get(key, 0) + 1
 
 
+def _resource_category(resource: str) -> str:
+    category = "xhr_fetch" if resource in {"xhr", "fetch"} else resource
+    return category if category in _CATEGORIES else "other"
+
+
 def _request_metadata(request: Request) -> tuple[str, str, str, str]:
     """Only host and fixed enums survive; URL/path/query never enter stored state.
 
@@ -90,10 +112,7 @@ def _request_metadata(request: Request) -> tuple[str, str, str, str]:
     response contains comments. Path segments are examined only transiently.
     Unclassified XHR/fetch purpose remains unknown; no response body is read.
     """
-    resource = request.resource_type
-    category = "xhr_fetch" if resource in {"xhr", "fetch"} else resource
-    if category not in _CATEGORIES:
-        category = "other"
+    category = _resource_category(request.resource_type)
     method = request.method if request.method in _METHODS else "OTHER"
     parts = _split_uncached(request.url)
     hostname = parts.hostname
@@ -134,6 +153,7 @@ class LiveNetworkObserver:
         self._context: BrowserContext | None = None
         self._measured = False
         self._stop_code: NetworkStopCode | None = None
+        self._routing_cache_affected = False
         self._active: str | None = None
         self._counts: dict[str, _Counts] = {}
         self._associations: WeakKeyDictionary[Request, _Association] = WeakKeyDictionary()
@@ -205,8 +225,51 @@ class LiveNetworkObserver:
         with self._lock:
             if self._context is None or self._active is not None or label in self._counts:
                 raise ValueError("网络观测窗口不可启动")
-            self._counts[label] = _Counts(monotonic())
+            self._counts[label] = _Counts(
+                monotonic(), routing_cache_affected=self._routing_cache_affected,
+            )
             self._active = label
+
+    def record_resource_policy(self, policy: str, *, routing_enabled: bool = False) -> None:
+        """Local policy metadata; does not create a request or install a route."""
+        if policy not in {"OBSERVE_ONLY", "TEXT_FIRST"}:
+            raise ValueError("资源策略标签无效")
+        with self._lock:
+            if self._context is None:
+                return
+            if routing_enabled:
+                self._routing_cache_affected = True
+                self._counts["OUTSIDE_WINDOW"].routing_cache_affected = True
+            for counts in self._targets(self._active or "OUTSIDE_WINDOW"):
+                counts.resource_policies.add(policy)
+                counts.routing_cache_affected |= self._routing_cache_affected
+
+    def record_route_event(
+        self, resource: str, outcome: Literal["attempted", "blocked", "continued", "error"],
+        *, window: str | None = None,
+    ) -> str | None:
+        """Count route-handler outcomes separately; aborted requests remain events.
+
+        Zero means this observer recorded no corresponding handler invocation,
+        not that the browser emitted no requests or transferred zero bytes.
+        """
+        with self._lock:
+            if self._context is None:
+                return None
+            label = window or self._active or "OUTSIDE_WINDOW"
+            if label not in self._counts or label == "TOTAL":
+                return None
+            category = _resource_category(resource)
+            for counts in self._targets(label):
+                if outcome == "attempted":
+                    counts.route_attempts += 1
+                elif outcome == "blocked":
+                    _increment(counts.blocked, category)
+                elif outcome == "continued":
+                    _increment(counts.continued, category)
+                elif outcome == "error":
+                    counts.route_errors += 1
+            return label
 
     def finish_window(self) -> LiveNetworkSnapshot:
         with self._lock:
@@ -238,6 +301,16 @@ class LiveNetworkObserver:
                     (counts.ended if counts.ended is not None else monotonic()) - counts.started, 6
                 ),
                 window_finished=counts.ended is not None,
+                resource_policy=(
+                    "MIXED" if len(counts.resource_policies) > 1
+                    else next(iter(counts.resource_policies), "OBSERVE_ONLY")
+                ),
+                routing_cache_affected=counts.routing_cache_affected,
+                route_attempts=counts.route_attempts, route_errors=counts.route_errors,
+                blocked_requests=sum(counts.blocked.values()),
+                continued_requests=sum(counts.continued.values()),
+                blocked_by_category=dict(counts.blocked),
+                continued_by_category=dict(counts.continued),
             )
 
     def _targets(self, window: str) -> tuple[_Counts, _Counts]:
@@ -255,6 +328,7 @@ class LiveNetworkObserver:
                 if self._context is None:
                     return
                 window = self._active or "OUTSIDE_WINDOW"
+                policy = self._counts[window].resource_policies or {"OBSERVE_ONLY"}
                 if request in self._associations:
                     return
                 try:
@@ -269,6 +343,7 @@ class LiveNetworkObserver:
                 except Exception:
                     navigation_unknown = True
                 for counts in self._targets(window):
+                    counts.resource_policies.update(policy)
                     _increment(counts.requests, category)
                     _increment(counts.hosts, host)
                     _increment(counts.methods, method)
