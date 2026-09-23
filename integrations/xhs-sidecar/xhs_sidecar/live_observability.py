@@ -5,9 +5,13 @@ Late outcomes update their original window. These are context events observed si
 attachment, not all browser/OS traffic, transferred bytes, or business operations.
 """
 
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+import hashlib
+import hmac
 import re
+import secrets
 from threading import RLock
 from time import monotonic
 from typing import Any, Literal, cast
@@ -65,6 +69,34 @@ class LiveNetworkSnapshot:
     route_errors: int | None = None
     blocked_by_category: dict[str, int] | None = None
     continued_by_category: dict[str, int] | None = None
+    attempted_requests: int | None = None
+    attempted_by_category: dict[str, int] | None = None
+    allowed_requests: int | None = None
+    allowed_by_category: dict[str, int] | None = None
+    allowed_semantics: str = "APPLICATION_UNBLOCKED_EVENT_OR_SUCCESSFUL_ROUTE_CONTINUE"
+    unresolved_policy_requests: int | None = None
+    unresolved_policy_by_category: dict[str, int] | None = None
+    unblocked_request_events: int | None = None
+    unblocked_by_category: dict[str, int] | None = None
+    completed_requests: int | None = None
+    completed_by_category: dict[str, int] | None = None
+    failed_by_category: dict[str, int] | None = None
+    actual_sent_requests: None = None
+    actual_sent_by_category: dict[str, None] = field(
+        default_factory=lambda: dict.fromkeys(_CATEGORIES)
+    )
+    actual_sent_measurement: Literal["NOT_MEASURED"] = "NOT_MEASURED"
+    transferred_bytes: None = None
+    transferred_bytes_measurement: Literal["NOT_MEASURED"] = "NOT_MEASURED"
+    repeated_resource_events: int | None = None
+    repeated_by_category: dict[str, int] | None = None
+    repeat_classification: str = "DERIVED_METHOD_RESOURCE_ORIGIN_PATH_WITHOUT_QUERY"
+    duplicate_request_events: int | None = None
+    repeat_tracking_evictions: int | None = None
+    outcome_conflicts: int | None = None
+    resource_retry_assessment: Literal["UNKNOWN"] = "UNKNOWN"
+    lazy_load_assessment: Literal["UNKNOWN"] = "UNKNOWN"
+    service_worker_assessment: Literal["UNKNOWN"] = "UNKNOWN"
 
 
 @dataclass
@@ -88,12 +120,27 @@ class _Counts:
     route_errors: int = 0
     blocked: dict[str, int] = field(default_factory=lambda: dict.fromkeys(_CATEGORIES, 0))
     continued: dict[str, int] = field(default_factory=lambda: dict.fromkeys(_CATEGORIES, 0))
+    unblocked: dict[str, int] = field(default_factory=lambda: dict.fromkeys(_CATEGORIES, 0))
+    completed: dict[str, int] = field(default_factory=lambda: dict.fromkeys(_CATEGORIES, 0))
+    failed_by_category: dict[str, int] = field(default_factory=lambda: dict.fromkeys(_CATEGORIES, 0))
+    repeated: dict[str, int] = field(default_factory=lambda: dict.fromkeys(_CATEGORIES, 0))
+    duplicate_request_events: int = 0
+    repeat_tracking_evictions: int = 0
+    outcome_conflicts: int = 0
+    unresolved_policy: dict[str, int] = field(default_factory=lambda: dict.fromkeys(_CATEGORIES, 0))
 
 
 @dataclass
 class _Association:
     window: str
+    category: str
     response_seen: bool = False
+    unblocked: bool = False
+    route_seen: bool = False
+    route_outcome: str | None = None
+    terminal: str | None = None
+    completed_counted: bool = False
+    policy_unresolved: bool = False
 
 
 def _increment(counts: dict[str, int], key: str) -> None:
@@ -145,18 +192,32 @@ class LiveNetworkObserver:
     No bytes are claimed, since headers/body sizes are deliberately not inspected.
     """
 
-    def __init__(self, *, max_associations: int = 4096) -> None:
+    def __init__(
+        self, *, max_associations: int = 4096, max_fingerprints: int = 2048,
+        fingerprint_ttl_seconds: float = 60.0,
+    ) -> None:
         if type(max_associations) is not int or max_associations < 1:
             raise ValueError("网络观测容量无效")
+        if (type(max_fingerprints) is not int or max_fingerprints < 1
+            or not 0 < fingerprint_ttl_seconds <= 300):
+            raise ValueError("重复资源观测容量无效")
         self._max_associations = max_associations
+        self._max_fingerprints = max_fingerprints
+        self._fingerprint_ttl_seconds = fingerprint_ttl_seconds
+        self._fingerprint_key = secrets.token_bytes(32)
+        self._fingerprints: OrderedDict[bytes, float] = OrderedDict()
         self._lock = RLock()
         self._context: BrowserContext | None = None
         self._measured = False
         self._stop_code: NetworkStopCode | None = None
         self._routing_cache_affected = False
+        self._route_handler_active = False
         self._active: str | None = None
         self._counts: dict[str, _Counts] = {}
         self._associations: WeakKeyDictionary[Request, _Association] = WeakKeyDictionary()
+        # Weak, bounded terminal metadata permits idempotence and route outcomes
+        # arriving after requestfinished/requestfailed; no Request is retained.
+        self._terminal: WeakKeyDictionary[Request, _Association] = WeakKeyDictionary()
         self._handlers: tuple[tuple[_Event, Callable[..., Any]], ...] = (
             ("request", self._on_request),
             ("response", self._on_response),
@@ -218,6 +279,10 @@ class LiveNetworkObserver:
             self._context = None
             self._active = None
             self._associations.clear()
+            self._terminal.clear()
+            self._fingerprints.clear()
+            self._fingerprint_key = b""
+            self._route_handler_active = False
 
     def start_window(self, label: str) -> None:
         if label not in _LABELS:
@@ -239,14 +304,20 @@ class LiveNetworkObserver:
                 return
             if routing_enabled:
                 self._routing_cache_affected = True
+                self._route_handler_active = True
                 self._counts["OUTSIDE_WINDOW"].routing_cache_affected = True
             for counts in self._targets(self._active or "OUTSIDE_WINDOW"):
                 counts.resource_policies.add(policy)
                 counts.routing_cache_affected |= self._routing_cache_affected
 
+    def record_route_handler_removed(self) -> None:
+        """After successful unroute only; leftover pass-through handlers stay known."""
+        with self._lock:
+            self._route_handler_active = False
+
     def record_route_event(
         self, resource: str, outcome: Literal["attempted", "blocked", "continued", "error"],
-        *, window: str | None = None,
+        *, window: str | None = None, request: Request | None = None,
     ) -> str | None:
         """Count route-handler outcomes separately; aborted requests remain events.
 
@@ -256,10 +327,49 @@ class LiveNetworkObserver:
         with self._lock:
             if self._context is None:
                 return None
-            label = window or self._active or "OUTSIDE_WINDOW"
+            association = None if request is None else (
+                self._associations.get(request) or self._terminal.get(request)
+            )
+            label = association.window if association else window or self._active or "OUTSIDE_WINDOW"
             if label not in self._counts or label == "TOTAL":
                 return None
-            category = _resource_category(resource)
+            category = association.category if association else _resource_category(resource)
+            if association is not None:
+                if outcome == "attempted":
+                    if association.route_seen:
+                        return label
+                    association.route_seen = True
+                    if association.unblocked:
+                        # Late attribution must not leave a blocked event allowed.
+                        for counts in self._targets(label):
+                            counts.unblocked[category] -= 1
+                            _increment(counts.unresolved_policy, category)
+                        association.unblocked = False
+                        association.policy_unresolved = True
+                    if association.completed_counted:
+                        self._uncomplete(association)
+                elif outcome in {"blocked", "continued"}:
+                    if association.route_outcome is not None:
+                        if association.route_outcome != outcome:
+                            for counts in self._targets(label):
+                                counts.outcome_conflicts += 1
+                        return label
+                    if association.unblocked:
+                        for counts in self._targets(label):
+                            counts.unblocked[category] -= 1
+                        association.unblocked = False
+                    association.route_outcome = outcome
+                    if association.policy_unresolved:
+                        for counts in self._targets(label):
+                            counts.unresolved_policy[category] -= 1
+                        association.policy_unresolved = False
+                    if outcome == "blocked":
+                        self._uncomplete(association)
+                        if association.terminal == "finished":
+                            for counts in self._targets(label):
+                                counts.outcome_conflicts += 1
+                    elif association.terminal == "finished":
+                        self._complete(association)
             for counts in self._targets(label):
                 if outcome == "attempted":
                     counts.route_attempts += 1
@@ -311,6 +421,25 @@ class LiveNetworkObserver:
                 continued_requests=sum(counts.continued.values()),
                 blocked_by_category=dict(counts.blocked),
                 continued_by_category=dict(counts.continued),
+                attempted_requests=sum(counts.requests.values()),
+                attempted_by_category=dict(counts.requests),
+                allowed_requests=sum(counts.unblocked.values()) + sum(counts.continued.values()),
+                allowed_by_category={
+                    category: counts.unblocked[category] + counts.continued[category]
+                    for category in _CATEGORIES
+                },
+                unresolved_policy_requests=sum(counts.unresolved_policy.values()),
+                unresolved_policy_by_category=dict(counts.unresolved_policy),
+                unblocked_request_events=sum(counts.unblocked.values()),
+                unblocked_by_category=dict(counts.unblocked),
+                completed_requests=counts.finished,
+                completed_by_category=dict(counts.completed),
+                failed_by_category=dict(counts.failed_by_category),
+                repeated_resource_events=sum(counts.repeated.values()),
+                repeated_by_category=dict(counts.repeated),
+                duplicate_request_events=counts.duplicate_request_events,
+                repeat_tracking_evictions=counts.repeat_tracking_evictions,
+                outcome_conflicts=counts.outcome_conflicts,
             )
 
     def _targets(self, window: str) -> tuple[_Counts, _Counts]:
@@ -322,6 +451,54 @@ class LiveNetworkObserver:
                 for counts in self._targets(window or self._active or "OUTSIDE_WINDOW"):
                     counts.callback_errors += 1
 
+    def _record_repeat(self, request: Request, category: str, window: str) -> None:
+        """A same-path event is only a possible repeat, never a confirmed retry.
+
+        Ignore query, fragment and userinfo before keyed hashing. The per-observer
+        random key and bounded digests stay in RAM for <= TTL and are cleared at
+        detach. Neither the path nor the digest is logged or returned in a snapshot.
+        Query-distinct calls and legitimate repeated loads can share a digest.
+        """
+        parts = _split_uncached(request.url)
+        key_material = "\0".join((
+            request.method, category, parts.scheme, parts.hostname or "", str(parts.port), parts.path,
+        )).encode("utf-8", errors="replace")
+        fingerprint = hmac.digest(self._fingerprint_key, key_material, hashlib.sha256)
+        now = monotonic()
+        evictions = 0
+        while self._fingerprints:
+            first = next(iter(self._fingerprints))
+            if now - self._fingerprints[first] <= self._fingerprint_ttl_seconds:
+                break
+            self._fingerprints.popitem(last=False)
+            evictions += 1
+        repeated = fingerprint in self._fingerprints
+        self._fingerprints[fingerprint] = now
+        self._fingerprints.move_to_end(fingerprint)
+        if len(self._fingerprints) > self._max_fingerprints:
+            self._fingerprints.popitem(last=False)
+            evictions += 1
+        for counts in self._targets(window):
+            counts.repeat_tracking_evictions += evictions
+            if repeated:
+                _increment(counts.repeated, category)
+
+    def _complete(self, association: _Association) -> None:
+        if association.completed_counted or association.route_outcome == "blocked":
+            return
+        for counts in self._targets(association.window):
+            counts.finished += 1
+            _increment(counts.completed, association.category)
+        association.completed_counted = True
+
+    def _uncomplete(self, association: _Association) -> None:
+        if not association.completed_counted:
+            return
+        for counts in self._targets(association.window):
+            counts.finished -= 1
+            counts.completed[association.category] -= 1
+        association.completed_counted = False
+
     def _on_request(self, request: Request) -> None:
         try:
             with self._lock:
@@ -329,13 +506,22 @@ class LiveNetworkObserver:
                     return
                 window = self._active or "OUTSIDE_WINDOW"
                 policy = self._counts[window].resource_policies or {"OBSERVE_ONLY"}
-                if request in self._associations:
+                if request in self._associations or request in self._terminal:
+                    original = self._associations.get(request) or self._terminal[request]
+                    for counts in self._targets(original.window):
+                        counts.duplicate_request_events += 1
                     return
                 try:
                     category, host, method, purpose = _request_metadata(request)
                 except Exception:
                     category, host, method, purpose = "other", "UNKNOWN", "OTHER", "unknown"
                     self._error(window)
+                try:
+                    self._record_repeat(request, category, window)
+                except Exception:
+                    # Existing metadata failure has already been recorded once.
+                    if host != "UNKNOWN":
+                        self._error(window)
                 navigation = False
                 navigation_unknown = False
                 try:
@@ -350,12 +536,19 @@ class LiveNetworkObserver:
                     _increment(counts.purposes, purpose)
                     counts.navigation += int(navigation)
                     counts.navigation_unknown += int(navigation_unknown)
+                    if not self._route_handler_active:
+                        _increment(counts.unblocked, category)
+                    else:
+                        _increment(counts.unresolved_policy, category)
                 if len(self._associations) >= self._max_associations:
                     oldest = next(iter(self._associations))
                     dropped = self._associations.pop(oldest)
                     for counts in self._targets(dropped.window):
                         counts.association_losses += 1
-                self._associations[request] = _Association(window)
+                self._associations[request] = _Association(
+                    window, category, unblocked=not self._route_handler_active,
+                    policy_unresolved=self._route_handler_active,
+                )
         except Exception:
             self._error()
 
@@ -366,7 +559,7 @@ class LiveNetworkObserver:
                 if self._context is None:
                     return
                 request = response.request
-                association = self._associations.get(request)
+                association = self._associations.get(request) or self._terminal.get(request)
                 if association is not None:
                     window = association.window
                 status = response.status
@@ -399,11 +592,23 @@ class LiveNetworkObserver:
                 association = self._associations.pop(request, None)
                 if association is None:
                     return
+                association.terminal = "failed" if failed else "finished"
                 for counts in self._targets(association.window):
                     if failed:
                         counts.failed += 1
-                    else:
-                        counts.finished += 1
+                        _increment(counts.failed_by_category, association.category)
+                # Routed completion can arrive synchronously before continue_
+                # returns. Wait for its outcome; blocked is never completed.
+                if not failed and (not association.route_seen
+                                   or association.route_outcome == "continued"):
+                    self._complete(association)
+                if len(self._terminal) >= self._max_associations:
+                    oldest = next(iter(self._terminal))
+                    dropped = self._terminal.pop(oldest)
+                    if dropped.route_seen and dropped.route_outcome is None:
+                        for counts in self._targets(dropped.window):
+                            counts.association_losses += 1
+                self._terminal[request] = association
         except Exception:
             self._error()
 

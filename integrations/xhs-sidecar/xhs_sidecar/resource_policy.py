@@ -107,6 +107,7 @@ class ResourcePolicyController:
                     raise ResourcePolicyError() from None
                 self._installed = False
                 self._context = None
+                self._observer.record_route_handler_removed()
 
     def _handle(self, route: Route, request: Request) -> None:
         category = "other"
@@ -115,7 +116,7 @@ class ResourcePolicyController:
         try:
             resource_type = request.resource_type
             category = resource_type if isinstance(resource_type, str) else "other"
-            window = self._observer.record_route_event(category, "attempted")
+            window = self._observer.record_route_event(category, "attempted", request=request)
             with self._lock:
                 block = self._phase in {"SEARCH", "DETAIL"} and (
                     self._active is ResourcePolicy.TEXT_FIRST
@@ -123,20 +124,22 @@ class ResourcePolicyController:
                 )
             if block:
                 route.abort(error_code="blockedbyclient")
-                self._observer.record_route_event(category, "blocked", window=window)
+                self._observer.record_route_event(category, "blocked", window=window, request=request)
             else:
                 continuation_attempted = True
                 route.continue_()
-                self._observer.record_route_event(category, "continued", window=window)
+                self._observer.record_route_event(category, "continued", window=window,
+                                                  request=request)
         except Exception:
             self._failure = "ROUTE_CALLBACK_FAILED"
             self.disable()
-            self._observer.record_route_event(category, "error", window=window)
+            self._observer.record_route_event(category, "error", window=window, request=request)
             if continuation_attempted:
                 return
             try:
                 # Release this original stalled request only; not a new request/retry.
                 route.continue_()
-                self._observer.record_route_event(category, "continued", window=window)
+                self._observer.record_route_event(category, "continued", window=window,
+                                                  request=request)
             except Exception:
                 pass  # Sanitized failure stays visible; browser cleanup owns the rest.

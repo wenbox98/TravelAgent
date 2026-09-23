@@ -117,6 +117,13 @@ def test_r16_blocked_resource_still_counts_as_request_event(resource):
     assert snapshot.routing_cache_affected is True
     assert snapshot.total_bytes is None
     assert context.routes == []
+    assert snapshot.attempted_requests == snapshot.attempted_by_category[resource] == 1
+    assert snapshot.allowed_requests == snapshot.allowed_by_category[resource] == 0
+    assert snapshot.completed_requests == snapshot.completed_by_category[resource] == 0
+    assert snapshot.failed_by_category[resource] == 1
+    assert snapshot.unresolved_policy_requests == 0
+    assert snapshot.actual_sent_requests is None
+    assert snapshot.actual_sent_by_category[resource] is None
 
 
 @pytest.mark.parametrize("resource", ["document", "xhr", "fetch", "script", "stylesheet", "other"])
@@ -132,6 +139,10 @@ def test_r17_text_first_keeps_text_page_dependencies_allowed(resource):
     assert snapshot.blocked_requests == 0
     category = "xhr_fetch" if resource in {"xhr", "fetch"} else resource
     assert snapshot.continued_by_category[category] == 1
+    assert snapshot.allowed_requests == snapshot.allowed_by_category[category] == 1
+    assert snapshot.completed_requests == snapshot.completed_by_category[category] == 1
+    assert snapshot.unblocked_request_events == snapshot.unresolved_policy_requests == 0
+    assert snapshot.actual_sent_requests is None
 
 
 def test_r18_failed_phase_disables_optimization_without_dispatching_fallback():
@@ -180,6 +191,9 @@ def test_observe_only_default_never_installs_routing_or_changes_cache():
     assert snapshot.route_attempts == snapshot.continued_requests == 0
     assert snapshot.resource_policy == "OBSERVE_ONLY"
     assert snapshot.routing_cache_affected is False
+    assert snapshot.unblocked_request_events == snapshot.allowed_requests == 1
+    assert snapshot.completed_requests == snapshot.completed_by_category["image"] == 1
+    assert snapshot.actual_sent_measurement == "NOT_MEASURED"
 
 
 @pytest.mark.parametrize("phase", ["LOGIN", "IDLE"])
@@ -291,3 +305,18 @@ def test_r20_policy_stats_and_errors_never_expose_credentials(capsys, caplog):
     assert "SECRET_" not in output + captured.out + captured.err + caplog.text
     assert "xsec_token" not in output
     assert "service_worker_settings_modified" in output
+
+
+def test_synthetic_repeated_blocked_resource_is_not_claimed_as_confirmed_site_retry():
+    context, observer, policy = setup_policy()
+    observer.start_window("SEARCH")
+    policy.begin(context, "SEARCH")
+    routes = [context.dispatch("image"), context.dispatch("image")]
+    policy.end(success=True)
+    snapshot = observer.finish_window()
+    assert all(route.blocked for route in routes)
+    assert snapshot.attempted_requests == snapshot.blocked_requests == 2
+    assert snapshot.allowed_requests == snapshot.completed_requests == 0
+    assert snapshot.repeated_resource_events == 1
+    assert snapshot.resource_retry_assessment == snapshot.lazy_load_assessment == "UNKNOWN"
+    assert snapshot.actual_sent_requests is snapshot.transferred_bytes is None

@@ -310,6 +310,9 @@ class FakeObserver:
     def record_resource_policy(self, policy, *, routing_enabled=False):
         pass
 
+    def record_route_handler_removed(self):
+        pass
+
 
 class FakeRoutingContext:
     def __init__(self):

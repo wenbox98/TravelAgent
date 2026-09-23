@@ -405,8 +405,8 @@ def test_text_resource_categories_are_explicit_and_total_is_not_adjusted(observe
     requests = [FakeRequest(kind) for kind in ("font", "script", "stylesheet", "websocket")]
     for request in requests:
         context.emit("request", request)
-    window = observer.record_route_event("font", "attempted")
-    observer.record_route_event("font", "blocked", window=window)
+    window = observer.record_route_event("font", "attempted", request=requests[0])
+    observer.record_route_event("font", "blocked", window=window, request=requests[0])
     snapshot = observer.finish_window()
     assert snapshot.requests["font"] == snapshot.requests["script"] == 1
     assert snapshot.requests["stylesheet"] == snapshot.requests["other"] == 1
@@ -428,3 +428,177 @@ def test_route_outcome_keeps_its_captured_window_after_stage_transition(observed
     assert observer.snapshot("DETAIL_1").blocked_requests == 0
     assert observer.snapshot("DETAIL_1").routing_cache_affected is True
     assert observer.snapshot().resource_policy == "MIXED"
+
+
+@pytest.mark.parametrize("resource,category", [
+    ("document", "document"), ("xhr", "xhr_fetch"), ("fetch", "xhr_fetch"),
+    ("image", "image"), ("media", "media"), ("font", "font"),
+    ("script", "script"), ("stylesheet", "stylesheet"), ("websocket", "other"),
+])
+def test_q20_observe_only_local_allowance_is_not_wire_measurement(observed, resource, category):
+    context, observer = observed
+    request = FakeRequest(resource)
+    context.emit("request", request)
+    attempted = observer.snapshot()
+    assert attempted.attempted_requests == attempted.allowed_requests == 1
+    assert attempted.attempted_by_category[category] == attempted.allowed_by_category[category] == 1
+    assert attempted.unblocked_by_category[category] == 1
+    assert attempted.completed_requests == 0
+    assert attempted.actual_sent_requests is None
+    context.emit("response", FakeResponse(request, 404))
+    assert observer.snapshot().completed_requests == 0  # Headers are not body completion.
+    context.emit("requestfinished", request)
+    assert observer.snapshot().completed_by_category[category] == 1
+    assert observer.snapshot().failed_by_category[category] == 0
+
+
+def test_q21_blocked_decision_after_attempt_never_becomes_allowed_or_sent(observed):
+    context, observer = observed
+    observer.start_window("SEARCH")
+    observer.record_resource_policy("TEXT_FIRST", routing_enabled=True)
+    request = FakeRequest("image")
+    context.emit("request", request)
+    pending = observer.snapshot()
+    assert pending.attempted_requests == pending.unresolved_policy_requests == 1
+    assert pending.allowed_requests == 0
+    window = observer.record_route_event("image", "attempted", request=request)
+    # Synthetic synchronous event inside abort(), before its callback returns.
+    context.emit("requestfailed", request)
+    observer.record_route_event("image", "blocked", window=window, request=request)
+    result = observer.snapshot()
+    assert result.attempted_requests == result.blocked_requests == result.failed_requests == 1
+    assert result.allowed_requests == result.completed_requests == result.unresolved_policy_requests == 0
+    assert result.actual_sent_requests is None
+    assert all(value is None for value in result.actual_sent_by_category.values())
+
+
+@pytest.mark.parametrize("finish_first", [True, False])
+def test_completed_awaits_route_continue_and_late_outcome_stays_in_original_window(
+    observed, finish_first
+):
+    context, observer = observed
+    observer.start_window("SEARCH")
+    observer.record_resource_policy("TEXT_FIRST", routing_enabled=True)
+    request = FakeRequest("fetch")
+    context.emit("request", request)
+    window = observer.record_route_event("fetch", "attempted", request=request)
+    observer.finish_window()
+    observer.start_window("DETAIL_1")
+    if finish_first:
+        context.emit("requestfinished", request)
+        assert observer.snapshot("SEARCH").completed_requests == 0
+    observer.record_route_event("fetch", "continued", window=window, request=request)
+    assert observer.snapshot("SEARCH").allowed_requests == 1
+    if not finish_first:
+        context.emit("requestfinished", request)
+    assert observer.snapshot("SEARCH").completed_requests == 1
+    assert observer.snapshot("DETAIL_1").allowed_requests == 0
+    assert observer.snapshot().completed_requests == 1
+
+
+def test_synthetic_conflicting_block_finish_is_disclosed_without_completed_claim(observed):
+    context, observer = observed
+    observer.record_resource_policy("TEXT_FIRST", routing_enabled=True)
+    request = FakeRequest("image")
+    context.emit("request", request)
+    observer.record_route_event("image", "attempted", request=request)
+    context.emit("requestfinished", request)  # Deliberately inconsistent fake ordering.
+    observer.record_route_event("image", "blocked", request=request)
+    assert observer.snapshot().outcome_conflicts == 1
+    assert observer.snapshot().allowed_requests == observer.snapshot().completed_requests == 0
+
+
+def test_unobserved_route_outcome_is_unknown_not_inferred_from_attempted_minus_blocked(observed):
+    context, observer = observed
+    observer.record_resource_policy("TEXT_FIRST", routing_enabled=True)
+    request = FakeRequest("fetch")
+    context.emit("request", request)
+    # Models a context event without an owned route callback. No SW causality inferred.
+    context.emit("response", FakeResponse(request))
+    context.emit("requestfinished", request)
+    result = observer.snapshot()
+    assert result.attempted_requests == result.completed_requests == result.unresolved_policy_requests == 1
+    assert result.allowed_requests == result.blocked_requests == 0
+    assert result.service_worker_assessment == "UNKNOWN"
+    assert result.actual_sent_requests is None
+
+
+def test_repeated_route_and_terminal_events_are_idempotent(observed):
+    context, observer = observed
+    observer.record_resource_policy("TEXT_FIRST", routing_enabled=True)
+    request = FakeRequest("script")
+    context.emit("request", request)
+    for _ in range(2):
+        observer.record_route_event("script", "attempted", request=request)
+    for _ in range(2):
+        observer.record_route_event("script", "continued", request=request)
+        context.emit("requestfinished", request)
+    context.emit("request", request)
+    result = observer.snapshot()
+    assert result.attempted_requests == result.route_attempts == result.allowed_requests == 1
+    assert result.completed_requests == result.duplicate_request_events == 1
+    assert result.repeated_resource_events == 0  # The same callback is not a resource retry.
+
+
+def test_repeated_resource_paths_are_only_derived_candidates_not_proven_retries(observed):
+    context, observer = observed
+    requests = [FakeRequest("image", url=url) for url in (
+        "https://www.example.test/SECRET_PATH_T06?xsec_token=SECRET_ONE_T06",
+        "https://www.example.test/SECRET_PATH_T06?xsec_token=SECRET_TWO_T06#fragment",
+        "https://www.example.test/different",
+    )]
+    for request in requests:
+        context.emit("request", request)
+        context.emit("requestfinished", request)
+    result = observer.snapshot()
+    assert result.attempted_requests == 3
+    assert result.repeated_resource_events == result.repeated_by_category["image"] == 1
+    assert result.resource_retry_assessment == result.lazy_load_assessment == "UNKNOWN"
+    assert "DERIVED" in result.repeat_classification
+    assert all(isinstance(key, bytes) and len(key) == 32 for key in observer._fingerprints)
+    assert "SECRET_" not in repr(observer._fingerprints) + repr(result)
+
+
+def test_repeat_fingerprints_have_random_keys_bounded_capacity_ttl_and_detach_cleanup(monkeypatch):
+    import xhs_sidecar.live_observability as module
+    now = [100.0]
+    monkeypatch.setattr(module, "monotonic", lambda: now[0])
+    first_context, second_context = FakeContext(), FakeContext()
+    first = LiveNetworkObserver(max_fingerprints=1, fingerprint_ttl_seconds=2)
+    second = LiveNetworkObserver()
+    first.attach(first_context)
+    second.attach(second_context)
+    request = FakeRequest("image", url="https://example.test/SECRET_PATH_T06")
+    first_context.emit("request", request)
+    second_context.emit("request", request)
+    assert tuple(first._fingerprints) != tuple(second._fingerprints)
+    first_context.emit("request", FakeRequest("image", url="https://example.test/other"))
+    assert len(first._fingerprints) == 1
+    assert first.snapshot().repeat_tracking_evictions == 1
+    now[0] += 3
+    first_context.emit("request", FakeRequest("image", url="https://example.test/other"))
+    assert first.snapshot().repeated_resource_events == 0
+    assert first.snapshot().repeat_tracking_evictions == 2
+    first.detach()
+    assert first._fingerprints == {} and first._fingerprint_key == b""
+
+
+def test_finished_requests_are_not_retained_for_repeat_tracking(observed):
+    context, observer = observed
+    request = FakeRequest("image")
+    reference = weakref.ref(request)
+    context.emit("request", request)
+    context.emit("requestfinished", request)
+    del request
+    gc.collect()
+    assert reference() is None and len(observer._terminal) == 0
+
+
+def test_q22_unknown_bytes_and_actual_wire_counts_remain_not_measured(observed):
+    _, observer = observed
+    for result in (observer.snapshot(), LiveNetworkObserver().snapshot()):
+        assert result.total_bytes is result.transferred_bytes is result.actual_sent_requests is None
+        assert result.transferred_bytes_measurement == result.actual_sent_measurement == "NOT_MEASURED"
+    missing = LiveNetworkObserver().snapshot()
+    assert missing.attempted_requests is missing.allowed_requests is missing.completed_requests is None
+    assert missing.attempted_by_category is missing.failed_by_category is None
