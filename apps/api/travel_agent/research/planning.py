@@ -2,29 +2,43 @@
 
 import json
 import re
+from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 
 from travel_agent.domain.models import EvidenceBundle
 from travel_agent.providers.llm import LLMProvider
 
 from .models import Candidate, CandidateChoice, ResearchGap, ResearchRequest, SearchQuery
+from .quality import claim_clusters, evaluate_coverage, evidence_conflicts, lexical_similarity, source_independence
+from .reporting import build_directions
 
 
 class SufficiencyEvaluator:
     """Conservative coverage for research materials, never a route feasibility proof."""
 
+    def __init__(self, clock: Callable[[], datetime] | None = None) -> None:
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
+
     def gaps(self, request: ResearchRequest, evidence: tuple[EvidenceBundle, ...]) -> tuple[ResearchGap, ...]:
-        claims = [claim for bundle in evidence for claim in bundle["claims"]
-                  if claim["locator"] and claim["support"] in {"SUPPORTED", "PARTIAL"}
-                  and (claim["confidence"] or 0) >= 0.5]
-        topics = {claim["topic"] for claim in claims}
+        coverage = {item.question_id: item for item in evaluate_coverage(evidence, now=self.clock())}
         specs = (
-            ("ROUTES", "主要路线或区域组合尚缺可靠正文依据", "ROUTE"),
-            ("EXPERIENCES", "主要体验差异尚缺可靠正文依据", "EXPERIENCE"),
-            ("DURATION", "大致需要几天尚缺可靠正文依据", "DURATION"),
-            ("TRANSPORT", "交通条件及限制尚缺可靠正文依据", "TRANSPORT"),
+            ("ROUTES", "主要路线或区域组合尚缺可靠正文依据", "ROUTE", "Q1_ROUTES"),
+            ("EXPERIENCES", "主要体验差异尚缺可靠正文依据", "EXPERIENCE", "Q2_EXPERIENCES"),
+            ("DURATION", "大致需要几天尚缺可靠正文依据", "DURATION", "Q3_DURATION"),
+            ("TRANSPORT", "重要限制、交通或风险尚缺可用依据", "TRANSPORT", "Q4_LIMITATIONS"),
         )
-        gaps = [ResearchGap(key, text, (topic,)) for key, text, topic in specs if topic not in topics]
+        gaps = [ResearchGap(key, text, (topic,)) for key, text, topic, question in specs
+                if coverage[question].status != "SUPPORTED"]
+        independence = source_independence(evidence)
+        if independence.group_count < 2:
+            gaps.append(ResearchGap("SOURCE_CORROBORATION", "尚缺不同来源材料对照；单来源不能概括为普遍结论"))
+        if evidence_conflicts(evidence):
+            gaps.append(ResearchGap("CONFLICTING_EXPERIENCES", "不同来源存在差异，需要核对各自路线和适用条件"))
+        if len({cluster.topic for cluster in claim_clusters(evidence)}) < 3:
+            gaps.append(ResearchGap("CLAIM_DIVERSITY", "材料主题单一，尚不足以形成大致研究方向"))
+        if any(direction["unknown"] for direction in build_directions(evidence, now=self.clock())):
+            gaps.append(ResearchGap("DIRECTION_ASSOCIATION", "部分候选方向尚缺可直接关联的体验、时长或限制材料"))
         # User constraints never become evidence conditions merely by being requested.
         if request.days is not None:
             # A mention of five days does not establish whole-route feasibility.
@@ -54,6 +68,9 @@ class QueryPlanner:
         terms = {"ROUTES": "路线 区域", "EXPERIENCES": "体验 差异",
                  "DURATION": "路线 几天", "TRANSPORT": "交通 限制",
                  "DAYS_FIT": f"{request.days}天 路线", "NON_SELF_DRIVE": "不自驾 公共交通"}
+        terms.update({"SOURCE_CORROBORATION": "不同路线 体验对比", "CLAIM_DIVERSITY": "游玩体验 时长",
+                      "CONFLICTING_EXPERIENCES": "路线 时长 条件 差异",
+                      "DIRECTION_ASSOCIATION": "路线 体验 天数 交通"})
         for gap in gaps:
             term = terms.get(gap.gap_id)
             if term:
@@ -116,5 +133,16 @@ class CandidateSelector:
                 self.last_mode = "LLM_METADATA_ONLY"
             except Exception:
                 self.last_mode = "DETERMINISTIC_FALLBACK"
-        return tuple(CandidateChoice(candidate, "依据已观测标题、图文类型和当前缺口排序；未读正文",
-                                     tuple(gap.gap_id for gap in gaps)) for candidate in ordered)
+        # Keep the strongest first choice, then prefer observed title diversity.
+        diverse: list[Candidate] = []
+        ranks = {candidate.source_id: index for index, candidate in enumerate(ordered)}
+        while ordered:
+            chosen = min(ordered, key=lambda candidate: (
+                max((lexical_similarity(candidate.title or "", prior.title or "")
+                     for prior in diverse), default=0) * 10 + ranks[candidate.source_id] * 0.1,
+                candidate.source_id,
+            ))
+            diverse.append(chosen)
+            ordered.remove(chosen)
+        return tuple(CandidateChoice(candidate, "依据真实标题、图文类型、缺口及标题多样性排序；未读正文",
+                                     tuple(gap.gap_id for gap in gaps)) for candidate in diverse)

@@ -1,6 +1,7 @@
 """Internal research orchestration types; evidence remains the existing contract."""
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from travel_agent.domain.models import EvidenceBundle
@@ -95,6 +96,7 @@ class DetailMaterial:
     image_count: int = 0
     identity_match: bool = True
     source_type: str = "XHS"
+    dom_body: str | None = None
 
 
 @dataclass(frozen=True, repr=False)
@@ -114,10 +116,25 @@ class ResearchReport:
     obsolete: bool = False
     diagnostic: str | None = None
     selection: tuple[CandidateChoice, ...] = field(default=(), repr=False)
+    assessed_at: str | None = None
+
+    def _now(self) -> datetime:
+        return datetime.fromisoformat(self.assessed_at) if self.assessed_at else datetime.now(timezone.utc)
 
     def safe_summary(self) -> dict[str, Any]:
         """No real claim/title, source IDs, access URLs or account identifiers."""
         claims = [claim for bundle in self.evidence for claim in bundle["claims"]]
+        from .freshness import assess_freshness
+        from .quality import evaluate_coverage, evidence_conflicts, has_locator, is_grounded, source_independence
+        from .reporting import build_directions
+        freshness: dict[str, int] = {}
+        for bundle in self.evidence:
+            for claim in bundle["claims"]:
+                assessment = assess_freshness(claim, bundle, now=self._now())
+                for key in (assessment.category, assessment.status):
+                    freshness[key] = freshness.get(key, 0) + 1
+        located = sum(has_locator(claim) for claim in claims)
+        grounded = sum(is_grounded(bundle, claim) for bundle in self.evidence for claim in bundle["claims"])
         return {
             "revision": self.revision, "stop_reason": self.stop_reason,
             "operations": dict(self.operations), "cache_sources": self.cache_sources,
@@ -132,10 +149,18 @@ class ResearchReport:
             "travel_time_unknown": all(bundle["travel_occurred_at"] is None
                                        for bundle in self.evidence),
             "network": {"measurement": "NOT_MEASURED", "requests": None, "bytes": None},
+            "coverage": [item.to_dict(safe=True) for item in evaluate_coverage(self.evidence, now=self._now())],
+            "conflict_count": len(evidence_conflicts(self.evidence)),
+            "source_independence": asdict(source_independence(self.evidence)),
+            "candidate_direction_count": len(build_directions(self.evidence, now=self._now())),
+            "freshness": freshness, "grounded_claim_count": grounded,
+            "locator_coverage": located / len(claims) if claims else None,
+            "unsupported_claims": len(claims) - grounded,
         }
 
     def material_view(self) -> dict[str, Any]:
         """Private in-memory presentation; persistence/export needs SourcePolicy checks."""
+        from .quality import is_grounded
         groups: dict[str, list[dict[str, Any]]] = {
             "routes_areas": [], "experiences": [], "duration_clues": [], "transport_clues": [],
         }
@@ -144,10 +169,17 @@ class ResearchReport:
         for bundle in self.evidence:
             for claim in bundle["claims"]:
                 group = mapping.get(claim["topic"])
-                if group:
+                if group and is_grounded(bundle, claim):
                     groups[group].append({**claim, "basis": "EXTRACTED_FROM_SOURCE",
                                           "completeness": bundle["completeness"]})
+        from .quality import claim_clusters, evaluate_coverage, evidence_conflicts
+        from .reporting import build_directions
         return {**self.safe_summary(), "materials": groups,
+                "directions": build_directions(self.evidence, now=self._now()),
+                "coverage": [row.to_dict() for row in evaluate_coverage(self.evidence, now=self._now())],
+                "conflicts": [asdict(row) for row in evidence_conflicts(self.evidence)],
+                "claim_clusters": [asdict(row) for row in claim_clusters(self.evidence)],
+                "is_synthetic": bool(self.evidence) and all(bundle["is_synthetic"] for bundle in self.evidence),
                 "observed": {"sources_read": len(self.evidence)},
                 "unknown": [gap.description for gap in self.gaps]}
 

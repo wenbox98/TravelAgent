@@ -8,6 +8,7 @@ from typing import Literal, Protocol
 from travel_agent.domain.models import SourcePolicy
 
 from .extractor import EvidenceExtractor, policy_allows_model
+from .ephemeral import EphemeralSourceContent
 from .models import (
     Candidate, CandidateChoice, DetailMaterial, ResearchBudget, ResearchGap,
     ResearchReport, ResearchRequest, ResearchStopped, StopReason,
@@ -53,7 +54,7 @@ class ResearchService:
         )
         self.checkpoint = checkpoint or (lambda _: None)
         self.temporary_read_allowed = temporary_read_allowed
-        self.evaluator, self.planner = SufficiencyEvaluator(), QueryPlanner()
+        self.evaluator, self.planner = SufficiencyEvaluator(clock=store.db.clock), QueryPlanner()
 
     def run(self, request: ResearchRequest, *, research_id: str, revision: int,
             account_scope: str, budget: ResearchBudget = ResearchBudget()) -> ResearchReport:
@@ -88,6 +89,7 @@ class ResearchService:
                 "ERROR" if obsolete else reason, self.store.operations(run_id), cached,
                 query_count, candidate_count, tuple(modes), obsolete,
                 "STALE_REVISION" if obsolete else diagnostic, tuple(choices),
+                assessed_at=self.store.db.stamp(),
             )
             self.store.finish(run_id, revision, [g.to_dict() for g in report.gaps], report.safe_summary())
             return report
@@ -107,7 +109,7 @@ class ResearchService:
             current()
             if result.source_id != candidate.source_id or not result.identity_match:
                 raise ResearchStopped("SOURCE_UNAVAILABLE", "IDENTITY_MISMATCH")
-            if not result.body.strip():
+            if not result.body.strip() and not (result.dom_body or "").strip():
                 raise ResearchStopped("SOURCE_UNAVAILABLE", "EMPTY_BODY", fallback_eligible=True)
             return result
 
@@ -175,15 +177,20 @@ class ResearchService:
                         else:
                             raise
                     current()
-                    extracted = self.extractor.extract(
-                        source_id=material.source_id, source_title=material.title,
-                        body=material.body, completeness=material.completeness,
-                        fetched_at=material.fetched_at, source_published_at=material.published_at,
-                        policy=self.policy, source_type=material.source_type,
-                        destination=request.destination, image_count=material.image_count,
-                        temporary_read_allowed=self.temporary_read_allowed,
-                        research_gaps=tuple(gap.gap_id for gap in gaps),
-                    )
+                    content = EphemeralSourceContent(material.body, material.dom_body)
+                    try:
+                        state_body, dom_body = content.read()
+                        extracted = self.extractor.extract(
+                            source_id=material.source_id, source_title=material.title,
+                            body=state_body, dom_body=dom_body, completeness=material.completeness,
+                            fetched_at=material.fetched_at, source_published_at=material.published_at,
+                            policy=self.policy, source_type=material.source_type,
+                            destination=request.destination, image_count=material.image_count,
+                            temporary_read_allowed=self.temporary_read_allowed,
+                            research_gaps=tuple(gap.gap_id for gap in gaps),
+                        )
+                    finally:
+                        content.close()
                     current()
                     modes.append(extracted.mode)
                     snapshot = {

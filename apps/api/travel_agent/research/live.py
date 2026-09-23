@@ -28,12 +28,12 @@ def _stopped(code: str, *, technical: bool = False) -> ResearchStopped:
 
 
 class LiveResearchReader:
-    def __init__(self, project: Path) -> None:
+    def __init__(self, project: Path, *, resource_policy: ResourcePolicy = ResourcePolicy.OBSERVE_ONLY) -> None:
         self.profile = ProfileStore(project)
         self.profile_present_at_start = self.profile.exists()
         self.observer = LiveNetworkObserver()
         self.backend = LiveBrowserBackend(self.profile, self.observer,
-                                          resource_policy=ResourcePolicy.TEXT_FIRST)
+                                          resource_policy=resource_policy)
         self.browser = CountingBrowserManager(self.backend)
         self.login = LoginLifecycle(self.browser, self.profile)
         self._candidates: dict[str, LiveCandidate] = {}
@@ -174,9 +174,11 @@ class LiveResearchReader:
                                                        else timestamp, tz=timezone.utc).isoformat()
                 except (ValueError, OSError, OverflowError):
                     pass
+        dom_body = payload.get("dom_body") if isinstance(payload, dict) else None
         return DetailMaterial(candidate.source_id, result.raw.title, result.raw.body or "",
                               result.classification.completeness,
-                              datetime.now(timezone.utc).isoformat(), published, result.image_count)
+                              datetime.now(timezone.utc).isoformat(), published, result.image_count,
+                              dom_body=dom_body if isinstance(dom_body, str) else None)
 
     def close(self) -> None:
         if not self.closed:

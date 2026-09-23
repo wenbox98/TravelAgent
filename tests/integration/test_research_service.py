@@ -19,19 +19,33 @@ TOPICS = ("ROUTE", "EXPERIENCE", "DURATION", "TRANSPORT")
 
 
 def evidence(source_id="xhs:synthetic-a", topics=TOPICS, missing=()):
-    texts = {"ROUTE": "合成川西路线甲沿河出发", "EXPERIENCE": "作者体验了合成徒步",
-             "DURATION": "作者用了7天", "TRANSPORT": "作者使用自驾交通"}
+    texts = ({"ROUTE": "合成川西路线甲沿河出发", "EXPERIENCE": "作者体验了合成徒步",
+              "DURATION": "作者用了7天", "TRANSPORT": "作者使用自驾交通"}
+             if source_id.endswith("-a") else
+             {"ROUTE": "合成川西乙环线围绕湖区", "EXPERIENCE": "另一作者体验合成温泉",
+              "DURATION": "另一作者停留4天", "TRANSPORT": "另一作者乘坐合成班车"})
+    direction = "甲环线" if source_id.endswith("-a") else "乙环线"
+    texts = {topic: f"{direction}：{text}" for topic, text in texts.items()}
+    blocks = body_blocks("\n".join(texts[topic] for topic in TOPICS), origin="STATE", normalized=True)
+    claims = [{
+        "claim_id": f"claim-{source_id}-{topic}", "source_id": source_id, "topic": topic,
+        "text": texts[topic], "kind": "AUTHOR_OPINION", "support": "SUPPORTED",
+        "locator": blocks[TOPICS.index(topic)].locator, "confidence": 0.6,
+        "valid_from": None, "valid_until": None,
+    } for topic in topics]
     return EvidenceBundle({
         "source_id": source_id, "source_type": "SYNTHETIC", "source_title": "合成川西研究",
         "destination": "川西", "applicable_conditions": [], "completeness": "PARTIAL_TEXT",
-        "fetched_at": "2026-09-22T10:00:00+08:00", "source_published_at": None,
-        "travel_occurred_at": None, "policy_id": "synthetic-all", "is_synthetic": True,
-        "missing_fields": list(missing), "claims": [{
-            "claim_id": f"claim-{source_id}-{topic}", "source_id": source_id, "topic": topic,
-            "text": texts[topic], "kind": "AUTHOR_OPINION", "support": "PARTIAL",
-            "locator": "note-body:v1:" + "a" * 64 + ":chars:0-9", "confidence": 0.8,
-            "valid_from": None, "valid_until": None,
-        } for topic in topics],
+        "fetched_at": "2026-09-21T10:00:00+08:00", "source_published_at": None,
+        "travel_occurred_at": "2026-09-20T00:00:00+00:00", "policy_id": "synthetic-all",
+        "is_synthetic": True, "missing_fields": list(missing), "claims": claims,
+        "claim_metadata": {c["claim_id"]: {
+            "source_block_ids": [TOPICS.index(c["topic"])], "body_origin": "STATE",
+            "extraction_method": "MOCK", "confidence_level": "MEDIUM",
+            "extraction_basis": "合成正文逐字表达", "applicable_conditions": [],
+            "canonical_relation": "STATE_ONLY", "truncation_risk": True,
+            "block_locators": [c["locator"]],
+        } for c in claims},
     })
 
 
@@ -75,7 +89,7 @@ class FakeReader:
                 return action
         return DetailMaterial(
             candidate.source_id, candidate.title,
-            "路线甲沿河出发。\n作者停留两天。\n这里可以换乘公交。",
+            "\n".join(c["text"] for c in evidence(candidate.source_id)["claims"]),
             "PARTIAL_TEXT", "2026-09-22T10:00:00+08:00", source_type="SYNTHETIC",
         )
     def disable_text_first(self):
@@ -108,9 +122,10 @@ def run(service, *, revision=1, request=REQUEST, budget=None):
 def test_r01_sufficient_sqlite_cache_needs_no_connect_search_or_detail(environment):
     store, policy = environment
     seed(store, policy, evidence())
+    seed(store, policy, evidence("xhs:synthetic-b"))
     reader = FakeReader()
     report = run(ResearchService(store, reader, StubExtractor(), policy))
-    assert report.stop_reason == "EVIDENCE_SUFFICIENT" and report.cache_sources == 1
+    assert report.stop_reason == "EVIDENCE_SUFFICIENT" and report.cache_sources == 2
     assert report.operations == {"search": 0, "detail": 0}
     assert reader.connects == 0 and reader.searches == [] and reader.details == []
 
@@ -120,7 +135,9 @@ def test_r02_partial_cache_searches_only_remaining_gap(environment):
     seed(store, policy, evidence(topics=("ROUTE", "EXPERIENCE", "DURATION")))
     reader = FakeReader(candidates=(Candidate("xhs:synthetic-b", "川西交通班车攻略", "normal", True),))
     report = run(ResearchService(store, reader, StubExtractor(topics=("TRANSPORT",)), policy))
-    assert report.stop_reason == "EVIDENCE_SUFFICIENT"
+    # A second source's unassociated transport clue cannot fill the first route's gap.
+    assert report.stop_reason == "BUDGET_EXHAUSTED"
+    assert {"TRANSPORT", "DIRECTION_ASSOCIATION"}.issubset({g.gap_id for g in report.gaps})
     assert len(reader.searches) == 1 and "交通" in reader.searches[0]
     assert "川西 国庆 攻略" not in reader.searches[0]
     assert report.cache_sources == 1 and len(report.evidence) == 2
@@ -139,6 +156,7 @@ def test_r04_repeated_source_is_detailed_once(environment, clock):
 
 def test_r09_sufficient_first_detail_stops_before_second(environment):
     store, policy = environment
+    seed(store, policy, evidence())  # Complete first direction, still only one source.
     reader = FakeReader()
     report = run(ResearchService(store, reader, StubExtractor(), policy))
     assert report.stop_reason == "EVIDENCE_SUFFICIENT" and len(reader.details) == 1
@@ -168,6 +186,7 @@ def test_r12_pause_reason_never_triggers_fallback_even_if_mislabeled(environment
 def test_r13_r14_zero_budget_incremental_request_preserves_evidence(environment):
     store, policy = environment
     seed(store, policy, evidence())
+    seed(store, policy, evidence("xhs:synthetic-b"))
     reader = FakeReader()
     service = ResearchService(store, reader, StubExtractor(), policy)
     original = run(service, budget=ResearchBudget(0, 0))
@@ -196,7 +215,8 @@ def test_r18_one_technical_fallback_is_same_source_and_charged(environment):
     store, policy = environment
     reader = FakeReader(actions=[ResearchStopped("SOURCE_UNAVAILABLE", "PARSE_ERROR", fallback_eligible=True)])
     report = run(ResearchService(store, reader, StubExtractor(), policy))
-    assert report.stop_reason == "EVIDENCE_SUFFICIENT" and reader.disabled == 1
+    assert report.stop_reason == "BUDGET_EXHAUSTED" and reader.disabled == 1
+    assert "SOURCE_CORROBORATION" in {gap.gap_id for gap in report.gaps}
     assert report.operations == {"search": 1, "detail": 2}
     assert len({source for source, _ in reader.details}) == 1
     assert [number for _, number in reader.details] == [1, 2]

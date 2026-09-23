@@ -10,6 +10,7 @@ import platform
 from typing import Any
 
 from xhs_sidecar.live_smoke import AuditCounter
+from xhs_sidecar.resource_policy import ResourcePolicy
 
 from travel_agent.domain.models import SourcePolicy
 from travel_agent.persistence.database import Database
@@ -72,7 +73,7 @@ def run_smoke(project: Path) -> dict[str, Any]:
     try:
         provider = OpenAICompatibleProvider.from_env()
         result["model"] = "CONFIGURED_BUT_POLICY_BLOCKED" if provider else "NOT_CONFIGURED"
-        reader = LiveResearchReader(project)
+        reader = LiveResearchReader(project, resource_policy=ResourcePolicy.TEXT_FIRST)
         audit = AuditCounter()
         reader.login.audit.logger.handlers = [audit]
         reader.login.audit.logger.propagate = False

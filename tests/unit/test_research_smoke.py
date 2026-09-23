@@ -17,8 +17,9 @@ def test_smoke_entrypoint_without_live_opt_in_is_local(monkeypatch, tmp_path, ca
 
 def test_experiment_marker_precedes_setup_and_blocks_restart(monkeypatch, tmp_path):
     calls = []
-    def failed_setup(project):
+    def failed_setup(project, *, resource_policy):
         calls.append(project)
+        assert resource_policy.value == "TEXT_FIRST"
         marker = project / ".local/t05-smoke/summary.json"
         assert json.loads(marker.read_text(encoding="utf-8"))["attempted"] is True
         raise RuntimeError("SECRET_COOKIE_must_not_escape")
