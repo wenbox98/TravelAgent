@@ -11,6 +11,7 @@ import playwright
 import pytest
 
 from xhs_sidecar.browser import BrowserSession, LoginObservation
+from xhs_sidecar.detail_detection import DETAIL_EVIDENCE_SCRIPT, DetailPageEvidence, detail_route
 from xhs_sidecar.live_page import (
     DETAIL_SCRIPT, SEARCH_SCRIPT, LiveBrowserBackend, LiveReadStopped,
 )
@@ -241,7 +242,7 @@ def clean_observation(**changes):
 
 
 class FakePage:
-    def __init__(self, *, status=200, goto_error=None, payload=None, redirect=None):
+    def __init__(self, *, status=200, goto_error=None, payload=None, redirect=None, evidence=None):
         self.url = "https://www.xiaohongshu.com/explore"
         self.status = status
         self.goto_error = goto_error
@@ -250,16 +251,25 @@ class FakePage:
         self.goto_calls = []
         self.evaluate_calls = []
         self.wait_calls = []
+        self.evidence = evidence
 
     def goto(self, url, **kwargs):
         self.goto_calls.append((url, kwargs))
         if self.goto_error:
             raise self.goto_error
         self.url = self.redirect or url
-        return SimpleNamespace(status=self.status) if self.status is not None else None
+        return SimpleNamespace(status=self.status, request=SimpleNamespace(redirected_from=None)) \
+            if self.status is not None else None
 
     def evaluate(self, script, *args):
         self.evaluate_calls.append((script, args))
+        if script == DETAIL_EVIDENCE_SCRIPT:
+            return self.evidence if self.evidence is not None else DetailPageEvidence(
+                route=detail_route(self.url, args[0]), identity="IDENTITY_MATCH", page_ready=True,
+                login_present=False, verification_present=False, title_present=True, body_present=True,
+            ).model_dump()
+        if script == DETAIL_SCRIPT and self.payload.get("state_available") and "note" not in self.payload:
+            return {**self.payload, "note": {"noteId": args[0], "desc": "合成正文"}}
         return dict(self.payload)
 
     def wait_for_timeout(self, milliseconds):
@@ -323,7 +333,9 @@ def test_detail_navigates_observed_href_once_and_passes_only_expected_id_to_scri
     backend.detail(session, href=href, note_id="synthetic-note", detail_number=1)
     assert backend.goto_attempts == 1 and page.goto_calls[0][0] == href
     assert len(page.goto_calls) == 1
-    assert page.evaluate_calls == [(DETAIL_SCRIPT, ("synthetic-note",))] * 2
+    assert page.evaluate_calls.count((DETAIL_SCRIPT, ("synthetic-note",))) == 1
+    assert backend.detail_diagnostic["classification"] == "DETAIL_EXPECTED"
+    assert backend.detail_diagnostic["redirect_count"] == 0
     assert backend.observer.windows == ["DETAIL_1"] and backend.observer.finishes == 1
 
 
@@ -339,23 +351,28 @@ def test_same_note_official_route_canonicalization_does_not_repeat_navigation(st
     backend.detail(session, href="https://www.xiaohongshu.com" + start_path,
                    note_id="synthetic-note", detail_number=1)
     assert len(page.goto_calls) == 1
-    assert len(page.evaluate_calls) == 2
+    assert sum(script == DETAIL_SCRIPT for script, _ in page.evaluate_calls) == 1
     assert backend.last_read_diagnostic is None
 
 
-@pytest.mark.parametrize("path", [
-    "/explore/different-id", "/search_result/different-id", "/user/profile/synthetic-note",
-    "/explore/synthetic-note/extra", "/search_result", "/explore",
+@pytest.mark.parametrize("path,code", [
+    ("/explore/different-id", "IDENTITY_MISMATCH"),
+    ("/search_result/different-id", "IDENTITY_MISMATCH"),
+    ("/user/profile/synthetic-note", "REDIRECTED_OTHER_VALID_XHS_PAGE"),
+    ("/explore/synthetic-note/extra", "UNEXPECTED_PAGE"),
+    ("/search_result", "REDIRECTED_OTHER_VALID_XHS_PAGE"),
+    ("/explore", "REDIRECTED_OTHER_VALID_XHS_PAGE"),
 ])
-def test_other_note_or_route_remains_rejected_with_safe_diagnostic(path):
+def test_other_note_or_route_remains_rejected_with_safe_diagnostic(path, code):
     page = FakePage(payload={"state_available": True},
                     redirect="https://www.xiaohongshu.com" + path)
     backend, session, _ = fake_backend(page=page)
-    with pytest.raises(LiveReadStopped, match="UNEXPECTED_PAGE"):
+    with pytest.raises(LiveReadStopped, match=code):
         backend.detail(session, href="https://www.xiaohongshu.com/explore/synthetic-note",
                        note_id="synthetic-note", detail_number=1)
-    assert len(page.goto_calls) == 1 and not page.evaluate_calls
-    assert backend.last_read_diagnostic == "ROUTE_MISMATCH"
+    assert len(page.goto_calls) == 1
+    assert all(script == DETAIL_EVIDENCE_SCRIPT for script, _ in page.evaluate_calls)
+    assert backend.last_read_diagnostic == "DETAIL_CLASSIFICATION"
 
 
 @pytest.mark.parametrize("observation,code", [
@@ -455,3 +472,47 @@ def test_resource_revoked_under_operation_lock_cannot_navigate():
     with pytest.raises(LiveReadStopped, match="^STALE_SESSION$"):
         backend.search(session, "合成关键词")
     assert not page.goto_calls
+
+
+@pytest.mark.parametrize("changes,code", [
+    ({"identity": "IDENTITY_MISMATCH"}, "IDENTITY_MISMATCH"),
+    ({"verification_present": True}, "VERIFICATION_REQUIRED"),
+    ({"login_present": True}, "NEED_LOGIN"),
+    ({"locator_invalid": True}, "ACCESS_LOCATOR_INVALID"),
+    ({"not_found": True}, "NOT_FOUND"),
+])
+def test_detail_failure_preserves_diagnosis_without_extracting_body(changes, code):
+    e = DetailPageEvidence(route="DETAIL_EXPLORE", identity="IDENTITY_MATCH", page_ready=True,
+                           login_present=False, verification_present=False,
+                           title_present=True, body_present=True).model_copy(update=changes)
+    backend, session, page = fake_backend(page=FakePage(evidence=e.model_dump()))
+    with pytest.raises(LiveReadStopped, match=code):
+        backend.detail(session, href="https://www.xiaohongshu.com/explore/synthetic-note",
+                       note_id="synthetic-note", detail_number=1)
+    assert len(page.goto_calls) == backend.observer.finishes == 1
+    assert all(script == DETAIL_EVIDENCE_SCRIPT for script, _ in page.evaluate_calls)
+    assert backend.detail_diagnostic["evidence"] == e.model_dump()
+
+
+def test_identity_change_at_extraction_never_returns_foreign_body():
+    backend, session, _ = fake_backend(page=FakePage(payload={
+        "state_available": True, "note": {"noteId": "other", "desc": "错误来源"}
+    }))
+    with pytest.raises(LiveReadStopped, match="IDENTITY_MISMATCH"):
+        backend.detail(session, href="https://www.xiaohongshu.com/explore/synthetic-note",
+                       note_id="synthetic-note", detail_number=1)
+    assert backend.detail_diagnostic["extraction_identity"] == "IDENTITY_MISMATCH"
+
+
+def test_redirect_count_comes_from_main_document_chain_not_other_301_events():
+    backend, session, page = fake_backend()
+    goto = page.goto
+    def with_redirects(*args, **kwargs):
+        response = goto(*args, **kwargs)
+        for _ in range(2):
+            response.request = SimpleNamespace(redirected_from=response.request)
+        return response
+    page.goto = with_redirects
+    backend.detail(session, href="https://www.xiaohongshu.com/explore/synthetic-note",
+                   note_id="synthetic-note", detail_number=1)
+    assert backend.detail_diagnostic["redirect_count"] == 2

@@ -130,6 +130,21 @@ def _cover_present(value: object) -> bool:
     )
 
 
+def _tags(value: object) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Only explicit tag fields; never infer topics or places from body text."""
+    tags: dict[str, None] = {}
+    topics: dict[str, None] = {}
+    if isinstance(value, list):
+        for item in value:
+            tag = _mapping(item) or {}
+            name = _text(tag.get("name"))
+            if name is not None:
+                tags[name] = None
+                if tag.get("type") == "topic":
+                    topics[name] = None
+    return tuple(tags), tuple(topics)
+
+
 @dataclass(frozen=True, repr=False)
 class LiveCandidate:
     source: SourceIdentity
@@ -323,6 +338,9 @@ class LiveDetail:
     dom_body_matches: bool
     expandable: bool | None
     truncated: bool | None
+    tags: tuple[str, ...] = ()
+    topics: tuple[str, ...] = ()
+    location: str | None = None
 
     def __repr__(self) -> str:
         return "LiveDetail(private)"
@@ -333,11 +351,17 @@ class LiveDetail:
             "note_type": self.note_type,
             "field_status": dict(self.field_status),
             "body_chars": len(self.raw.body or ""),
+            "body_block_count": sum(bool(line.strip()) for line in (self.raw.body or "").splitlines()),
+            "body_block_strategy": "NONEMPTY_LINES_DERIVED",
+            "topic_count": len(self.topics),
+            "tag_count": len(self.tags),
             "image_count": self.image_count,
             "image_analysis": "IMAGE_NOT_ANALYZED" if self.image_count else "NOT_AVAILABLE",
             "completeness": self.classification.completeness,
             "completeness_reason": self.classification.reason,
             "source_locator": self.source_locator,
+            "source_locator_kind": "BODY_HASH_CHAR_RANGE" if self.source_locator else "NOT_AVAILABLE",
+            "stable_locator_derived": self.source_locator is not None,
             "http_status": self.http_status,
             "dom_body_found": self.dom_body_found,
             "dom_body_matches": self.dom_body_matches,
@@ -376,6 +400,9 @@ def parse_detail(payload: object, expected: SourceIdentity) -> LiveDetail:
     user = _mapping(note.get("user")) or {}
     author = _text(user.get("nickname")) or _text(user.get("nickName"))
     note_type = _note_type(note.get("type"))
+    tags, topics = _tags(note.get("tagList"))
+    location_value = note.get("location")
+    location = _text(location_value) or _text((_mapping(location_value) or {}).get("name"))
     statuses: dict[str, FieldStatus] = {
         "note_id": "OBSERVED",
         "source_id": "DERIVED",
@@ -386,6 +413,9 @@ def parse_detail(payload: object, expected: SourceIdentity) -> LiveDetail:
         "author_display": _present(author),
         "publish_time": _present(_time(note.get("time"))),
         "ip_location": _present(_text(note.get("ipLocation"))),
+        "location": _present(location),
+        "tags": "OBSERVED" if tags else "NOT_AVAILABLE",
+        "topics": "OBSERVED" if topics else "NOT_AVAILABLE",
         "interaction_metadata": "OBSERVED" if _interaction_fields(note.get("interactInfo"))
         else "NOT_AVAILABLE",
         "images": "OBSERVED" if image_count else "NOT_AVAILABLE",
@@ -400,4 +430,5 @@ def parse_detail(payload: object, expected: SourceIdentity) -> LiveDetail:
     return LiveDetail(
         raw, classify_completeness(raw), source_locator, note_type, statuses, image_count,
         http_status, dom_body_found, dom_body_matches, expandable, truncated,
+        tags, topics, location,
     )

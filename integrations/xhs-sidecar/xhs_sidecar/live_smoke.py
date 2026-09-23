@@ -55,13 +55,14 @@ class AuditCounter(logging.Handler):
 
 
 class SmokeController:
-    def __init__(self, project: Path, output: Path) -> None:
+    def __init__(self, project: Path, output: Path, *, detail_smoke: bool = False) -> None:
         if output.exists():
             previous = json.loads(output.read_text(encoding="utf-8"))
             usage = previous.get("reading", {})
             if usage.get("search_operations", 0) or usage.get("detail_operations", 0):
                 raise RuntimeError("已有实站读取记录；不得通过重启重置实验预算")
         self.output = output
+        self.detail_smoke = detail_smoke
         self.observer = LiveNetworkObserver()
         self.profile = ProfileStore(project)
         self.profile_present_at_start = self.profile.exists()
@@ -75,6 +76,7 @@ class SmokeController:
         logger.setLevel(logging.INFO)
         self.reader = LiveSmokeReader(
             self.browser, self.login, self.backend, checkpoint=self.save,
+            max_feed_details=1 if detail_smoke else 2,
         )
         self.login_window = False
         self.connect_started = False
@@ -87,6 +89,8 @@ class SmokeController:
     def summary(self) -> dict[str, object]:
         state = self.login.status()
         return {
+            "experiment": "T04.1" if self.detail_smoke else "T04",
+            "locator_reacquisition": "MEMORY_ONLY_LOCATOR_NOT_RETAINED" if self.detail_smoke else None,
             "query": QUERY,
             "login": {
                 "status": state.status, "error_code": state.error_code,
@@ -110,6 +114,7 @@ class SmokeController:
             },
             "last_error": self.last_error,
             "read_diagnostic": self.backend.last_read_diagnostic,
+            "detail_diagnostic": self.backend.detail_diagnostic,
             "closed": self.closed,
         }
 
@@ -184,13 +189,16 @@ class SmokeController:
 def main(project: Path) -> int:
     parser = argparse.ArgumentParser(description="T04一次搜索、最多两篇详情的人工Smoke")
     parser.add_argument("--live", action="store_true", help="明确启用真实普通浏览器")
+    parser.add_argument("--detail-smoke", action="store_true", help="T04.1独立账本；最多一篇详情")
     args = parser.parse_args()
     if not args.live:
         print("未启用真实访问。需要显式 --live；启动后仍须输入 connect。")
         return 0
     controller: SmokeController | None = None
     try:
-        controller = SmokeController(project, project / ".local/t04-smoke/summary.json")
+        directory = "t04.1-smoke" if args.detail_smoke else "t04-smoke"
+        controller = SmokeController(project, project / f".local/{directory}/summary.json",
+                                     detail_smoke=args.detail_smoke)
         commands: Queue[str] = Queue()
 
         def receive() -> None:

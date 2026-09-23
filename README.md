@@ -87,7 +87,7 @@ T02 增加独立[只读 sidecar 基础](integrations/xhs-sidecar/README.md)：Fa
 
 命令、launch 参数与 profile 边界见 [sidecar README](integrations/xhs-sidecar/README.md)。初次离线交付见 [T03 实现报告](reports/T03-implementation.md)；后续经用户授权完成登录识别修复、200 项离线测试及本机真实登录/重启复用/断开清理，执行证据见 [T03.8 验收报告](reports/T03.8-implementation.md)。**T03 登录专项已通过，最终提交为 `ccd329056794d3f29549ff0383f6236ce6373f36`。** 当时停止于 T03；本轮经用户新授权进入下面的 T04，G0 整体仍未通过。
 
-## T04 真实读取 Smoke（PARTIAL）
+## 历史 T04 首次读取 Smoke（PARTIAL）
 
 T04 仅增加独立人工 CLI `.venv/Scripts/python.exe scripts/xhs_read_smoke.py --live`。启动不打开浏览器，输入 `connect` 后才用 T03 相同的普通 Chromium、专用 profile 和同一个 BrowserSession 正常登录。命令为 `connect/status/search/detail 0/detail 1/snapshot/quit`；`quit` 正常关闭并保留 profile。
 
@@ -98,6 +98,14 @@ T04 仅增加独立人工 CLI `.venv/Scripts/python.exe scripts/xhs_read_smoke.p
 本次同一 BrowserSession 正常登录为 AUTHENTICATED，1 次上述搜索得到 20 个去重候选，搜索技术验证 PASS。1 次详情已消耗预算，但返回 UNEXPECTED_PAGE，未解析出正文；用户确认浏览器显示正常图文页，不能据此把自动 detail 判为成功。详情验证 FAIL，总体 PARTIAL；路由别名校验不一致仅完成离线修复，实际失败原因未确证，未进行真实复测。CLI 已正常退出并保留 profile。
 
 搜索窗口观测 173 个 context 请求，详情失败前窗口为 86 个（不代表完整详情成本），TOTAL 为 725 个、主 frame 导航请求 5 个；字节数未测。默认评论相关请求有 1 个，分类为 DERIVED，不代表主动展开评论。G0 仍未通过，本轮停止，不进入 T05。
+
+## T04.1 详情补验（有限技术 Smoke 通过）
+
+[T04.1 报告](reports/T04.1-xhs-detail-smoke-test.md) 记录 423 项离线测试及真实补验：复用 profile，无需重新登录，使用 1 个 BrowserSession；旧 locator 仅在内存，因此使用另行授权的 1 次 fallback 搜索取得 20 个候选，再读取上一轮未访问的备用候选，本轮 detail 仅 1 次。入口为 `scripts/xhs_read_smoke.py --live --detail-smoke`，使用独立 `.local/t04.1-smoke/summary.json` 账本，未重置历史 T04 额度。
+
+该详情 IDENTITY_MATCH、主响应 200，取得正文 672 字符、22 个非空行（计数 DERIVED），完整度 PARTIAL_TEXT：DOM 不完全一致，展开/截断状态未知；5 张图片未做 OCR。详情窗口 3.150135 秒观测 181 个请求，TOTAL 587，字节数未测；正常 quit 保留 profile，自有浏览器剩余 0。历史失败根因仅 LIKELY 与路由别名有关，原失败分支仍 UNKNOWN，不能确证。
+
+T04 有限技术 Smoke 可以结束；这不自动通过 G0 完整发布门禁，也不进入 T05。下一步建议另行授权 T04.2 基线请求优化，当前未实施请求阻断。
 
 ## 离线开发启动（T00/T01）
 

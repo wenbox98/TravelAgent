@@ -9,6 +9,9 @@ from urllib.parse import SplitResult, urlencode, urlsplit
 from playwright.sync_api import Page
 
 from .browser import BrowserOptions, BrowserSession
+from .detail_detection import (
+    DETAIL_EVIDENCE_SCRIPT, classify_detail, detail_route, parse_detail_evidence,
+)
 from .live_observability import LiveNetworkObserver
 from .ordinary_browser import OrdinaryBrowserBackend, OrdinaryBrowserResource
 from .profile import ProfileStore
@@ -20,6 +23,8 @@ StopCode = Literal[
     "NEED_LOGIN", "VERIFICATION_REQUIRED", "ACCESS_RESTRICTED", "RATE_LIMITED",
     "UNEXPECTED_PAGE", "PARSE_ERROR", "BROWSER_ERROR", "BUDGET_EXHAUSTED",
     "DUPLICATE_SOURCE", "STALE_SESSION", "FILTERS_UNSUPPORTED", "NO_LOCATOR",
+    "ACCESS_DENIED", "NOT_FOUND", "REDIRECTED_OTHER_VALID_XHS_PAGE",
+    "ACCESS_LOCATOR_INVALID", "IDENTITY_MISMATCH", "UNKNOWN",
 ]
 
 
@@ -83,6 +88,8 @@ DETAIL_SCRIPT = r"""id => {
   const body = document.querySelector('#detail-desc, .note-content .desc, .note-scroller .desc');
   return {state_available:true, note: {
     ...pick(note,['noteId','title','desc','type','time','ipLocation','summary']),
+    tagList:Array.isArray(note.tagList) ? note.tagList.map(t => pick(t,['name','type'])) : undefined,
+    location:typeof note.location === 'string' ? note.location : pick(note.location,['name']),
     user:pick(note.user,['userId','nickname','nickName','avatar']),
     interactInfo:pick(note.interactInfo,['likedCount','commentCount','collectedCount','sharedCount']),
     imageList:Array.isArray(note.imageList) ? note.imageList.map(i => pick(i,['width','height'])) : undefined
@@ -102,6 +109,7 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
         self.goto_attempts = 0
         self.login_window_open = False
         self.last_read_diagnostic: str | None = None
+        self.detail_diagnostic: dict[str, object] | None = None
 
     def start(self, options: BrowserOptions) -> OrdinaryBrowserResource:
         resource = super().start(options)
@@ -173,12 +181,40 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
             if page is None:
                 return PageRead(stop="BROWSER_ERROR")
             started = False
+            initial_route = detail_route(url, note_id) if note_id is not None else None
+            status: int | None = None
+            redirects: int | None = None
+
+            def diagnose() -> str:
+                assert note_id is not None
+                e = parse_detail_evidence(page.evaluate(DETAIL_EVIDENCE_SCRIPT, note_id))
+                classification = classify_detail(e, status)
+                self.detail_diagnostic = {
+                    "initial_route_class": initial_route, "final_route_class": e.route,
+                    "redirect_count": redirects, "redirect_basis": "MAIN_DOCUMENT_HTTP_CHAIN",
+                    "main_document_status": status, "classification": classification,
+                    "evidence": e.model_dump(),
+                    "route_alias_changed": initial_route != e.route,
+                    "window_start": "DETAIL_NAVIGATION_START",
+                    "window_end": "DETAIL_STABLE_OR_FAILURE",
+                    "stability": "NOT_CONFIRMED",
+                }
+                return classification
+
             try:
                 # Drain delivered idle events before switching the observation window.
                 page.wait_for_timeout(50)
                 stop = self._guard(resource)
                 if stop:
                     return PageRead(stop=stop, diagnostic="PRE_NAVIGATION_GUARD")
+                if note_id is not None and initial_route not in {
+                    "DETAIL_EXPLORE", "DETAIL_SEARCH_RESULT"
+                }:
+                    self.detail_diagnostic = {
+                        "initial_route_class": initial_route,
+                        "classification": "ACCESS_LOCATOR_INVALID", "navigation_started": False,
+                    }
+                    return PageRead(stop="ACCESS_LOCATOR_INVALID", diagnostic="LOCAL_LOCATOR_INVALID")
                 self.observer.start_window(
                     "SEARCH" if note_id is None else "DETAIL_1" if detail_number == 1 else "DETAIL_2"
                 )
@@ -187,14 +223,60 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
                 self.goto_attempts += 1
                 response = page.goto(url, wait_until="domcontentloaded", timeout=9_000)
                 status = response.status if response is not None else None
+                if note_id is not None:
+                    request = getattr(response, "request", None)
+                    if request is not None:
+                        redirects = 0
+                        while request.redirected_from is not None and redirects < 20:
+                            redirects += 1
+                            request = request.redirected_from
+                        if request.redirected_from is not None:
+                            redirects = None
+                    diagnose()
                 if status == 429:
                     return PageRead(stop="RATE_LIMITED", diagnostic="DOCUMENT_STATUS")
                 if status in {401, 403}:
                     return PageRead(stop="ACCESS_RESTRICTED", diagnostic="DOCUMENT_STATUS")
+                if note_id is not None and status in {404, 410}:
+                    return PageRead(stop="NOT_FOUND", diagnostic="DOCUMENT_STATUS")
                 if status is not None and not 200 <= status < 300:
                     return PageRead(stop="BROWSER_ERROR")
                 payload: object = None
                 while monotonic() < deadline - 2:
+                    if note_id is not None:
+                        classification = diagnose()
+                        if self.observer.stop_code:
+                            return PageRead(stop=self.observer.stop_code, diagnostic="NETWORK_STOP")
+                        if classification == "UNKNOWN":
+                            page.wait_for_timeout(250)
+                            continue
+                        if classification != "DETAIL_EXPECTED":
+                            detail_stop = cast(StopCode, "NEED_LOGIN" if classification == "LOGIN_REQUIRED"
+                                               else classification)
+                            return PageRead(stop=detail_stop, diagnostic="DETAIL_CLASSIFICATION")
+                        before = self.detail_diagnostic
+                        page.wait_for_timeout(1_500)
+                        classification = diagnose()
+                        if self.observer.stop_code:
+                            return PageRead(stop=self.observer.stop_code, diagnostic="NETWORK_STOP")
+                        if classification not in {"DETAIL_EXPECTED", "UNKNOWN"}:
+                            detail_stop = cast(StopCode, "NEED_LOGIN" if classification == "LOGIN_REQUIRED"
+                                               else classification)
+                            return PageRead(stop=detail_stop, diagnostic="DETAIL_CLASSIFICATION")
+                        if classification != "DETAIL_EXPECTED" or self.detail_diagnostic != before:
+                            continue
+                        payload = self._extract(page, note_id, keyword)
+                        if not isinstance(payload, dict) or payload.get("state_available") is not True:
+                            return PageRead(stop="PARSE_ERROR", diagnostic="DETAIL_STATE_INVALID")
+                        note = payload.get("note")
+                        if not isinstance(note, dict) or note.get("noteId") != note_id:
+                            assert self.detail_diagnostic is not None
+                            self.detail_diagnostic["extraction_identity"] = "IDENTITY_MISMATCH"
+                            return PageRead(stop="IDENTITY_MISMATCH", diagnostic="EXTRACTION_IDENTITY")
+                        payload["http_status"] = status
+                        assert self.detail_diagnostic is not None
+                        self.detail_diagnostic["stability"] = "TWO_MATCHING_OBSERVATIONS_1500MS"
+                        return PageRead(payload=payload)
                     stop = self._guard(resource)
                     if stop:
                         return PageRead(stop=stop, diagnostic="POST_NAVIGATION_GUARD")
@@ -218,7 +300,8 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
                             payload["http_status"] = status
                         return PageRead(payload=payload)
                     page.wait_for_timeout(250)
-                return PageRead(stop="PARSE_ERROR", diagnostic="STATE_NOT_OBSERVED")
+                return PageRead(stop="UNKNOWN" if note_id is not None else "PARSE_ERROR",
+                                diagnostic="STATE_NOT_OBSERVED")
             except Exception:
                 # Never stringify Playwright errors: navigation URLs carry credentials.
                 return PageRead(stop="BROWSER_ERROR", diagnostic="DRIVER_ERROR")

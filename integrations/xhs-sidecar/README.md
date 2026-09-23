@@ -2,7 +2,7 @@
 
 这是 TravelAgent 自己控制的 Python 服务。upstream 只提供已锁定的设计/字段参考，没有复制、启动或代理完整 Go MCP Server。默认 `offline` 模式保留 T02 Fake；显式 `login` 模式使用普通 Chrome/Chromium，只实现登录生命周期。**启动服务不启动浏览器；经用户授权的本机真实登录、重启复用和断开清理已通过，见 [T03.8 验收报告](../../reports/T03.8-implementation.md)。**
 
-当前基线为 T03 最终提交 `ccd329056794d3f29549ff0383f6236ce6373f36`。T04 另增受限的独立人工 CLI，不扩大现有 HTTP 能力；本次真实 Smoke 总体 PARTIAL，搜索 PASS、详情 FAIL，结果见 [T04 Smoke 报告](../../reports/T04-xhs-read-smoke-test.md)。`live_smoke` 是内部摘要标记，不是新增 HTTP mode；HTTP 契约仍为 `0.3.0`，仅允许 `offline/login`。
+T03 基线为最终提交 `ccd329056794d3f29549ff0383f6236ce6373f36`。T04 增加受限独立人工 CLI；历史首次 Smoke 为 PARTIAL，见 [T04 报告](../../reports/T04-xhs-read-smoke-test.md)，后续 [T04.1 详情补验](../../reports/T04.1-xhs-detail-smoke-test.md) 已通过有限技术 Smoke。`live_smoke` 是内部摘要标记，不是新增 HTTP mode；HTTP 契约仍为 `0.3.0`，仅允许 `offline/login`。
 
 ## 实现边界
 
@@ -148,12 +148,18 @@ LiveNetworkObserver 只订阅正常 BrowserContext 的 request/response/requestf
 - 请求关联使用有界弱引用，丢失和回调错误分别公开 association_losses/callback_errors；响应与失败计数是快照时已观察到的结果，不声明所有请求已结束。HTTP 4xx/5xx 是响应，不自动计为 requestfailed。
 - 只读 `stop_code` 锁存官方主域及子域 document/xhr/fetch 的 429→RATE_LIMITED、401/403→ACCESS_RESTRICTED，关联丢失也不能掩盖已观察到的限制。读取入口在导航前后及提交前检查；页面验证、登录失效、明确拒绝访问均停止自动推进，不尝试绕过。
 
-## 尚未验证或实现
+## 历史 T04 首次 Smoke 与当前边界
 
 T03.8 已验证该 Windows 环境的人工登录、会话复用与清理。T04 本次同一 BrowserSession 正常登录为 AUTHENTICATED，1 次 `成都 川西 国庆 攻略` 搜索得到 20 个去重候选；1 次 detail 已计入预算，但返回 UNEXPECTED_PAGE，没有解析正文或可报告的正文完整度。用户确认显示正常图文页仅说明人工页面观察，不等于自动详情成功。搜索技术验证 PASS、详情 FAIL，总体 PARTIAL。路由别名校验不一致仅完成离线修复，实站失败原因未确证、修复未实站复测；没有打开第二篇。正常 quit 已关闭浏览器并保留 profile。
 
 本次 SEARCH 观测 173 个 context 请求；DETAIL_1 失败前窗口观测 86 个，不能作为完整详情成本。TOTAL 为 725 个请求、5 个主 frame 导航请求，字节数未测；默认评论相关请求 1 个为 DERIVED 分类，不是主动评论展开。历史 T03 的浏览器总网络量 NOT_MEASURED 不回填为 T04 数字，具体窗口统计以 T04 报告为准。
 
-详情正文读取仍未验证，筛选 UI、完整 TravelResearchService、Evidence Gap 研究循环、RAG、GUI 和发行打包未实现，没有自动联网 integration test。来源许可、供应链与发行仍须独立门禁，G0 整体未通过；本轮停止，不进入 T05。
+后续 T04.1 使用 `scripts/xhs_read_smoke.py --live --detail-smoke` 和独立 `.local/t04.1-smoke/summary.json` 账本，423 项离线测试通过。profile 复用免重新登录，同一 BrowserSession；旧 locator 未持久化，另行授权 fallback 搜索 1 次取得 20 个候选，选择上一轮未访问的匿名候选 `06b63b2466be60dd4e710077`。CLI `detail 1` 是候选序号，本轮唯一 detail，不是第二次详情。
 
-参考与同步方式见 [upstream provenance](../../docs/architecture/xhs-upstream-provenance.md)，历史结果见 [T02 报告](../../reports/T02-implementation.md) 和 [T03 初次离线交付](../../reports/T03-implementation.md)；登录验收见 [T03.8 报告](../../reports/T03.8-implementation.md)，当前受限读取结果见 [T04 Smoke 报告](../../reports/T04-xhs-read-smoke-test.md)。
+详情通过 DETAIL_EXPECTED/IDENTITY_MATCH，主响应 200；初始 DETAIL_SEARCH_RESULT→最终 DETAIL_EXPLORE，HTTP redirect chain 为 0，路由变化机制未采集。正文 672 字符、22 非空行（DERIVED）；title/author/type/time/ipLocation/tags/topics/interaction/images 可得，topic 10、image 5，未 OCR。DOM 不完全一致且展开/截断未知，因此保持 PARTIAL_TEXT。
+
+详情窗口 3.150135 秒：请求 181（document 1、xhr_fetch 60、image 68、media 0、other 52），comment 1、analytics 20 为 DERIVED，bytes=null；TOTAL 587。正常 quit 已关闭，自有浏览器 0，profile 保留。历史失败原因仅 LIKELY 路由别名，原失败分支 UNKNOWN，不能确证；本次改动限于诊断、解析、1 次 detail 预算和无缓存 URL 解析，没有新增请求阻断。
+
+T04 有限技术 Smoke 可结束，完整正文仍不能宣称已证明。筛选 UI、TravelResearchService、Evidence Gap、RAG、GUI、发行打包未实现；不自动宣告 G0 完整发布通过，不进入 T05，建议另授权 T04.2 基线请求优化。真实结果见 [T04.1 报告](../../reports/T04.1-xhs-detail-smoke-test.md)。
+
+参考与同步方式见 [upstream provenance](../../docs/architecture/xhs-upstream-provenance.md)，历史结果见 [T02 报告](../../reports/T02-implementation.md) 和 [T03 初次离线交付](../../reports/T03-implementation.md)；登录验收见 [T03.8 报告](../../reports/T03.8-implementation.md)，首次读取结果见 [T04 Smoke 报告](../../reports/T04-xhs-read-smoke-test.md)，当前详情补验见 [T04.1 报告](../../reports/T04.1-xhs-detail-smoke-test.md)。

@@ -24,7 +24,11 @@ class LiveSmokeReader:
     def __init__(
         self, browser: BrowserManager, login: LoginLifecycle, backend: LivePageReader,
         *, checkpoint: Callable[[], None] | None = None,
+        max_feed_details: int = 2,
     ) -> None:
+        if type(max_feed_details) is not int or max_feed_details not in {1, 2}:
+            raise ValueError("详情预算只允许1或2")
+        self.max_feed_details = max_feed_details
         self.browser, self.login, self.backend = browser, login, backend
         self.search_operations = 0
         self.detail_operations = 0
@@ -125,7 +129,7 @@ class LiveSmokeReader:
                 raise LiveReadStopped("DUPLICATE_SOURCE")
             if self.stopped:
                 raise LiveReadStopped(self.stopped)
-            if self.detail_operations >= 2:
+            if self.detail_operations >= self.max_feed_details:
                 raise LiveReadStopped("BUDGET_EXHAUSTED")
             if (
                 candidate.locator is None or candidate.href is None
@@ -162,7 +166,7 @@ class LiveSmokeReader:
     def safe_summary(self) -> dict[str, object]:
         return {
             "mode": "live_smoke", "is_synthetic": False,
-            "max_search_operations": 1, "max_feed_details": 2,
+            "max_search_operations": 1, "max_feed_details": self.max_feed_details,
             "search_operations": self.search_operations, "detail_operations": self.detail_operations,
             "duplicate_details_avoided": self.duplicate_details_avoided,
             "filter_requested": {}, "filter_applied": {}, "filter_status": "NOT_REQUESTED",

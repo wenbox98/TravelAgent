@@ -314,3 +314,35 @@ def test_safe_reports_and_reprs_never_expose_private_content_or_locators() -> No
         assert secret not in output
     assert "https://" not in output
     assert parsed_detail.safe_summary()["body_chars"] == len(BODY)
+
+
+def test_detail_topics_location_and_body_blocks_are_private_observations():
+    note = {"noteId": NOTE_ID, "desc": BODY + "\n\n第二行", "ipLocation": "SECRET_IP_PLACE",
+            "location": {"name": "SECRET_LOCATION"}, "tagList": [
+                {"name": "SECRET_TOPIC", "type": "topic"},
+                {"name": "SECRET_TOPIC", "type": "topic"},
+                {"name": "SECRET_OTHER_TAG", "type": "unknown"}, None, {"name": 5}]}
+    parsed = parse_detail(detail(note=note), SourceIdentity(note_id=NOTE_ID))
+    safe = parsed.safe_summary()
+    assert parsed.topics == ("SECRET_TOPIC",) and len(parsed.tags) == 2
+    assert safe["topic_count"] == 1 and safe["tag_count"] == 2
+    assert safe["body_block_count"] == 2
+    assert safe["source_locator_kind"] == "BODY_HASH_CHAR_RANGE"
+    assert safe["stable_locator_derived"] is True
+    assert all(parsed.field_status[key] == "OBSERVED"
+               for key in ("topics", "tags", "location", "ip_location"))
+    assert parsed.field_status["destination"] == "NOT_AVAILABLE"
+    assert parsed.classification.completeness == "PARTIAL_TEXT"
+    assert "SECRET_" not in json.dumps(safe) + repr(parsed)
+
+
+def test_ip_location_or_body_hashtag_does_not_invent_topics_or_location():
+    parsed = parse_detail(detail(note={"noteId": NOTE_ID, "desc": "#合成话题", "ipLocation": "合成IP位置"}),
+                          SourceIdentity(note_id=NOTE_ID))
+    assert parsed.topics == () and parsed.location is None
+    assert parsed.field_status["topics"] == parsed.field_status["location"] == "NOT_AVAILABLE"
+    empty = parse_detail(detail(note={"noteId": NOTE_ID, "tagList": "invalid"}),
+                         SourceIdentity(note_id=NOTE_ID)).safe_summary()
+    assert empty["body_block_count"] == 0 and empty["topic_count"] == 0
+    assert empty["source_locator_kind"] == "NOT_AVAILABLE"
+    assert empty["stable_locator_derived"] is False

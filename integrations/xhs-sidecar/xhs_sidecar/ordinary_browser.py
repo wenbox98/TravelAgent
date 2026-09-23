@@ -4,8 +4,8 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 import os
 from threading import RLock
-from typing import Literal, TypedDict, TypeVar
-from urllib.parse import urlsplit
+from typing import Literal, TypedDict, TypeVar, cast
+from urllib.parse import SplitResult, urlsplit
 
 from playwright.sync_api import BrowserContext, Page, Playwright, sync_playwright
 from .browser import BrowserError, BrowserOptions, LoginObservation, SessionClosed
@@ -17,6 +17,8 @@ from .profile import ProfileStore
 _T = TypeVar("_T")
 _OPERATION_TIMEOUT = 20.0
 LOGIN_URL = "https://www.xiaohongshu.com/explore"
+# Page URLs may contain credentials; do not retain them in urllib's global cache.
+_split_uncached = cast(Callable[[str], SplitResult], getattr(urlsplit, "__wrapped__"))
 
 class LaunchConfiguration(TypedDict):
     user_data_dir: str
@@ -152,7 +154,7 @@ class OrdinaryBrowserResource:
             raise BrowserError()
         # The visible window can be navigated manually; never trust another origin's DOM.
         try:
-            current = urlsplit(self._page.url)
+            current = _split_uncached(self._page.url)
             official = (
                 current.scheme == "https"
                 and current.hostname in {"www.xiaohongshu.com", "xiaohongshu.com"}

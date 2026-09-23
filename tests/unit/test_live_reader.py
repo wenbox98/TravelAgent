@@ -65,6 +65,17 @@ def test_t04_14_second_search_is_rejected_without_dispatch(rig):
     assert reader.search_operations == page.search_calls == 1
 
 
+def test_t041_detail_budget_is_one_even_with_two_selected_candidates(rig):
+    _, manager, life, page = rig
+    reader = LiveSmokeReader(manager, life, page, max_feed_details=1)
+    reader.search(SearchRequest(keyword="合成川西"))
+    reader.detail(0)
+    with pytest.raises(LiveReadStopped, match="BUDGET_EXHAUSTED"):
+        reader.detail(1)
+    assert reader.safe_summary()["max_feed_details"] == 1
+    assert reader.detail_operations == page.detail_calls == 1
+
+
 def test_t04_15_third_detail_is_rejected_without_dispatch(rig):
     reader, _, _, page = rig
     reader.search(SearchRequest(keyword="合成川西"))

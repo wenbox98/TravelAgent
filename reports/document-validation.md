@@ -1,6 +1,6 @@
 # 文档包校验报告
 
-执行时间（UTC）：2026-09-23T15:56:24+00:00
+执行时间（UTC）：2026-09-23T16:13:08+00:00
 
 **结果：12/12 项文档校验通过；失败 0 项。**
 
@@ -13,7 +13,7 @@
 | CONTRACT_REFERENCES | PASS | 76 JSON Schema/OpenAPI reference occurrences resolved offline |
 | FIXTURE_SCHEMA | PASS | 27 positive objects accepted; 5 negative objects rejected |
 | OPENAPI_STRUCTURAL | PASS | 20 operation IDs, local auth, path parameters, write headers and SSE example checked; structural checks, not a full OpenAPI conformance validator |
-| MARKDOWN_LINKS | PASS | 162 relative Markdown link targets exist |
+| MARKDOWN_LINKS | PASS | 166 relative Markdown link targets exist |
 | SQL_DRAFT_SMOKE | PASS | SQLite 3.50.4; 20 declared tables (FTS shadow tables excluded), FK checks, synthetic FTS lookup and cascade deletion passed |
 | SYNTHETIC_ARITHMETIC | PASS | Synthetic AC=510min, ABCD=760min, ABD=470min; total 240000–270000 fen; unknown amount remains null |
 | TEST_TRACEABILITY | PASS | 137 historical design rows, R01–R14 mapped, 12 task sheets; execution status is tracked in implementation reports |

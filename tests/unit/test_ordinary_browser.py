@@ -5,6 +5,7 @@ from pathlib import Path
 import stat
 from threading import Event, get_ident
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -276,6 +277,31 @@ def test_browser_observes_same_page_and_stable_id_is_private(profile, driver):
         "document.cookie",
     ):
         assert operation not in LOGIN_OBSERVATION_SCRIPT
+
+
+def test_observation_does_not_retain_credential_urls_in_global_parse_cache(profile, driver):
+    manager = BrowserManager(OrdinaryBrowserBackend(profile), BrowserOptions(headless=False))
+    session = manager.start()
+    session.open_login()
+    driver.observations[:] = [observed_page("AUTHENTICATED")]
+    try:
+        for origin, expected in (
+            ("https://www.xiaohongshu.com", "AUTHENTICATED"),
+            ("https://foreign.invalid", "UNKNOWN"),
+        ):
+            driver.page.url = (
+                origin + "/explore/synthetic-note?xsec_token=SECRET_URL_CACHE_T041"
+            )
+            cache_before = urlsplit.cache_info()
+            observation = session.observe_login()
+            assert observation.state == expected
+            # Checking all counters catches new retention even when the cache is full.
+            assert urlsplit.cache_info() == cache_before
+            assert "SECRET_URL_CACHE_T041" not in repr(observation)
+        assert len([name for name, _, _ in driver.calls if name == "evaluate"]) == 1
+        assert len([name for name, _, _ in driver.calls if name == "goto"]) == 1
+    finally:
+        manager.close()
 
 
 @pytest.mark.parametrize(
