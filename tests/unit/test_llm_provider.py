@@ -27,6 +27,22 @@ def test_explicit_environment_is_private_and_bounded():
     assert "SECRET_API_KEY" not in repr(provider)
 
 
+def test_q14_llm_environment_aliases_take_precedence_without_network():
+    provider = OpenAICompatibleProvider.from_env({
+        "LLM_API_KEY": "SECRET_NEW_KEY", "LLM_MODEL": "new-model",
+        "LLM_BASE_URL": "https://new-model.invalid/v1", "LLM_TIMEOUT_SECONDS": "8",
+        "TRAVEL_LLM_API_KEY": "old-key", "TRAVEL_LLM_MODEL": "old-model",
+        "TRAVEL_LLM_BASE_URL": "https://old-model.invalid/v1", "TRAVEL_LLM_TIMEOUT_SECONDS": "7",
+        "OPENAI_API_KEY": "older-key", "OPENAI_MODEL": "older-model",
+    })
+    assert provider.model == "new-model" and provider.timeout == 8
+    assert provider.base_url == "https://new-model.invalid/v1"
+    assert provider.api_key.get_secret_value() == "SECRET_NEW_KEY"
+    assert "SECRET_NEW_KEY" not in repr(provider)
+    with pytest.raises(LLMError, match="^LLM_NOT_CONFIGURED$"):
+        OpenAICompatibleProvider.from_env({"LLM_API_KEY": "SECRET_NEW_KEY"})
+
+
 @pytest.mark.parametrize("base", [
     "http://model.invalid/v1", "https://user:secret@model.invalid/v1",
     "https://model.invalid/v1?token=secret", "https://model.invalid/v1#fragment",
