@@ -48,6 +48,10 @@ def main() -> int:
         print(f"状态：{state.status}；generation：{state.generation}")
         if state.error_code:
             print(f"错误：{state.error_code}；请先 cancel/disconnect 完成清理，再重新 connect。")
+        if state.stop_reason:
+            print(f"停止原因：{state.stop_reason}；观察次数：{state.observation_attempts}")
+        if state.evidence is not None:
+            print("登录信号：" + json.dumps(state.evidence.model_dump(), ensure_ascii=False))
         if state.status in {"LOGIN_REQUIRED", "WAITING_USER"}:
             print("请在已打开的官方浏览器窗口正常登录；本地 status 不会刷新页面。")
         elif state.status == "VERIFICATION_REQUIRED":

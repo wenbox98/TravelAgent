@@ -181,7 +181,32 @@ LoginStatus = Literal[
     "CANCELLED",
     "ERROR",
 ]
-LoginError = Literal["BROWSER_ERROR", "LOGIN_TIMEOUT", "CLEANUP_FAILED", "FLOW_STOP_TIMEOUT"]
+LoginError = Literal[
+    "BROWSER_ERROR", "LOGIN_TIMEOUT", "LOGIN_STATE_UNCERTAIN", "CLEANUP_FAILED", "FLOW_STOP_TIMEOUT"
+]
+LoginStopReason = Literal[
+    "AUTHENTICATED", "VERIFICATION_REQUIRED", "OBSERVATION_TIMEOUT", "OBSERVATION_LIMIT",
+    "LOGIN_TIMEOUT", "BROWSER_ERROR", "CANCELLED", "DISCONNECTED", "SHUTDOWN",
+    "CLEANUP_FAILED", "FLOW_STOP_TIMEOUT",
+]
+
+
+class LoginEvidence(ContractModel):
+    """Public diagnostic facts only: no page text, URLs, identifiers or credentials."""
+
+    current_url_classification: Literal[
+        "OFFICIAL_PAGE", "OTHER_OFFICIAL_PAGE", "LOGIN", "VERIFICATION", "FOREIGN_ORIGIN", "UNKNOWN"
+    ] = "UNKNOWN"
+    page_ready: bool | None = None
+    login_dialog_present: bool | None = None
+    login_button_present: bool | None = None
+    authenticated_account_entry_present: bool | None = None
+    account_entry_identity_matches: bool = False
+    legacy_account_entry_present: bool | None = None
+    authenticated_user_state: bool | None = None
+    account_identity_available: bool = False
+    verification_present: bool | None = None
+    access_restriction_present: bool | None = None
 
 
 class LoginState(ContractModel):
@@ -193,13 +218,16 @@ class LoginState(ContractModel):
     account_identity: Literal["KNOWN", "UNKNOWN"] = "UNKNOWN"
     login_status_external_requests: Literal[0] = 0
     error_code: LoginError | None = None
+    evidence: LoginEvidence | None = None
+    observation_attempts: int = Field(default=0, ge=0, le=10_000)
+    stop_reason: LoginStopReason | None = None
 
 
 class Health(ContractModel):
     status: Literal["ok"] = "ok"
     mode: Literal["offline", "login"] = "offline"
     backend: Literal["fake", "playwright"] = "fake"
-    contract_version: Literal["0.2.0"] = "0.2.0"
+    contract_version: Literal["0.3.0"] = "0.3.0"
 
 
 class SidecarError(ContractModel):

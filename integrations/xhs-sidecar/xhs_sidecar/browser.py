@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from pydantic import SecretStr
 
+from .models import LoginEvidence
+
 
 class SessionClosed(RuntimeError):
     def __init__(self) -> None:
@@ -31,6 +33,7 @@ class AccountIdentity:
 class LoginObservation:
     state: Literal["AUTHENTICATED", "LOGIN_REQUIRED", "VERIFICATION_REQUIRED", "UNKNOWN"]
     identity: AccountIdentity = AccountIdentity()
+    evidence: LoginEvidence | None = None
 
 
 @dataclass(frozen=True)

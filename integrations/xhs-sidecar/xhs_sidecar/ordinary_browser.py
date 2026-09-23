@@ -3,48 +3,20 @@
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 import os
-import re
 from threading import RLock
 from typing import Literal, TypedDict, TypeVar
 from urllib.parse import urlsplit
 
 from playwright.sync_api import BrowserContext, Page, Playwright, sync_playwright
-from pydantic import SecretStr
-
-from .browser import AccountIdentity, BrowserError, BrowserOptions, LoginObservation, SessionClosed
+from .browser import BrowserError, BrowserOptions, LoginObservation, SessionClosed
+from .login_detection import LOGIN_OBSERVATION_SCRIPT, parse_login_observation
+from .models import LoginEvidence
 from .profile import ProfileStore
 
 
 _T = TypeVar("_T")
 _OPERATION_TIMEOUT = 20.0
 LOGIN_URL = "https://www.xiaohongshu.com/explore"
-
-# Only existing DOM/page state is read. No fetch, clicks, QR extraction, or navigation.
-# Login selector and userInfo shape were reviewed at the fixed upstream commit.
-LOGIN_OBSERVATION_SCRIPT = r"""() => {
-  if (!['https://www.xiaohongshu.com', 'https://xiaohongshu.com'].includes(location.origin))
-    return {state: 'UNKNOWN'};
-  const visible = el => !!el && el.getClientRects().length > 0 &&
-    getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).display !== 'none';
-  const anyVisible = selector => Array.from(document.querySelectorAll(selector)).some(visible);
-  const challenge = anyVisible('[id*="captcha" i], [class*="captcha" i], ' +
-    '[id*="verification" i], [class*="verification" i], ' +
-    'iframe[src*="captcha" i], iframe[src*="verify" i]');
-  const alerts = Array.from(document.querySelectorAll('[role="dialog"], [role="alert"]'))
-    .filter(visible).map(el => (el.textContent || '').slice(0, 2000)).join(' ');
-  const blocked = /安全验证|请完成验证|访问受限|操作频繁|滑块验证/.test(alerts) ||
-    /安全验证|访问受限/.test(document.title) || /\/(captcha|verification|verify)(\/|$)/i.test(location.pathname);
-  if (challenge || blocked) return {state: 'VERIFICATION_REQUIRED'};
-  if (anyVisible('.login-container, .login-btn, .qrcode-img')) return {state: 'LOGIN_REQUIRED'};
-  if (!anyVisible('.main-container .user .link-wrapper .channel')) return {state: 'UNKNOWN'};
-  const user = window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user;
-  const raw = user && user.userInfo;
-  const info = raw && raw.value !== undefined ? raw.value : raw;
-  if (info && info.guest) return {state: 'LOGIN_REQUIRED'};
-  const id = info && !info.guest && (info.userId || info.user_id);
-  return {state: 'AUTHENTICATED', stable_id: typeof id === 'string' ? id : null};
-}"""
-
 
 class LaunchConfiguration(TypedDict):
     user_data_dir: str
@@ -189,22 +161,11 @@ class OrdinaryBrowserResource:
         except ValueError:
             official = False
         if not official:
-            return LoginObservation("UNKNOWN")
+            return LoginObservation("UNKNOWN", evidence=LoginEvidence(
+                current_url_classification="FOREIGN_ORIGIN"
+            ))
         raw: object = self._page.locator("body").evaluate(LOGIN_OBSERVATION_SCRIPT, timeout=3_000)
-        if not isinstance(raw, dict):
-            return LoginObservation("UNKNOWN")
-        state = raw.get("state")
-        if state == "AUTHENTICATED":
-            account = raw.get("stable_id")
-            identity = AccountIdentity()
-            if isinstance(account, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", account):
-                identity = AccountIdentity(SecretStr(account))
-            return LoginObservation("AUTHENTICATED", identity)
-        if state == "LOGIN_REQUIRED":
-            return LoginObservation("LOGIN_REQUIRED")
-        if state == "VERIFICATION_REQUIRED":
-            return LoginObservation("VERIFICATION_REQUIRED")
-        return LoginObservation("UNKNOWN")
+        return parse_login_observation(raw)
 
     def close(self) -> None:
         with self._lock:

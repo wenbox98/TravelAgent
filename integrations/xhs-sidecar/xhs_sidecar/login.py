@@ -1,11 +1,12 @@
 """Single local login flow. Only explicit connect navigates; status reads cached state."""
 
+from math import isfinite
 from threading import Event, RLock, Thread
 from time import monotonic
 from uuid import uuid4
 
 from .browser import AccountIdentity, BrowserManager, LoginObservation
-from .models import LoginError, LoginState, LoginStatus
+from .models import LoginError, LoginState, LoginStatus, LoginStopReason
 from .profile import ProfileStore
 from .redaction import SafeAuditLog
 
@@ -19,9 +20,13 @@ class LoginLifecycle:
         audit: SafeAuditLog | None = None,
         poll_interval: float = 0.5,
         timeout: float = 240,
+        observation_timeout: float = 30,
+        max_observations: int = 480,
         stop_timeout: float = 35,
     ) -> None:
-        if min(poll_interval, timeout, stop_timeout) <= 0:
+        if any(not isfinite(value) or value <= 0 for value in (
+            poll_interval, timeout, observation_timeout, stop_timeout
+        )) or type(max_observations) is not int or not 1 <= max_observations <= 10_000:
             raise ValueError("登录等待配置无效")
         self.browser, self.profile = browser, profile
         self.audit = audit or SafeAuditLog()
@@ -30,6 +35,8 @@ class LoginLifecycle:
             timeout,
             stop_timeout,
         )
+        self._observation_timeout = observation_timeout
+        self._max_observations = max_observations
         self._lock = RLock()
         self._operations = RLock()
         self._cancel = Event()
@@ -76,6 +83,9 @@ class LoginLifecycle:
                     remote_checked=False,
                     error_code=None,
                     account_identity="UNKNOWN",
+                    evidence=None,
+                    observation_attempts=0,
+                    stop_reason=None,
                 )
                 self._start_worker(navigate=not recheck)
                 return self._state
@@ -99,7 +109,9 @@ class LoginLifecycle:
             if not self._finish_worker():
                 return self.status()
             with self._lock:
-                self._update(status="CHECKING")
+                self._update(
+                    status="CHECKING", evidence=None, observation_attempts=0, stop_reason=None
+                )
                 self._start_worker(navigate=False)
                 return self._state
 
@@ -108,7 +120,9 @@ class LoginLifecycle:
             self._thread.join(self._stop_timeout)
             if self._thread.is_alive():
                 with self._lock:
-                    self._update(status="ERROR", error_code="FLOW_STOP_TIMEOUT")
+                    self._update(
+                        status="ERROR", error_code="FLOW_STOP_TIMEOUT", stop_reason="FLOW_STOP_TIMEOUT"
+                    )
                 return False
         return True
 
@@ -134,15 +148,25 @@ class LoginLifecycle:
                 status=state,
                 remote_checked=True,
                 account_identity="KNOWN" if self._identity.stable_id is not None else "UNKNOWN",
+                evidence=observation.evidence,
+                observation_attempts=self._state.observation_attempts + 1,
+                stop_reason=state if state in {"AUTHENTICATED", "VERIFICATION_REQUIRED"} else None,
             )
             self.audit.emit("login_observed")
             return True
 
-    def _fail(self, generation: int, code: LoginError) -> None:
+    def _fail(
+        self, generation: int, code: LoginError, reason: LoginStopReason | None = None
+    ) -> None:
         with self._lock:
             if self._current(generation):
                 self._identity = AccountIdentity()
-                self._update(status="ERROR", error_code=code, account_identity="UNKNOWN")
+                self._update(
+                    status="ERROR", error_code=code, account_identity="UNKNOWN",
+                    stop_reason=reason or (
+                        "OBSERVATION_TIMEOUT" if code == "LOGIN_STATE_UNCERTAIN" else code
+                    ),
+                )
                 self.audit.emit("request_failed", outcome="internal_error")
 
     def _run(self, generation: int, cancelled: Event, navigate: bool) -> None:
@@ -162,16 +186,54 @@ class LoginLifecycle:
                     return
                 self._update(status="CHECKING")
             deadline = monotonic() + self._timeout
+            unknown_since: float | None = None
+            attempts = 0
             while not cancelled.is_set():
+                started = monotonic()
+                if started >= deadline:
+                    self._fail(generation, "LOGIN_TIMEOUT")
+                    return
+                if unknown_since is not None and started - unknown_since >= self._observation_timeout:
+                    self._fail(generation, "LOGIN_STATE_UNCERTAIN", "OBSERVATION_TIMEOUT")
+                    return
+                if attempts >= self._max_observations:
+                    self._fail(generation, "LOGIN_STATE_UNCERTAIN", "OBSERVATION_LIMIT")
+                    return
                 observation = session.observe_login()
+                attempts += 1
+                now = monotonic()
+                expired_unknown = (
+                    unknown_since is not None and now - unknown_since >= self._observation_timeout
+                )
+                if (now >= deadline or expired_unknown) and observation.state != "VERIFICATION_REQUIRED":
+                    # A late positive result must not briefly publish AUTHENTICATED.
+                    with self._lock:
+                        if self._current(generation):
+                            self._update(
+                                evidence=observation.evidence,
+                                observation_attempts=attempts,
+                                remote_checked=True,
+                            )
+                    if now >= deadline:
+                        self._fail(generation, "LOGIN_TIMEOUT")
+                    else:
+                        self._fail(generation, "LOGIN_STATE_UNCERTAIN", "OBSERVATION_TIMEOUT")
+                    return
                 if not self._apply_observation(generation, observation):
                     return
                 if observation.state in {"AUTHENTICATED", "VERIFICATION_REQUIRED"}:
                     return
-                if monotonic() >= deadline:
-                    self._fail(generation, "LOGIN_TIMEOUT")
+                unknown_since = (
+                    (unknown_since if unknown_since is not None else started)
+                    if observation.state == "UNKNOWN" else None
+                )
+                if unknown_since is not None and now - unknown_since >= self._observation_timeout:
+                    self._fail(generation, "LOGIN_STATE_UNCERTAIN", "OBSERVATION_TIMEOUT")
                     return
-                if cancelled.wait(self._poll_interval):
+                remaining = deadline - now
+                if unknown_since is not None:
+                    remaining = min(remaining, self._observation_timeout - (now - unknown_since))
+                if cancelled.wait(min(self._poll_interval, max(0, remaining))):
                     return
         except Exception:
             # Browser exceptions can contain DOM, URLs and credentials; never log/chain them.
@@ -188,6 +250,8 @@ class LoginLifecycle:
                     account_identity="UNKNOWN",
                     error_code=None,
                     remote_checked=False,
+                    evidence=None,
+                    stop_reason="SHUTDOWN" if shutdown else "DISCONNECTED" if delete else "CANCELLED",
                 )
                 self._identity = AccountIdentity()
                 self._cancel.set()
@@ -196,7 +260,10 @@ class LoginLifecycle:
                 thread.join(self._stop_timeout)
                 if thread.is_alive():
                     with self._lock:
-                        self._update(status="ERROR", error_code="FLOW_STOP_TIMEOUT")
+                        self._update(
+                            status="ERROR", error_code="FLOW_STOP_TIMEOUT",
+                            stop_reason="FLOW_STOP_TIMEOUT",
+                        )
                         self.audit.emit("request_failed", outcome="internal_error")
                         return self._state
             try:
@@ -215,7 +282,9 @@ class LoginLifecycle:
                     self.audit.emit("session_closed")
             except Exception:
                 with self._lock:
-                    self._update(status="ERROR", error_code="CLEANUP_FAILED")
+                    self._update(
+                        status="ERROR", error_code="CLEANUP_FAILED", stop_reason="CLEANUP_FAILED"
+                    )
                     self.audit.emit("request_failed", outcome="internal_error")
             return self.status()
 

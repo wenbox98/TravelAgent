@@ -113,3 +113,11 @@ T03-15,R05;R12,T03,L1/L2,P0,重启恢复无网络,关闭保留profile后创建�
 T03-16,R05;R06;R13,T03,L1/L2,P0,登录敏感日志,注入Cookie/xsec/session/auth/QR/account sentinel及异常,捕获全部日志原始敏感值出现0次,NOT_RUN
 T03-17,R05;R12,T03,L1/L2,P0,等待检查复用,重复观察当前合成页面,只有一个browser和一次初始导航；无reload,NOT_RUN
 T03-18,R05;R06;R12,T03,L1/L2,P0,真实网络量未知,未接可靠全浏览器observer,NOT_MEASURED/null；status外部请求单列0,NOT_RUN
+T03-19,R05;R12,T03,L1,P0,旧selector失效后的正向证据,合成同页用户状态guest=false且旧入口缺失,AUTHENTICATED；无账号ID仍可认证,NOT_RUN
+T03-20,R05;R12,T03,L1,P0,缺少弹窗不等于认证,无登录弹窗但没有正向信号,UNKNOWN而非AUTHENTICATED,NOT_RUN
+T03-21,R05;R12,T03,L1,P0,登录提示与游客优先,登录按钮或弹窗存在或guest=true,LOGIN_REQUIRED压过旧认证快照,NOT_RUN
+T03-22,R05;R12;R13,T03,L1,P0,验证及限制优先,账号正向证据与verification同时存在,VERIFICATION_REQUIRED,NOT_RUN
+T03-23,R05;R12,T03,L1,P0,页面状态形态fallback,合成value与_value及直接对象并改变账号入口,有效剩余证据可识别；冲突身份不猜测,NOT_RUN
+T03-24,R05;R12,T03,L1/L2,P0,未知观察截止与次数上限,持续UNKNOWN或不同信号切换,明确ERROR和安全停止原因；停止轮询,NOT_RUN
+T03-25,R05;R12,T03,L1/L2,P0,晚到结果与有限配置,截止后返回AUTH或配置NaN及Infinity,不接受晚到认证；拒绝无限配置,NOT_RUN
+T03-26,R05;R06;R13,T03,L1/L2,P0,安全证据诊断,合成账号Cookie及二维码sentinel,API及日志只有固定布尔分类；秘密出现0次,NOT_RUN

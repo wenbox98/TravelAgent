@@ -12,6 +12,8 @@ from pydantic import SecretStr
 from xhs_sidecar.app import SidecarConfig, create_app
 from xhs_sidecar.browser import AccountIdentity, BrowserManager, LoginObservation
 from xhs_sidecar.login import LoginLifecycle
+from xhs_sidecar.login_detection import parse_login_observation
+from xhs_sidecar.models import LoginEvidence
 from xhs_sidecar.profile import ProfileStore
 from xhs_sidecar.redaction import SafeAuditLog, SensitiveDataRedactor
 from xhs_sidecar.service import SidecarService
@@ -128,3 +130,47 @@ def test_T03_16_login_failures_and_identity_do_not_leak_in_any_log(
             assert lifecycle.status().status == "ERROR"
         captured_responses.append(lifecycle.status().model_dump_json())
     assert_no_secrets(caplog, "\n".join(captured_responses))
+
+
+def test_detector_diagnostics_never_expose_raw_state_or_account(caplog, tmp_path):
+    caplog.set_level(logging.INFO)
+    evidence = LoginEvidence(
+        current_url_classification="OFFICIAL_PAGE", page_ready=True,
+        login_dialog_present=False, login_button_present=False,
+        authenticated_account_entry_present=False, authenticated_user_state=True,
+        account_identity_available=True, verification_present=False,
+        access_restriction_present=False,
+    )
+    raw = {"evidence": evidence.model_dump(), "stable_id": SENTINELS[-1],
+           "page_state": dict(zip(["cookie", "token", "session", "auth", "qr", "id"], SENTINELS))}
+
+    class Resource:
+        def open_login(self):
+            pass
+
+        def observe_login(self):
+            return parse_login_observation(raw)
+
+        def close(self):
+            pass
+
+    class Backend:
+        kind = "fake"
+
+        def start(self, options):
+            return Resource()
+
+    profile = ProfileStore(ROOT, root=tmp_path / "owned-xhs")
+    lifecycle = LoginLifecycle(BrowserManager(Backend()), profile, poll_interval=0.005)
+    app = create_app(SidecarConfig(secret=SecretStr("SYNTHETIC_SAFE_BEARER_" * 2)), login=lifecycle)
+    with TestClient(app, base_url="http://127.0.0.1:18061",
+                    headers={"Authorization": "Bearer " + "SYNTHETIC_SAFE_BEARER_" * 2}) as client:
+        client.post("/v1/login/connect")
+        deadline = monotonic() + 3
+        while lifecycle.status().status != "AUTHENTICATED" and monotonic() < deadline:
+            Event().wait(0.002)
+        response = client.get("/v1/login/status")
+        assert response.json()["status"] == "AUTHENTICATED"
+        assert response.json()["account_identity"] == "KNOWN"
+        assert response.json()["evidence"] == evidence.model_dump()
+        assert_no_secrets(caplog, response.text)

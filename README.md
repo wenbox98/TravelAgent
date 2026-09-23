@@ -85,7 +85,7 @@ T02 增加独立[只读 sidecar 基础](integrations/xhs-sidecar/README.md)：Fa
 
 `GET /v1/login/status` 只读本地快照；profile 存在只标 SESSION_PRESENT_UNVERIFIED。generation 拒绝取消/断开后的晚到结果；cancel 和关闭保留 profile，disconnect 关闭后清理。验证要求暂停，手工处理后显式 resume 同页继续。login 模式拒绝 search/detail 和旧浏览器 POST 入口。
 
-命令、launch 参数与 profile 边界见 [sidecar README](integrations/xhs-sidecar/README.md)，执行证据记录在 [T03 实现报告](reports/T03-implementation.md)。**本轮仅交付代码与离线验收，真实浏览器启动/扫码 smoke 为 NOT_RUN，提交汇报后等待用户确认。** 不进入 T04，不代表真实登录、研究或 G0 已通过。
+命令、launch 参数与 profile 边界见 [sidecar README](integrations/xhs-sidecar/README.md)。初次离线交付见 [T03 实现报告](reports/T03-implementation.md)；后续经用户授权完成登录识别修复、200 项离线测试及本机真实登录/重启复用/断开清理，执行证据见 [T03.8 验收报告](reports/T03.8-implementation.md)。**T03 登录专项通过并停止，不进入 T04。** 搜索、详情和研究尚未验证，G0 整体仍未通过。
 
 ## 离线开发启动（T00/T01）
 

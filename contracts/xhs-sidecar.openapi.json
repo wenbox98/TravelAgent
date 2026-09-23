@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "TravelAgent XHS Readonly Sidecar",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "paths": {
     "/health": {
@@ -1605,14 +1605,133 @@
           },
           "contract_version": {
             "type": "string",
-            "const": "0.2.0",
+            "const": "0.3.0",
             "title": "Contract Version",
-            "default": "0.2.0"
+            "default": "0.3.0"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "title": "Health"
+      },
+      "LoginEvidence": {
+        "properties": {
+          "current_url_classification": {
+            "type": "string",
+            "enum": [
+              "OFFICIAL_PAGE",
+              "OTHER_OFFICIAL_PAGE",
+              "LOGIN",
+              "VERIFICATION",
+              "FOREIGN_ORIGIN",
+              "UNKNOWN"
+            ],
+            "title": "Current Url Classification",
+            "default": "UNKNOWN"
+          },
+          "page_ready": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Ready"
+          },
+          "login_dialog_present": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Login Dialog Present"
+          },
+          "login_button_present": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Login Button Present"
+          },
+          "authenticated_account_entry_present": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authenticated Account Entry Present"
+          },
+          "account_entry_identity_matches": {
+            "type": "boolean",
+            "title": "Account Entry Identity Matches",
+            "default": false
+          },
+          "legacy_account_entry_present": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legacy Account Entry Present"
+          },
+          "authenticated_user_state": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authenticated User State"
+          },
+          "account_identity_available": {
+            "type": "boolean",
+            "title": "Account Identity Available",
+            "default": false
+          },
+          "verification_present": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Present"
+          },
+          "access_restriction_present": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Restriction Present"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "LoginEvidence",
+        "description": "Public diagnostic facts only: no page text, URLs, identifiers or credentials."
       },
       "LoginState": {
         "properties": {
@@ -1687,6 +1806,7 @@
                 "enum": [
                   "BROWSER_ERROR",
                   "LOGIN_TIMEOUT",
+                  "LOGIN_STATE_UNCERTAIN",
                   "CLEANUP_FAILED",
                   "FLOW_STOP_TIMEOUT"
                 ]
@@ -1696,6 +1816,47 @@
               }
             ],
             "title": "Error Code"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LoginEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "observation_attempts": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Observation Attempts",
+            "default": 0
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "AUTHENTICATED",
+                  "VERIFICATION_REQUIRED",
+                  "OBSERVATION_TIMEOUT",
+                  "OBSERVATION_LIMIT",
+                  "LOGIN_TIMEOUT",
+                  "BROWSER_ERROR",
+                  "CANCELLED",
+                  "DISCONNECTED",
+                  "SHUTDOWN",
+                  "CLEANUP_FAILED",
+                  "FLOW_STOP_TIMEOUT"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
           }
         },
         "additionalProperties": false,

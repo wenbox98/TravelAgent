@@ -12,6 +12,7 @@ from pydantic import SecretStr
 from xhs_sidecar.app import SidecarConfig, create_app
 from xhs_sidecar.browser import AccountIdentity, BrowserManager, LoginObservation
 from xhs_sidecar.login import LoginLifecycle
+from xhs_sidecar.models import LoginEvidence
 from xhs_sidecar.profile import ProfileStore
 from xhs_sidecar.service import SidecarService
 
@@ -434,3 +435,104 @@ def test_resume_during_verification_worker_exit_is_not_lost(rig, monkeypatch):
         resumed.result(timeout=3)
     wait_status(lifecycle, "AUTHENTICATED")
     assert backend.starts == resource.navigations == 1
+
+
+def test_unknown_observation_expires_with_safe_evidence_and_stops_polling(tmp_path):
+    profile = ProfileStore(ROOT, root=tmp_path / "owned-xhs")
+    evidence = LoginEvidence(current_url_classification="OFFICIAL_PAGE", page_ready=True)
+    backend = LocalLoginBackend(LoginObservation("UNKNOWN", evidence=evidence))
+    lifecycle = LoginLifecycle(
+        BrowserManager(backend), profile, poll_interval=0.002, timeout=2,
+        observation_timeout=0.025,
+    )
+    try:
+        lifecycle.connect()
+        failed = wait_status(lifecycle, "ERROR")
+        assert failed.error_code == "LOGIN_STATE_UNCERTAIN"
+        assert failed.stop_reason == "OBSERVATION_TIMEOUT"
+        assert failed.evidence == evidence
+        assert 1 <= failed.observation_attempts <= 480
+        resource = backend.resources[0]
+        count = resource.observations
+        for _ in range(100):
+            assert lifecycle.status() == failed
+        assert lifecycle.connect() == failed
+        with resource.changed:
+            assert not resource.changed.wait_for(lambda: resource.observations > count, timeout=0.04)
+        assert backend.starts == resource.navigations == 1
+    finally:
+        lifecycle.shutdown()
+
+
+def test_poll_limit_bounds_even_flapping_page_signals(tmp_path, monkeypatch):
+    profile = ProfileStore(ROOT, root=tmp_path / "owned-xhs")
+    backend = LocalLoginBackend(LoginObservation("UNKNOWN"))
+    lifecycle = LoginLifecycle(
+        BrowserManager(backend), profile, poll_interval=0.002, timeout=2,
+        observation_timeout=1, max_observations=4,
+    )
+    original = LocalLoginResource.observe_login
+
+    def alternating(resource):
+        original(resource)
+        return LoginObservation("LOGIN_REQUIRED" if resource.observations % 2 == 0 else "UNKNOWN")
+
+    monkeypatch.setattr(LocalLoginResource, "observe_login", alternating)
+    try:
+        lifecycle.connect()
+        failed = wait_status(lifecycle, "ERROR")
+        assert failed.error_code == "LOGIN_STATE_UNCERTAIN"
+        assert failed.stop_reason == "OBSERVATION_LIMIT"
+        assert failed.observation_attempts == backend.resources[0].observations == 4
+        assert backend.starts == backend.resources[0].navigations == 1
+    finally:
+        lifecycle.shutdown()
+
+
+def test_login_wait_has_separate_total_deadline(tmp_path):
+    profile = ProfileStore(ROOT, root=tmp_path / "owned-xhs")
+    backend = LocalLoginBackend(LoginObservation("LOGIN_REQUIRED"))
+    lifecycle = LoginLifecycle(
+        BrowserManager(backend), profile, poll_interval=0.002, timeout=0.02,
+        observation_timeout=1,
+    )
+    try:
+        lifecycle.connect()
+        failed = wait_status(lifecycle, "ERROR")
+        assert failed.error_code == failed.stop_reason == "LOGIN_TIMEOUT"
+    finally:
+        lifecycle.shutdown()
+
+
+def test_late_positive_observation_cannot_authenticate_after_deadline(tmp_path, monkeypatch):
+    profile = ProfileStore(ROOT, root=tmp_path / "owned-xhs")
+    backend = LocalLoginBackend(LoginObservation("AUTHENTICATED"))
+    lifecycle = LoginLifecycle(
+        BrowserManager(backend), profile, poll_interval=0.002, timeout=0.01,
+    )
+    original = LocalLoginResource.observe_login
+
+    def late(resource):
+        Event().wait(0.04)
+        return original(resource)
+
+    monkeypatch.setattr(LocalLoginResource, "observe_login", late)
+    try:
+        lifecycle.connect()
+        failed = wait_status(lifecycle, "ERROR")
+        assert failed.error_code == "LOGIN_TIMEOUT"
+        assert failed.account_identity == "UNKNOWN"
+        assert failed.observation_attempts == 1
+    finally:
+        lifecycle.shutdown()
+
+
+@pytest.mark.parametrize("options", [
+    {"timeout": float("inf")}, {"observation_timeout": float("nan")},
+    {"poll_interval": 0}, {"stop_timeout": -1}, {"max_observations": 0},
+    {"max_observations": True}, {"max_observations": 10_001},
+])
+def test_observation_limits_must_be_finite_and_bounded(tmp_path, options):
+    profile = ProfileStore(ROOT, root=tmp_path / "owned-xhs")
+    with pytest.raises(ValueError):
+        LoginLifecycle(BrowserManager(LocalLoginBackend()), profile, **options)

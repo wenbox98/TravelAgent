@@ -1,10 +1,10 @@
 # 03｜小红书数据接入与低操作成本登录
 
 ## 本章解决什么问题
-让普通用户通过官方页面正常登录，并按需复用应用专用会话。T03 只实现登录生命周期与离线验证；不执行搜索、详情或研究，不开发 Electron GUI。研究是后续独立阶段，登录不表示获得内容存储、推理或分享权限。
+让普通用户通过官方页面正常登录，并按需复用应用专用会话。T03 只实现登录生命周期，覆盖离线测试及经用户授权的本机人工登录验证；不执行搜索、详情或研究，不开发 Electron GUI。研究是后续独立阶段，登录不表示获得内容存储、推理或分享权限。
 
 ## 已核实的技术基线
-2026-09-22 设计审查固定 `xpzouying/xiaohongshu-mcp` 提交 `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`。T02 仅参考接口/行为并自建离线 sidecar，没有复制或运行完整 upstream；T03 在同一基础上增加普通 Playwright 浏览器与持久 profile。真实账号验证仍为 NOT_RUN，锁定记录在 `contracts/upstream-lock.json`。[S02]
+2026-09-22 设计审查固定 `xpzouying/xiaohongshu-mcp` 提交 `8eae4eb22ca1135e53f3e2da6c449fdfe5b492ff`。T02 仅参考接口/行为并自建离线 sidecar，没有复制或运行完整 upstream；T03 在同一基础上增加普通 Playwright 浏览器与持久 profile。2026-09-23 本机真实登录、重启复用及断开清理通过，详见 [T03.8 验收报告](../reports/T03.8-implementation.md)；这不等同于搜索/详情通道通过。上游锁定记录在 `contracts/upstream-lock.json`。[S02]
 
 | 观察到的能力/行为 | 来源 | 对本项目的影响 |
 |---|---|---|
@@ -54,6 +54,10 @@ VERIFICATION_REQUIRED → 显式 resume → 当前页 CHECKING
 `generation + flow_id` 标识当前登录流程。重复或并发 connect 返回同一活动流程，不新增 browser、page 或登录任务。取消、断开、关闭均先使旧 generation 失效；任何晚到观察结果须在同一同步边界核对 generation，失效结果不得改写登录状态或身份。
 
 ## 低请求的登录状态实现
+T03.8 将同页证据提取与 classifier 分离。先验证官方 origin，再优先处理 verification/访问限制，其次处理登录弹窗、登录按钮或显式游客状态；只有已完成加载的 `/explore` 页面且反向信号均明确不存在，才考虑正向认证证据。正常页面 `userInfo.value`、`userInfo._value` 或直接对象中的严格 `guest=false` 是正向证据，账号 ID 缺失不阻止登录；guest=true 优先于旧认证快照。旧账号入口只作诊断，绝不作为读取用户状态的前置门槛。实测可见的自我导航链接（我/个人入口）与同页可靠 ID 指向一致时可以作 fallback，单独“无登录弹窗”、URL变化或 ID存在均不算成功。
+
+每轮最多480次观察，连续 UNKNOWN 默认30秒后停止并返回 ERROR/LOGIN_STATE_UNCERTAIN；正常扫码等待有240秒总上限。时间和次数配置必须有限且为正，晚到认证结果不能越过截止时间。原生浏览器操作仍受20秒调用上限约束，不能保证硬件/驱动故障时精确到毫秒退出；自动流程不会无限 CHECKING。诊断只返回最后一组布尔信号、固定 URL 分类、观察次数和停止原因，不输出页面或账号原值。
+
 1. `GET /v1/login/status` 只读取内存快照，不调用 BrowserManager、页面、Cookie 验证或网络；离线用例连续读取 100 次核对零导航、零外部操作。
 2. `POST /v1/login/connect` 在启动前原子判定活动流程；显式创建一个浏览器、加载专用 profile、导航官方页一次，随后只读当前 DOM。
 3. 有效会话进入 AUTHENTICATED；已有 profile 失效保持 LOGIN_REQUIRED，首次登录为 WAITING_USER，两者均在同一窗口继续观察正常登录。AUTHENTICATED 后再次显式 connect 只在当前 browser/page 核实，不导航。未知解析或浏览器错误不自动重试导航。

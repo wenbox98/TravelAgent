@@ -314,7 +314,7 @@ def main() -> int:
         lines.append(f"| {r['check']} | {r['status']} | {detail} |")
     lines += ["", "## 不能据此作出的结论", "",
               f"{COUNTS.get('designed_application_test_cases_not_run', 0)} 行历史设计清单保留 initial_status=NOT_RUN；当前执行情况以任务报告为准，不由此命令更新。合成数据计算通过，不等于真实行程可行。Schema 通过不替代语义、安全和集成测试；OpenAPI 只做结构性检查；本命令 SQL 检查仅为 v1 初始模式的内存试运行，v2 迁移另有 T01 集成测试。", "",
-              "真实小红书连接、精准检索节省比例、授权用途、高德/报价可用性及干净 Windows 安装验收均保持 NOT_RUN/待验证。", "",
+              "真实小红书登录的执行状态见对应任务报告；本命令不执行或判定登录，JSON 中 live_xhs=NOT_RUN 仅指本次文档校验。精准检索节省比例、授权用途、高德/报价可用性及干净 Windows 安装验收仍待验证。", "",
               "## 重跑", "", "```sh", "python -m pip install -r tools/requirements-docs.txt", "python tools/validate_pack.py", "```", ""]
     (out / "document-validation.md").write_text("\n".join(lines), encoding="utf-8")
     return 0 if passed == len(RESULTS) else 1

@@ -1,6 +1,6 @@
 # XHS Readonly Sidecar｜T03 登录生命周期
 
-这是 TravelAgent 自己控制的 Python 服务。upstream 只提供已锁定的设计/字段参考，没有复制、启动或代理完整 Go MCP Server。默认 `offline` 模式保留 T02 Fake；显式 `login` 模式使用普通 Chrome/Chromium，只实现登录生命周期。**启动服务不启动浏览器；本轮真实登录 smoke 尚未执行，须用户另行确认。**
+这是 TravelAgent 自己控制的 Python 服务。upstream 只提供已锁定的设计/字段参考，没有复制、启动或代理完整 Go MCP Server。默认 `offline` 模式保留 T02 Fake；显式 `login` 模式使用普通 Chrome/Chromium，只实现登录生命周期。**启动服务不启动浏览器；经用户授权的本机真实登录、重启复用和断开清理已通过，见 [T03.8 验收报告](../../reports/T03.8-implementation.md)。**
 
 ## 实现边界
 
@@ -36,6 +36,14 @@
 
 只有上述 12 个 method/path 组合、10 个路径。publish/comment/like/follow/private-message、MCP/SSE/tools 代理不注册，直接 404/405。登录操作在 offline 模式返回 409 LOGIN_NOT_ENABLED；真实 mode 的禁止路径在浏览器调用前拒绝。登录操作返回的 HTTP 200 可能是 `LoginState.status=ERROR`，须检查状态和安全 error_code，不能只凭 HTTP 成功判定登录/注销成功。DELETE browser/session 的关闭失败则返回固定 500 错误。具体请求/响应见 [内部 OpenAPI](../../contracts/xhs-sidecar.openapi.json)，不声明兼容整个 upstream REST 或业务 API。
 
+## 多信号登录识别与诊断
+
+内部 API v0.3.0 增加安全的 LoginEvidence、observation_attempts 和 stop_reason。当前页官方 origin、路由分类、登录弹窗、登录按钮、账号入口、明确的用户 guest 状态、账号 ID 可用性、验证及访问限制分别采集；生产 classifier 优先 verification/限制，再处理登录/游客，证据不足为 UNKNOWN。T03.7 实测失效的 `.main-container .user .link-wrapper .channel` 不再阻断后面的用户状态读取。
+
+严格 `guest=false` 可独立于账号 ID 确认认证；支持 `userInfo.value`、`userInfo._value` 及直接对象，冲突 guest=true 优先。当前实测的自我导航链接与同页稳定 ID 指向一致时可作为 fallback；旧入口只作诊断，单独缺少弹窗或出现 ID 不确认认证。账号身份无法可靠读取时保持 UNKNOWN，不额外访问主页或接口。真实信号和 Smoke 结果另以本轮报告为准，合成测试不代替线上验证。
+
+同页观察默认间隔0.5秒，最多480次；连续 UNKNOWN 最多30秒，正常登录等待总计最多240秒。证据不足时为 ERROR/LOGIN_STATE_UNCERTAIN，stop_reason 为 OBSERVATION_TIMEOUT 或 OBSERVATION_LIMIT；登录总时限为 ERROR/LOGIN_TIMEOUT。失败不自动重开浏览器或刷新，须显式 cancel/disconnect 清理。CLI 显示布尔信号和固定分类，不显示账号、Cookie、二维码或原始 URL。GET status 仍只读本地快照。
+
 ## 浏览器配置与 profile
 
 依赖精确锁定 `playwright==1.63.0`、`platformdirs==4.11.12`。标准 Playwright 自身的启动默认值保留；代码显式传给 `chromium.launch_persistent_context` 的配置为：
@@ -50,7 +58,7 @@ chromium_sandbox = True
 timeout = 15000
 ```
 
-没有 `ignore_default_args`、随机 UA、device 参数、proxy、stealth 插件、fingerprint 浏览器或用于隐藏自动化的脚本；不修改 `navigator.webdriver`，不使用 upstream CloakBrowser/headless_browser。`chromium_sandbox=True` 保留浏览器沙箱。`args=[]` 指应用不增加参数，并不声称 Playwright/Chrome 的完整进程命令行为空。没有运行真实进程，本轮 launch 配置通过离线替身核对，真实进程参数仍待人工 smoke。
+没有 `ignore_default_args`、随机 UA、device 参数、proxy、stealth 插件、fingerprint 浏览器或用于隐藏自动化的脚本；不修改 `navigator.webdriver`，不使用 upstream CloakBrowser/headless_browser。`chromium_sandbox=True` 保留浏览器沙箱。`args=[]` 指应用不增加参数，并不声称 Playwright/Chrome 的完整进程命令行为空。launch 配置有离线替身核对，本机人工 smoke 使用相同的生产 Chromium 启动路径。
 
 浏览器启动前拒绝可泄露协议内容的 DEBUG/PWDEBUG 等诊断环境设置及自定义 Node/远端 Selenium 注入路径，避免第三方调试输出绕过源头日志过滤；不输出原始驱动异常。准确允许边界以 `ordinary_browser.py` 中固定检查与离线测试为准。
 
@@ -79,11 +87,11 @@ git diff --check
 
 mypy strict 覆盖 sidecar 模块，Ruff 覆盖仓库 Python 文件；旧 T00/T01 未补全的类型注解不在 strict 范围。契约快照用 export_sidecar_contract.py 显式生成并由测试比对，生成过程无服务器/浏览器/网络。依赖锁在根目录 uv.lock，安装完成后所有测试均离线。
 
-## 待确认的人工登录 smoke
+## 人工登录 smoke 操作
 
-以下命令仅为用户确认后的操作说明，本轮不得执行 connect 或打开真实页面。准备好同一终端环境中的随机 `TRAVEL_XHS_SIDECAR_SECRET`，且两个终端继承同一秘密；不要把值写入命令、文档或截图。
+以下是用户授权人工 smoke 的操作说明；2026-09-23 的实际结果见 T03.8 验收报告。准备好同一终端环境中的随机 `TRAVEL_XHS_SIDECAR_SECRET`，且两个终端继承同一秘密；不要把值写入命令、文档或截图。
 
-本机常见默认 Chrome 安装路径的只读检查未发现浏览器，这不表示已运行验证或已排除其他安装位置。用户确认 smoke 后，若本机没有可用 Chrome，开发者可先执行 `.venv/Scripts/python.exe -m playwright install chromium`，并在启动服务的 PowerShell 中设置 `$env:TRAVEL_XHS_BROWSER='chromium'`。浏览器下载本轮尚未执行；该命令仅准备标准 Playwright Chromium，不改变登录/研究授权范围。
+本次使用预先安装的标准 Playwright Chromium，启动服务的环境设置 `TRAVEL_XHS_BROWSER=chromium`。若其他环境缺少浏览器，须先由开发者准备标准浏览器；服务本身不下载或升级浏览器。
 
 ```text
 # 终端 A：选择 login mode 启动本地服务；本身不启动浏览器
@@ -106,6 +114,6 @@ mypy strict 覆盖 sidecar 模块，Ruff 覆盖仓库 Python 文件；旧 T00/T0
 
 ## 尚未实现
 
-真实页面稳定性、人工扫码/会话复用、浏览器总体网络计量尚未验证；真实 search/detail、筛选确认、研究预算/去重、RAG、GUI 与发行打包未实现。没有自动联网 integration test。来源许可、供应链与发行仍须独立门禁，T03 离线通过不代表 G0 通过。
+本次已验证该 Windows 环境的人工正常登录、会话复用与清理；页面未来变化及跨环境稳定性仍需后续验证，浏览器总体网络计量保持 NOT_MEASURED。真实 search/detail、筛选确认、研究预算/去重、RAG、GUI 与发行打包未实现。没有自动联网 integration test。来源许可、供应链与发行仍须独立门禁，T03 登录专项通过不代表 G0 整体通过。
 
-参考与同步方式见 [upstream provenance](../../docs/architecture/xhs-upstream-provenance.md)，T02 历史结果见 [T02 报告](../../reports/T02-implementation.md)；当前结果见 [T03 实现报告](../../reports/T03-implementation.md)。
+参考与同步方式见 [upstream provenance](../../docs/architecture/xhs-upstream-provenance.md)，历史结果见 [T02 报告](../../reports/T02-implementation.md) 和 [T03 初次离线交付](../../reports/T03-implementation.md)；当前结果见 [T03.8 验收报告](../../reports/T03.8-implementation.md)。

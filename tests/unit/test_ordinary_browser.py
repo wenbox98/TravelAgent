@@ -18,6 +18,18 @@ from xhs_sidecar.ordinary_browser import (
 from xhs_sidecar.profile import ProfileError, ProfileStore
 
 
+def observed_page(state, stable_id=None):
+    return {"evidence": {
+        "current_url_classification": "OFFICIAL_PAGE", "page_ready": True,
+        "login_dialog_present": False, "login_button_present": state == "LOGIN_REQUIRED",
+        "authenticated_account_entry_present": False,
+        "authenticated_user_state": True if state == "AUTHENTICATED" else None,
+        "account_identity_available": stable_id is not None,
+        "verification_present": state == "VERIFICATION_REQUIRED",
+        "access_restriction_present": False,
+    }, "stable_id": stable_id}
+
+
 @pytest.fixture
 def profile(tmp_path):
     return ProfileStore(project_root=tmp_path / "project", root=tmp_path / "owned-xhs")
@@ -26,7 +38,7 @@ def profile(tmp_path):
 @pytest.fixture
 def driver(monkeypatch):
     calls = []
-    observations = [{"state": "LOGIN_REQUIRED"}]
+    observations = [observed_page("LOGIN_REQUIRED")]
     faults = {"close": 0, "startup": False}
 
     def record(name, value=None):
@@ -234,10 +246,10 @@ def test_T03_14_profile_deletion_has_bounded_retries(profile, monkeypatch):
 
 def test_browser_observes_same_page_and_stable_id_is_private(profile, driver):
     driver.observations[:] = [
-        {"state": "AUTHENTICATED", "stable_id": "SECRET_ACCOUNT_T03"},
-        {"state": "AUTHENTICATED", "nickname": "not-an-identity"},
-        {"state": "VERIFICATION_REQUIRED"},
-        {"state": "LOGIN_REQUIRED"},
+        observed_page("AUTHENTICATED", "SECRET_ACCOUNT_T03"),
+        {**observed_page("AUTHENTICATED"), "nickname": "not-an-identity"},
+        observed_page("VERIFICATION_REQUIRED"),
+        observed_page("LOGIN_REQUIRED"),
         {"unrecognized": True},
     ]
     manager = BrowserManager(OrdinaryBrowserBackend(profile), BrowserOptions(headless=False))
@@ -336,7 +348,7 @@ def test_native_operation_timeout_keeps_resource_until_confirmed_close(
 
     def pending_observation():
         gate.wait(3)
-        return {"state": "AUTHENTICATED", "stable_id": "SECRET_ACCOUNT_T03"}
+        return observed_page("AUTHENTICATED", "SECRET_ACCOUNT_T03")
 
     driver.observations[:] = [pending_observation]
     monkeypatch.setattr("xhs_sidecar.ordinary_browser._OPERATION_TIMEOUT", 0.02)
@@ -371,7 +383,7 @@ def test_foreign_origin_never_evaluates_login_dom(profile, driver, url):
     session = manager.start()
     session.open_login()
     driver.page.url = url
-    driver.observations[:] = [{"state": "AUTHENTICATED", "stable_id": "SECRET_ACCOUNT_T03"}]
+    driver.observations[:] = [observed_page("AUTHENTICATED", "SECRET_ACCOUNT_T03")]
     try:
         assert session.observe_login().state == "UNKNOWN"
         assert not any(name in {"locator", "evaluate"} for name, _, _ in driver.calls)
