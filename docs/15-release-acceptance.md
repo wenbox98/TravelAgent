@@ -13,6 +13,14 @@ T02 新增离线基础验收：T02-01～T02-10 实际执行见 [T02 报告](../r
 
 T04.1 详情窗口 181 个请求、总体 587，bytes=null；历史失败原因仍仅 LIKELY 路由别名，原分支 UNKNOWN。**T04 有限技术 Smoke 可结束，但不自动通过 G0 完整发布门禁，也不进入 T05。** 未证明全文或低请求策略有效；建议另行授权 T04.2 基线请求优化。
 
+## T04.2 / T05 新授权验收
+
+[T05 实测报告](../reports/T05-xhs-research-loop-smoke.md) 记录 581 项离线测试以及唯一一轮 1 search / 2 detail：复用 profile，取得两篇 PARTIAL_TEXT 和 6 条本地低置信来源摘取；相同请求与 5 天/不自驾增量请求均 search/detail=0/0。浏览器关闭后 context event 增量为 0，结束保留 profile、自有浏览器/sidecar 0。
+
+TEXT_FIRST 阻止 224 次图片加载，但 SEARCH=236、DETAIL=276/285，高于历史 173/181，未证明请求量减少；默认继续 OBSERVE_ONLY。真实 SourcePolicy UNKNOWN 仅允许内存临时研究；没有调用外部模型或验证真实持久化资料库。实测后仅离线修复缓存报告的不确定性提示，未追加实站。
+
+按下表现有定义，**G0 本机受控只读数据通道通过**（正常登录生命周期、有限搜索正文、只读审查和用途边界已有证据），范围不外推到完整站点兼容性。**G1 仍 NOT PASS**：低置信摘取、正文/图片/旅行时间不完整，真实持久缓存和充分材料的模型质量未验证。因此不宣称 D1/D2、完整产品或发布通过。
+
 ## T03 独立交付门槛
 
 T03-01～T03-18 覆盖普通 launch/profile、状态机、本地 status 100 次零外部操作、connect 幂等/并发、有效/失效会话、验证暂停、generation/晚到回调、清理成功/失败、重启待核实、日志 sentinel 与 NOT_MEASURED。全部 unit/integration/contract/security 离线测试、Ruff、Mypy、契约快照、文档校验、git diff --check 通过后，才完成指定本地提交并汇报；执行证据必须来自真实命令输出。
