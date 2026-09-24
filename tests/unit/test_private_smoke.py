@@ -3,6 +3,10 @@
 from datetime import datetime, timezone
 import json
 import logging
+import os
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 from pydantic import SecretStr
@@ -78,3 +82,30 @@ def test_legacy_unreviewed_mode_still_blocks_external_research():
     from travel_agent.research.benchmark import live_preflight
     assert live_preflight({"LLM_MODEL": "synthetic", "LLM_API_KEY": "synthetic"},
                           usage_mode="SOURCE_POLICY")["status"] == "G1_LIVE_SOURCE_POLICY_BLOCKED"
+
+
+def test_standalone_entry_loads_sidecar_without_pytest_pythonpath(tmp_path):
+    project = Path(__file__).resolve().parents[2]
+    entry = project / "scripts/private_research_smoke.py"
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("LLM_", "TRAVEL_LLM_", "OPENAI_")) and key != "PYTHONPATH"}
+    # Match the real entry's script path, while denying network in this child too.
+    child = """
+import pathlib, runpy, sys
+def deny(event, args):
+    if event in {'socket.connect', 'socket.getaddrinfo', 'socket.sendto'}:
+        raise AssertionError('OFFLINE_ONLY')
+sys.addaudithook(deny)
+entry = sys.argv[1]
+sys.path.insert(0, str(pathlib.Path(entry).parent))
+from _bootstrap import enter
+enter()
+from travel_agent.research import private_smoke
+private_smoke.PROJECT_ROOT = pathlib.Path(sys.argv[2])
+sys.argv = [entry, '--live']
+runpy.run_path(entry, run_name='__main__')
+"""
+    result = subprocess.run([sys.executable, "-c", child, str(entry), str(tmp_path)], cwd=project,
+                            env=env, capture_output=True, text=True, timeout=15)
+    assert result.returncode == 2
+    assert json.loads(result.stdout) == {"status": "BLOCKED", "reason": "LLM_NOT_CONFIGURED"}
