@@ -121,6 +121,28 @@ T05 最终离线测试 581 PASS；真实 1 次 search、2 次 detail 取得 6 �
 
 本机没有真实 LLM 配置，本轮真实状态为 **G1_LIVE_LLM_BLOCKED，G1 未通过**；没有新增小红书访问。合成 benchmark 与示例是离线验收，不是真实川西攻略。用法和数据边界见 [T06 设计](docs/architecture/t06-research-quality.md)，结果见 [T06 报告](reports/T06-g1-research-quality.md)；G0 保留此前 PASS。
 
+## 真实模型配置（T06.1）
+
+沿用 `OpenAICompatibleProvider`，使用 OpenAI 兼容的 Chat Completions 接口及 JSON Schema structured output。模型配置只从进程环境变量读取；[.env.example](.env.example) 仅列变量名称，程序不会自动加载 `.env`，复制文件不会使配置生效。
+
+| 环境变量 | 在本机填写的内容 |
+|---|---|
+| `LLM_BASE_URL` | 服务商提供的 API 根地址，通常包含版本路径；程序会追加 `/chat/completions`，不要填写完整请求地址 |
+| `LLM_API_KEY` | 该服务的 API key |
+| `LLM_MODEL` | 服务商提供的准确模型 ID，需要支持 JSON Schema 结构化输出 |
+
+Windows 可在开始菜单搜索“编辑账户的环境变量”，在“用户变量”中新建这三个变量并填写自己的值。保存后重新打开运行项目的终端；如果从 Codex 启动验收，应重启 Codex，使新进程继承环境变量。真实 key 只配置在本机，不写入 `.env.example`、源码、报告或聊天。
+
+目前也兼容旧 `TRAVEL_LLM_*`、`OPENAI_*` 名称，`LLM_*` 优先；T06.1 使用上述三个统一名称。以下本地预检不会调用模型，也不会连接小红书：
+
+```text
+.venv\Scripts\python.exe scripts/research_quality.py live-preflight
+```
+
+`G1_LIVE_LLM_BLOCKED` 表示模型未配置或配置格式不完整。配置通过时，现有预检仍可能返回 `G1_LIVE_SOURCE_POLICY_BLOCKED`，表示来源用途尚未确认，不代表模型连接失败，也不表示已完成真实调用。预检的阻塞退出码为 2。
+
+T06.1 的顺序是：环境配置 → 全部离线测试 → 完全合成 BodyBlock 的极少真实模型调用 → 来源用途检查 → 真实小红书受控验收。真实验收采用 OBSERVE_ONLY，首次最多 1 次搜索、3 次详情；模型连通失败或出现访问验证要求时停止。未配置模型时暂停，不把 Mock 验收作为 G1 PASS。
+
 ## 离线开发启动（T00/T01）
 
 使用 Python 3.14 和 Node 22.12+，先运行 `uv sync --locked`，再在 `apps/web` 运行 `pnpm install --frozen-lockfile` 和 `pnpm build`。返回项目根目录运行：
