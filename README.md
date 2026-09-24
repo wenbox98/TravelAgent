@@ -143,6 +143,10 @@ Windows 可在开始菜单搜索“编辑账户的环境变量”，在“用户
 
 T06.1 的顺序是：环境配置 → 全部离线测试 → 完全合成 BodyBlock 的极少真实模型调用 → 来源用途检查 → 真实小红书受控验收。真实验收采用 OBSERVE_ONLY，首次最多 1 次搜索、3 次详情；模型连通失败或出现访问验证要求时停止。未配置模型时暂停，不把 Mock 验收作为 G1 PASS。
 
+T06.1 合成正文的单次真实模型检查工具是 `.venv\Scripts\python.exe tools/llm_connectivity_smoke.py --live-llm`。不加 `--live-llm` 不调用模型；工具不导入浏览器，只记录脱敏错误、请求次数及合成引文。尝试前写入 `.local/t06.1-llm/connectivity.json`，已有记录就拒绝自动重跑，失败不会把本地摘取记为模型通过。
+
+本机首次模型检查返回 HTTP 404：配置使用 DeepSeek 的 `/anthropic` 地址，与项目 Chat Completions 协议不匹配。DeepSeek 的 OpenAI 兼容根地址是 `https://api.deepseek.com`，`/anthropic` 对应另一种接口。[官方协议说明](https://api-docs.deepseek.com/guides/anthropic_api/)；[OpenAI 兼容调用示例](https://api-docs.deepseek.com/guides/json_mode/)。此外，官方当前文档的 `response_format` 只声明 `text/json_object`，本项目当前发送 `json_schema`；修改地址不等于结构化输出已经兼容。该能力差异尚需在现有 provider 内处理并补测试，不能靠丢弃 schema 校验继续验收。[Chat Completions 参数](https://api-docs.deepseek.com/api/create-chat-completion/)
+
 ## 离线开发启动（T00/T01）
 
 使用 Python 3.14 和 Node 22.12+，先运行 `uv sync --locked`，再在 `apps/web` 运行 `pnpm install --frozen-lockfile` 和 `pnpm build`。返回项目根目录运行：
