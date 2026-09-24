@@ -119,6 +119,7 @@ def run_check(provider: llm.OpenAICompatibleProvider) -> dict[str, Any]:
     # URL, headers, credentials or exception text is exposed or stored.
     return {"status": "PASS" if passed else "FAIL", "scope": "SYNTHETIC_BODY_REAL_LLM_ONLY",
             "provider_type": "OpenAICompatibleProvider", "model": safe_model_name(provider),
+            "response_format": provider.response_format,
             "elapsed_seconds": round(monotonic() - started, 3), "timeout_seconds": provider.timeout,
             "provider_calls": observed.calls, "provider_error": observed.error,
             **transport, "extraction_mode": result.mode, "checks": checks,
@@ -131,14 +132,24 @@ def run_check(provider: llm.OpenAICompatibleProvider) -> dict[str, Any]:
             "g1_pass": False}
 
 
+def attempt_id(value: str) -> str:
+    if re.fullmatch(r"[a-z][a-z0-9-]{0,47}", value) is None:
+        # Never echo invalid input, which may accidentally contain a secret or URL.
+        raise argparse.ArgumentTypeError("attempt 必须是 1–48 位小写字母、数字或连字符")
+    return value
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="一次合成正文的真实 LLM 检查；不连接小红书")
     parser.add_argument("--live-llm", action="store_true", help="允许一次已配置模型调用")
+    parser.add_argument("--attempt", type=attempt_id,
+                        help="人工修正配置后显式命名新尝试；保留旧账本，不自动重试")
     args = parser.parse_args()
     if not args.live_llm:
         print(json.dumps({"status": "NOT_RUN", "provider_calls": 0}))
         return 0
-    path = ROOT / ".local/t06.1-llm/connectivity.json"
+    name = f"connectivity-{args.attempt}.json" if args.attempt else "connectivity.json"
+    path = ROOT / ".local/t06.1-llm" / name
     if path.exists():
         print(json.dumps({"status": "BLOCKED", "reason": "EXISTING_ATTEMPT_NO_AUTOMATIC_RETRY"}))
         return 2
@@ -150,8 +161,12 @@ def main() -> int:
         print(json.dumps({"status": "G1_LIVE_LLM_BLOCKED", "provider_calls": 0}))
         return 2
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("x", encoding="utf-8") as handle:
-        json.dump({"status": "STARTED", "automatic_retry_allowed": False}, handle)
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            json.dump({"status": "STARTED", "automatic_retry_allowed": False}, handle)
+    except FileExistsError:
+        print(json.dumps({"status": "BLOCKED", "reason": "EXISTING_ATTEMPT_NO_AUTOMATIC_RETRY"}))
+        return 2
     try:
         result = run_check(provider)
     except Exception:

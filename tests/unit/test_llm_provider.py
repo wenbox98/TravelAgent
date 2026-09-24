@@ -1,6 +1,7 @@
 """Stubbed HTTP transport only; never call a model or an external API."""
 
 import json
+from urllib.error import HTTPError
 
 import pytest
 from pydantic import SecretStr
@@ -25,6 +26,25 @@ def test_explicit_environment_is_private_and_bounded():
     })
     assert provider.timeout == 7
     assert "SECRET_API_KEY" not in repr(provider)
+    assert provider.response_format == "json_schema"
+
+
+@pytest.mark.parametrize("mode", ["json_schema", "json_object"])
+def test_explicit_response_format_from_environment(mode):
+    provider = OpenAICompatibleProvider.from_env({
+        "LLM_API_KEY": "SECRET_API_KEY", "LLM_MODEL": "synthetic-model",
+        "LLM_BASE_URL": "https://model.invalid/v1", "LLM_RESPONSE_FORMAT": mode,
+    })
+    assert provider.response_format == mode
+
+
+@pytest.mark.parametrize("mode", ["text", "auto", "SECRET_API_KEY"])
+def test_unknown_response_format_fails_closed_without_echoing_value(mode):
+    with pytest.raises(LLMError, match="^LLM_NOT_CONFIGURED$"):
+        OpenAICompatibleProvider.from_env({
+            "LLM_API_KEY": "SECRET_API_KEY", "LLM_MODEL": "synthetic-model",
+            "LLM_RESPONSE_FORMAT": mode,
+        })
 
 
 def test_q14_llm_environment_aliases_take_precedence_without_network():
@@ -91,6 +111,50 @@ def test_one_strict_request_has_no_tools_no_storage_and_returns_validated_json(m
     request = json.loads(calls[0][0].data)
     assert request["response_format"]["json_schema"]["strict"] is True
     assert request["store"] is False and "tools" not in request
+
+
+@pytest.mark.parametrize("content,valid", [
+    ('{"ok":true}', True), ('{"ok":true,"extra":"SECRET_API_KEY"}', False),
+    ('{"ok":"true"}', False), ('{}', False), ('[]', False), ('', False),
+    ('malformed SECRET_API_KEY', False),
+])
+def test_json_object_sends_exact_schema_and_enforces_it_locally(monkeypatch, content, valid):
+    calls = []
+    class Opener:
+        def open(self, request, timeout):
+            calls.append(json.loads(request.data))
+            return FakeResponse(json.dumps({"choices": [{"message": {
+                "content": content
+            }}]}).encode())
+    monkeypatch.setattr("travel_agent.providers.llm.build_opener", lambda *args: Opener())
+    provider = OpenAICompatibleProvider("https://model.invalid/v1", "synthetic", SecretStr("key"),
+                                        response_format="json_object")
+    if valid:
+        assert provider.structured("synthetic_task", {"text": "合成输入"}, SCHEMA) == {"ok": True}
+    else:
+        with pytest.raises(LLMError) as error:
+            provider.structured("synthetic_task", {"text": "合成输入"}, SCHEMA)
+        assert "SECRET_API_KEY" not in str(error.value)
+    assert len(calls) == 1
+    assert calls[0]["response_format"] == {"type": "json_object"}
+    supplied = calls[0]["messages"][0]["content"].split("Required JSON Schema: ")[1]
+    assert json.loads(supplied) == SCHEMA
+    assert calls[0]["store"] is False and "tools" not in calls[0]
+
+
+@pytest.mark.parametrize("mode", ["json_schema", "json_object"])
+def test_http_rejection_never_switches_output_format_or_retries(monkeypatch, mode):
+    calls = []
+    class Opener:
+        def open(self, request, timeout):
+            calls.append(json.loads(request.data)["response_format"]["type"])
+            raise HTTPError("https://model.invalid", 400, "SECRET_API_KEY", {}, None)
+    monkeypatch.setattr("travel_agent.providers.llm.build_opener", lambda *args: Opener())
+    provider = OpenAICompatibleProvider("https://model.invalid/v1", "synthetic", SecretStr("key"),
+                                        response_format=mode)
+    with pytest.raises(LLMError, match="^LLM_UNAVAILABLE$"):
+        provider.structured("synthetic_task", {}, SCHEMA)
+    assert calls == [mode]
 
 
 def test_timeout_is_not_retried_or_logged(monkeypatch, capsys):

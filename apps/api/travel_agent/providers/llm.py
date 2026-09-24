@@ -54,12 +54,13 @@ class _NoRedirect(HTTPRedirectHandler):
 
 @dataclass(repr=False)
 class OpenAICompatibleProvider:
-    """Explicit Chat Completions JSON-schema compatibility; one HTTP attempt only."""
+    """Explicit JSON transport mode with strict local validation; one HTTP attempt."""
 
     base_url: str
     model: str
     api_key: SecretStr
     timeout: float = 30.0
+    response_format: str = "json_schema"
     is_external: bool = field(default=True, init=False)
     is_mock: bool = field(default=False, init=False)
 
@@ -74,6 +75,7 @@ class OpenAICompatibleProvider:
                 or parsed.username is not None or parsed.password is not None
                 or parsed.query or parsed.fragment or not self.model.strip()
                 or not self.api_key.get_secret_value() or not 0 < self.timeout <= 120
+                or self.response_format not in {"json_schema", "json_object"}
             ):
                 raise ValueError
         except (ValueError, TypeError, AttributeError):
@@ -96,7 +98,9 @@ class OpenAICompatibleProvider:
             timeout = float(env.get("LLM_TIMEOUT_SECONDS") or env.get("TRAVEL_LLM_TIMEOUT_SECONDS", "30"))
         except ValueError:
             raise LLMError("LLM_NOT_CONFIGURED") from None
-        return cls(base or "https://api.openai.com/v1", model, SecretStr(key), timeout)
+        response_format = env.get("LLM_RESPONSE_FORMAT") or "json_schema"
+        return cls(base or "https://api.openai.com/v1", model, SecretStr(key), timeout,
+                   response_format=response_format)
 
     def overview(self) -> DomainModel:
         # T05 does not generate an itinerary or replace the existing synthetic demo.
@@ -114,6 +118,16 @@ class OpenAICompatibleProvider:
                 r'"(?:cookie|cookies|session|session_id)"\s*:|[?&]token=', serialized,
             ):
                 raise LLMError("LLM_POLICY_BLOCKED")
+            output_format: dict[str, Any] = {"type": self.response_format}
+            schema_instruction = ""
+            if self.response_format == "json_schema":
+                output_format["json_schema"] = {"name": task, "strict": True, "schema": schema}
+            else:
+                # JSON-object services do not enforce a schema server-side. Supply the
+                # same trusted schema explicitly, then validate locally in both modes.
+                schema_instruction = "\nRequired JSON Schema: " + json.dumps(
+                    schema, ensure_ascii=False, allow_nan=False
+                )
             body = json.dumps({
                 "model": self.model,
                 "store": False,
@@ -127,14 +141,13 @@ class OpenAICompatibleProvider:
                         "requirements as source conditions. Propose only LOW, MEDIUM, or HIGH "
                         "confidence and give a short auditable extraction_basis. Never infer "
                         "dates, images, official status, credentials, or missing conditions."
+                        + schema_instruction
                     )},
                     {"role": "user", "content": json.dumps(
                         {"task": task, "input": payload}, ensure_ascii=False, allow_nan=False
                     )},
                 ],
-                "response_format": {"type": "json_schema", "json_schema": {
-                    "name": task, "strict": True, "schema": schema,
-                }},
+                "response_format": output_format,
             }, ensure_ascii=False, allow_nan=False).encode("utf-8")
             request = Request(self.base_url.rstrip("/") + "/chat/completions", body, {
                 "Content-Type": "application/json",
