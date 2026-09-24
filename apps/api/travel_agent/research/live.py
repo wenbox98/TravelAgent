@@ -1,6 +1,7 @@
 """Explicit live adapter reusing T03 ownership and T04 parsing. No public browser tool."""
 
 from datetime import datetime, timezone
+from collections.abc import Callable
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any
@@ -28,7 +29,8 @@ def _stopped(code: str, *, technical: bool = False) -> ResearchStopped:
 
 
 class LiveResearchReader:
-    def __init__(self, project: Path, *, resource_policy: ResourcePolicy = ResourcePolicy.OBSERVE_ONLY) -> None:
+    def __init__(self, project: Path, *, resource_policy: ResourcePolicy = ResourcePolicy.OBSERVE_ONLY,
+                 login_prompt: Callable[[], None] | None = None) -> None:
         self.profile = ProfileStore(project)
         self.profile_present_at_start = self.profile.exists()
         self.observer = LiveNetworkObserver()
@@ -46,6 +48,7 @@ class LiveResearchReader:
         self.search_summary: dict[str, object] | None = None
         self._last_operation = 0.0
         self.browser_info: dict[str, object] = {}
+        self.login_prompt = login_prompt
 
     @property
     def text_first(self) -> bool:
@@ -66,6 +69,7 @@ class LiveResearchReader:
             return
         self.login.connect()
         deadline = monotonic() + 40
+        prompted = False
         while monotonic() < deadline:
             state = self.login.status()
             self.login_state = state.status
@@ -88,6 +92,11 @@ class LiveResearchReader:
                     self.browser_info = resource._run(info)
                 return
             if state.status in {"LOGIN_REQUIRED", "WAITING_USER"}:
+                if self.login_prompt is not None and not prompted:
+                    prompted = True
+                    self.login_prompt()  # Human action only; same page/session/generation.
+                    deadline = monotonic() + 40
+                    continue
                 raise ResearchStopped("NEED_LOGIN")
             if state.status == "VERIFICATION_REQUIRED":
                 raise ResearchStopped("VERIFICATION_REQUIRED")

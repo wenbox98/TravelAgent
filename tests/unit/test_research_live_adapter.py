@@ -154,6 +154,7 @@ def reader():
     result.detail_summaries = []
     result.search_summary = None
     result.browser_info = {}
+    result.login_prompt = None
     result._last_operation = 0.0
     # Pacing is independent of these state/identity tests; no wall-clock waits.
     def no_pacing():
@@ -385,3 +386,28 @@ def test_unknown_failure_is_not_misreported_as_login_expiry():
     error = _stopped("UNRECOGNIZED_ERROR")
     assert error.reason == "SOURCE_UNAVAILABLE"
     assert error.fallback_eligible is False
+
+
+def test_optional_human_login_prompt_observes_same_session_without_reconnect(reader):
+    session = reader._session
+    reader.login.state.status = "SESSION_PRESENT_UNVERIFIED"
+    reader.login.after_connect = "WAITING_USER"
+    prompts = []
+    def prompt():
+        prompts.append(1)
+        reader.login.state.status = "AUTHENTICATED"
+    reader.login_prompt = prompt
+    reader.connect()
+    assert prompts == [1] and reader.login.connect_calls == 1
+    assert reader._session is session
+
+
+def test_verification_after_human_prompt_stops_without_retry(reader):
+    reader.login.state.status = "SESSION_PRESENT_UNVERIFIED"
+    reader.login.after_connect = "WAITING_USER"
+    def prompt(): reader.login.state.status = "VERIFICATION_REQUIRED"
+    reader.login_prompt = prompt
+    with pytest.raises(ResearchStopped) as error:
+        reader.connect()
+    assert error.value.reason == "VERIFICATION_REQUIRED"
+    assert reader.login.connect_calls == 1

@@ -125,3 +125,37 @@ def render_material_report(view: dict[str, Any]) -> str:
               f"停止原因：{view['stop_reason']}；搜索 {view['operations']['search']} 次，"
               f"详情 {view['operations']['detail']} 次。"]
     return "\n".join(lines) + "\n"
+
+
+def render_private_report(view: dict[str, Any], sources: list[dict[str, Any]]) -> str:
+    """Compact local report with short source references; never reproduce full bodies."""
+    refs = {source["source_id"]: f"S{i}" for i, source in enumerate(sources, 1)}
+    lines = ["# 国庆成都出发去川西：第一轮大致攻略", "",
+             "以下方向来自本次实际读取的笔记文字，供你先比较；尚未核实国庆出行可行性，不是最终行程。"]
+    for number, direction in enumerate(view["directions"], 1):
+        lines += ["", f"## 方向 {number}：{_escape(direction['direction'])}"]
+        for key, label in (("route_evidence", "路线或区域"), ("experiences", "主要体验"),
+                           ("duration_clues", "作者的时间线索"), ("limitations", "条件与提醒")):
+            rows = direction[key]
+            if not rows:
+                lines.append(f"- {label}：现有文字还不能可靠说明。")
+            for row in rows:
+                lines.append(f"- {label}：作者写道“{_escape(row['text'])}”。[{refs[row['source_id']]}]")
+        count = sum(len(direction[key]) for key in ("route_evidence", "experiences", "duration_clues", "limitations"))
+        lines += [f"- 当前依据：{len(direction['source_ids'])} 篇笔记、{count} 条文字证据；独立性未确认。",
+                  "- 仍不确定：" + "；".join(direction["unknown"] or ["路线能否满足你的具体交通与时间条件尚未验证"]) + "。"]
+    if not view["directions"]:
+        lines += ["", "现有正文尚不足以提出可靠路线方向，保留缺口，不补造攻略。"]
+    lines += ["", "## 当前还不确定的事", "",
+              "预算、人数、交通方式仍未知；发布时间不代表实际旅行时间，旧经验不代表今年国庆的交通、开放或预约情况。",
+              "笔记中的图片没有分析；只读到部分文字的资料也不能当成完整攻略。"]
+    for conflict in view["conflicts"]:
+        lines.append("- 来源差异：" + _escape(conflict["reason"]))
+    lines += ["- " + _escape(value) for value in dict.fromkeys(view["unknown"])]
+    lines += ["", "## 目前还需要你决定", "", "1. 你大概能安排几天？", "2. 是否考虑自驾？",
+              "", "## 本次已读取来源", ""]
+    for source in sources:
+        description = "部分文字" if source["completeness"] != "FULL_TEXT" else "当前可访问正文"
+        lines.append(f"- [{refs[source['source_id']]}] {_escape(source['source_title'] or '未提供标题')}"
+                     f"；{description}；图片未分析；公开笔记标识：{_escape(source['source_id'])}。")
+    return "\n".join(lines) + "\n"
