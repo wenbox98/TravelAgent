@@ -6,6 +6,8 @@
 
 SourcePolicy 增加 usage_mode、local_account_scope、source_content_retention。私人模式必须绑定一个本地账号范围和已记录的策略时间，禁止公共 export/embedding；当前实际不构建向量库。外部模型只接收研究正文块，不能接收浏览器会话或访问定位材料。
 
+外发前再缩减输入：每篇最多 6,000 个规范文字字符、120 个原始块；包含链接、邮箱、手机号、身份证号或联系方式/住址标签的整块不发送。保留原始 block index 和 offset，不把替换后的文字伪装为原文引文。模型引用未发送的块会被拒绝；有省略时记录 MODEL_INPUT_MINIMIZED。外发字段仅为正文块及其 index/origin/truncation_risk、完整度和研究缺口，不附作者、账号、标题、source ID、图片或页面链接。检测是保守规则，不声称完整匿名化；不明示的姓名、个人经历仍可能在普通正文中出现。
+
 默认正文保留 PERSISTENT；7_DAYS/30_DAYS 从快照首次 retrieved_at 算过期，读取前逻辑清理过期原文及正文块。EPHEMERAL 不写原文，但派生 Evidence 的保存仍由独立开关控制。期限到期或删除不声称清除了 SSD、备份的历史字节。再次读取同样内容只更新 last_retrieved_at，不偷偷延长原版本期限。
 
 新增 SourceContent / SourceBodyBlock 内部契约，SQLite v5 通过 005_private_source_content.sql 增加 source_contents、source_body_blocks、research_run_contents。初始 database.sql 保持 v1 结构，依次迁移至 v5；OpenAPI 只补充边界说明，没有新增原文 HTTP 接口。迁移、契约、实现及相应测试共同提交。

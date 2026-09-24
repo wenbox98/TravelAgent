@@ -11,6 +11,7 @@ from travel_agent.domain.models import EvidenceBundle, SourcePolicy, validator
 from travel_agent.domain.source_policy import SENSITIVE_RESEARCH_TEXT, has_usage_basis
 from travel_agent.providers.llm import LLMProvider, validate_structured
 from .canonical import BodyBlock, CanonicalBody, body_blocks, canonicalize, evidence_key
+from .model_input import outbound_blocks
 
 __all__ = ["BodyBlock", "body_blocks", "EvidenceExtractor", "ExtractionResult", "EXTRACTION_SCHEMA"]
 
@@ -175,6 +176,7 @@ class EvidenceExtractor:
             gaps.append("PUBLISH_TIME_UNKNOWN")
         rows: list[dict[str, Any]] = []
         mode, called, rejected = "NO_BODY", False, 0
+        sent_block_ids: set[int] | None = None
         canonical: CanonicalBody | None = view
         now = self.clock()
         expiry = policy["expires_at"]
@@ -207,14 +209,21 @@ class EvidenceExtractor:
                 policy, external=getattr(provider, "is_external", True), now=self.clock(),
             ) and (not getattr(provider, "is_mock", False) or source_type == "SYNTHETIC")
             if provider_allowed:
-                called = True
+                model_blocks = (outbound_blocks(blocks) if getattr(provider, "is_external", True)
+                                else blocks[:120])
+                if len(model_blocks) != len(blocks[:120]):
+                    gaps.append("MODEL_INPUT_MINIMIZED")
                 try:
                     assert provider is not None
+                    if not model_blocks:
+                        raise ValueError("NO_OUTBOUND_BLOCKS")
+                    called = True
+                    sent_block_ids = {b.block_index for b in model_blocks}
                     output = provider.structured("extract_evidence", {
                         "is_synthetic": source_type == "SYNTHETIC",
                         "blocks": [{"block_index": b.block_index, "text": b.normalized_text,
                                     "origin": b.origin, "truncation_risk": b.truncation_risk}
-                                   for b in blocks[:120]],
+                                   for b in model_blocks],
                         "completeness": completeness,
                         "research_gaps": list(research_gaps),
                     }, EXTRACTION_SCHEMA)
@@ -229,7 +238,9 @@ class EvidenceExtractor:
         metadata: dict[str, dict[str, Any]] = {}
         seen: set[str] = set()
         for row in rows:
-            grounded = _grounded(row, blocks)
+            grounded = (None if mode == "LLM" and sent_block_ids is not None
+                        and not set(row["source_block_ids"]) <= sent_block_ids
+                        else _grounded(row, blocks))
             if grounded is None or canonical is None:
                 rejected += 1
                 continue

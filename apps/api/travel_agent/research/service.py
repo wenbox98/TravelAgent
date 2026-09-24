@@ -39,6 +39,7 @@ class ResearchService:
             "LLM_UNAVAILABLE_OR_INVALID": "模型不可用或输出不合格，已使用保守摘取",
             "NO_GROUNDED_CLAIMS": "尚无能定位到实际正文的结论",
             "UNSUPPORTED_CLAIMS_REJECTED": "不能定位的模型输出已拒绝",
+            "MODEL_INPUT_MINIMIZED": "部分正文因联系方式或长度限制未交给模型，相关信息仍待核实",
         }
         return ResearchGap(code, descriptions.get(code, "正文材料仍存在未验证信息"))
 
