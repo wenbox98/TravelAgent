@@ -17,6 +17,8 @@
 
 真实验收入口为 `scripts/private_research_smoke.py --live`，上限 1 次搜索、3 篇详情、OBSERVE_ONLY。正常关闭保留 profile 与 `.local/t06.1-private/research.sqlite3`；清研究缓存使用既有 `research_quality.py clear-cache`，不会 disconnect 或清理登录 profile。独立进程恢复验证使用 `tools/private_cache_probe.py`，禁止网络访问。模型已验证可用，不重跑合成连通性请求。
 
+当前私人缓存实现的 792 项离线测试通过；真实验收尚未启动。执行环境自动审批要求进一步确认正文向 DeepSeek 发送的范围，两次启动请求均在执行前被拒绝；这不是仓库重新要求作者授权。G0 沿用此前 PASS，G1 仍未通过。详见 [本轮验收记录](reports/T06.1-g1-live-validation.md)；[旅行研究示例文件](reports/T06.1-live-travel-research-example.md) 目前只记录需求与阻塞状态，没有虚构真实路线。
+
 ## 现在怎么交给 Codex
 
 1. 将此包导入 `wenbox98/TravelAgent` 根目录。导入前先检查远端和本地内容，不覆盖已有文件；成功导入后，在 Codex 中选择该仓库即可读取文档，无需再下载聊天附件。
@@ -129,7 +131,7 @@ T05 最终离线测试 581 PASS；真实 1 次 search、2 次 detail 取得 6 �
 
 新增 SQLite v4 研究约束、证据质量与报告元数据；缓存判断在登录前，跨进程复用和清除研究缓存均有离线验收。正文先 canonicalize，再做有块定位的严格抽取，按来源/条件去重、时效、冲突与 Q1–Q4 coverage 形成可追溯的候选方向。只处理研究材料，不生成最终详细行程。
 
-T06 交付时没有真实 LLM 配置，当时为 **G1_LIVE_LLM_BLOCKED，G1 未通过**。后续 T06.1 已通过合成正文的真实模型检查，真实资料仍受来源策略阻塞，见 [T06.1 报告](reports/T06.1-g1-live-llm-validation.md)。合成 benchmark 与示例是离线验收，不是真实川西攻略。用法和数据边界见 [T06 设计](docs/architecture/t06-research-quality.md)，历史结果见 [T06 报告](reports/T06-g1-research-quality.md)；G0 保留此前 PASS。
+T06 交付时没有真实 LLM 配置，当时为 **G1_LIVE_LLM_BLOCKED，G1 未通过**。后续 T06.1 已通过合成正文的真实模型检查，见 [模型接入阶段报告](reports/T06.1-g1-live-llm-validation.md)。当时的来源策略门槛已由用户明确的私人用途决策更新；当前真实验收状态见上方本轮记录。合成 benchmark 与示例是离线验收，不是真实川西攻略。用法和数据边界见 [T06 设计](docs/architecture/t06-research-quality.md)，历史结果见 [T06 报告](reports/T06-g1-research-quality.md)；G0 保留此前 PASS。
 
 ## 真实模型配置（T06.1）
 
