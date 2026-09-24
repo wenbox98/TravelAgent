@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-09-24T16:00:56+00:00",
+  "generated_at_utc": "2026-09-24T16:47:56+00:00",
   "scope": "L0_DOCUMENT_CONTRACT_SYNTHETIC_ONLY",
   "checks": [
     {
@@ -30,7 +30,7 @@
     {
       "check": "MARKDOWN_LINKS",
       "status": "PASS",
-      "detail": "195 relative Markdown link targets exist"
+      "detail": "196 relative Markdown link targets exist"
     },
     {
       "check": "SQL_DRAFT_SMOKE",

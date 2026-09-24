@@ -17,7 +17,9 @@
 
 真实验收入口为 `scripts/private_research_smoke.py --live`，上限 1 次搜索、3 篇详情、OBSERVE_ONLY。正常关闭保留 profile 与 `.local/t06.1-private/research.sqlite3`；清研究缓存使用既有 `research_quality.py clear-cache`，不会 disconnect 或清理登录 profile。独立进程恢复验证使用 `tools/private_cache_probe.py`，禁止网络访问。模型已验证可用，不重跑合成连通性请求。
 
-当前私人缓存实现的 792 项离线测试通过；真实验收尚未启动。执行环境自动审批要求进一步确认正文向 DeepSeek 发送的范围，两次启动请求均在执行前被拒绝；这不是仓库重新要求作者授权。G0 沿用此前 PASS，G1 仍未通过。详见 [本轮验收记录](reports/T06.1-g1-live-validation.md)；[旅行研究示例文件](reports/T06.1-live-travel-research-example.md) 目前只记录需求与阻塞状态，没有虚构真实路线。
+用户明确批准本次必要正文发送 DeepSeek 后，真实验收已完成一次搜索和一篇详情：登录复用、搜索和正文读取成功，首次模型抽取降级并触发停止，**G1 FAIL**，G0 保持此前 PASS。独立入口路径问题已修复；模型失败缺乏分型诊断，以及失败时正文尚未落库，是后续修复点。详见 [本轮验收记录](reports/T06.1-g1-live-validation.md)；[旅行研究示例文件](reports/T06.1-live-travel-research-example.md) 如实说明暂无合格 Evidence，没有虚构真实路线。
+
+已确认的下一步架构方向是 Raw Source → Evidence → KnowledgeCard → Knowledge RAG，未来推荐原文 SESSION 保留，卡片成功落库且 grounding 完成后才允许清理原文。KnowledgeCard、SESSION 及“清原文缓存/清旅行知识”拆分目前只是设计待办，当前实现仍用 PERSISTENT；不因这项设计变更删除现有研究库。详见上方私人研究数据策略。
 
 ## 现在怎么交给 Codex
 

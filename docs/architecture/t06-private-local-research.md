@@ -33,3 +33,21 @@ SQLite 位于 .local/t06.1-private/research.sqlite3，原文、图片、认证�
 ## 验证映射
 
 tests/integration/test_private_source_content.py 覆盖 P01–P14 的私人持久化、候选限制、敏感材料、跨进程、缓存先于 connect、版本去重、变更快照、删除隔离、图片边界、定位、幻觉拒绝、malformed fallback、增量保留。既有 benchmark 继续检验矛盾、UNKNOWN、时效和候选关联边界。真实 G1 只按实测结果判定，不能用离线通过替代。
+
+## 本次真实结果及修复待办
+
+用户已明确批准本次最多三篇公开笔记的必要正文经现有过滤后发送 api.deepseek.com；本次不再受此前外发确认阻塞。实际 1 search / 1 detail 后，第一次模型提取降级为 LOCAL_EXTRACTIVE，验收停止并关闭浏览器保留 profile，G1 FAIL。独立 CLI 缺少 sidecar 路径的问题已修复并加入无 pytest 路径的子进程回归。
+
+本次暴露两个后续修复点：其一，现有统一错误 LLM_UNAVAILABLE_OR_INVALID 无法区分传输/超时/HTTP/JSON/schema，需加入不含响应正文、URL、认证材料的允许字段诊断；其二，ObservedExtractor 在 save_detail 前抛错，使成功读取的私人正文也未保存，无法离线重提取。后续应把“已合法读取的输入持久化”与“模型 Evidence 是否验收通过”分开，在仍执行敏感材料、来源身份、DETAIL permit、scope 与版本校验的前提下保存失败现场所需输入；失败 Evidence 不可冒充已验证知识。本轮没有为了补救而重读站点或重置预算。
+
+## 已确认的长期方向：KnowledgeCard（待实现）
+
+推荐链路为 **Raw Source → BodyBlock → Evidence → grounding → KnowledgeCard → Knowledge RAG**。长期检索主体应为带适用条件、时间、置信度和来源关系的 KnowledgeCard，不以原始笔记全文作为默认 RAG 语料。本轮不新增 KnowledgeCard、embedding 或向量数据库。
+
+未来推荐 `raw_source_retention=SESSION`，可选 SESSION / 7_DAYS / 30_DAYS / PERSISTENT。SESSION 的清理条件是 Evidence 提取成功、grounding 完成、KnowledgeCard 校验并成功落库、必要来源元数据保存全部满足；不能只因进程退出或一次模型响应就删除原文。需要原子提交/可恢复的清理标记，失败保留有权限的输入用于本地恢复。SESSION 还未加入当前契约或生效；当前 T06.1 仍使用已实现的 PERSISTENT，不自动删库。
+
+长期保留 SourceIdentity、无凭证的 source_url、source_title、published_at、retrieved_at、必要元数据，以及 Evidence、applicable_conditions、confidence、grounding status、KnowledgeCard、卡片 embedding、Evidence → Source 和 Knowledge → Evidence lineage。来源 URL 不得包含 xsec_token 或其他访问凭证，也不保证无需登录即可打开。
+
+卡片表达必须保留个人经验与条件，例如“某国庆自驾来源报告拥堵”，不能变成“这里一定堵车”。跨来源一致和冲突都要保留，不合并不兼容的交通、季节、时间条件。原文清理后，只能声称保留了已审核的证据与 lineage，不能声称还能用已删除全文重新验证任意 offset；重审可用性及必要最小支持片段须在下一阶段契约中明确。
+
+未来清理拆为 `clear source cache`（临时原文/SourceContent）与 `clear travel knowledge`（Evidence / KnowledgeCard / embedding / 派生报告），均独立于 disconnect。当前 `clear research cache` 仍是原先整组研究数据清除语义；新接口和 UI 尚未实现，不能将现有按钮宣传为只删原文。
