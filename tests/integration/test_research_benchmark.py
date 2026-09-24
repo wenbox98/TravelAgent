@@ -41,7 +41,7 @@ def test_benchmark_summary_and_example_are_synthetic_and_grounded():
     ({}, "G1_LIVE_LLM_BLOCKED"),
     ({"LLM_MODEL": "synthetic-model"}, "G1_LIVE_LLM_BLOCKED"),
     ({"LLM_MODEL": "synthetic-model", "LLM_API_KEY": "SYNTHETIC_KEY",
-      "LLM_BASE_URL": "https://example.invalid/v1"}, "G1_LIVE_SOURCE_POLICY_BLOCKED"),
+      "LLM_BASE_URL": "https://example.invalid/v1"}, "PRIVATE_LOCAL_CONFIG_READY"),
 ])
 def test_live_preflight_is_read_only_and_does_not_claim_model_validation(environment, status):
     result = live_preflight(environment)

@@ -9,8 +9,12 @@ from typing import Any, Literal, cast
 from uuid import uuid4
 
 from travel_agent.domain.models import EvidenceBundle, SourcePolicy
+from travel_agent.domain.source_policy import is_private, scope_allowed
 from travel_agent.persistence.database import Database
 from travel_agent.persistence.repositories import EvidenceRepository, encode
+from .content_store import SourceContentStore
+from .extractor import ExtractionResult
+from .models import DetailMaterial
 
 _PRIVATE = re.compile(
     r"(?i)https?://|xsec[_-]?token|access[_-]?token|authorization|cookie\s*[:=]|"
@@ -141,9 +145,8 @@ def _snapshot(data: dict[str, Any], bundle: EvidenceBundle) -> dict[str, Any]:
 class EvidenceStore:
     """Temporary evidence never reaches SQL; its metadata database must also be in RAM.
 
-    SourcePolicy expresses separate reading/inference/storage rights. UNKNOWN permits
-    only an explicitly allowed, local temporary use, never durable derived storage or
-    an external model. Merely possessing a browser session grants none of these rights.
+    Private local research is an explicit scope-bound usage mode, not an assertion
+    of author/platform permission. Legacy UNKNOWN policies remain temporary-only.
     """
 
     def __init__(self, db: Database, *, temporary: bool = False) -> None:
@@ -154,6 +157,7 @@ class EvidenceStore:
         self.db = db
         self.temporary = temporary
         self.repository = EvidenceRepository(db)
+        self.contents = SourceContentStore(db)
         self._temporary: dict[tuple[str, str], tuple[EvidenceBundle, SourcePolicy, str]] = {}
 
     def begin(self, research_id: str, revision: int, request: dict[str, Any],
@@ -239,8 +243,11 @@ class EvidenceStore:
         source material. A denied policy must still invalidate previously cached data.
         """
         with self.db.transaction():
-            if self._current(run_id, revision) is None:
+            run = self._current(run_id, revision)
+            if run is None:
                 return False
+            if not scope_allowed(policy, run["account_scope"]):
+                raise PermissionError("私人研究策略不能跨账号范围使用")
             self._remember_policy(policy)
         return True
 
@@ -285,9 +292,24 @@ class EvidenceStore:
             matches = (bundle["destination"] == destination if destination is not None
                        else bundle["source_id"] in linked)
             latest = self._latest_policy(bundle["policy_id"])
-            if matches and self._allowed(policy) and latest is not None and self._allowed(latest):
+            if (matches and self._allowed(policy) and scope_allowed(policy, account_scope)
+                and latest is not None and self._allowed(latest)
+                and scope_allowed(latest, account_scope)):
+                if is_private(latest) and latest["allow_persist_raw"]:
+                    if not self.contents.load(bundle["source_id"], account_scope):
+                        continue
                 result.append(bundle)
         return tuple(result)
+
+    def save_detail(self, run_id: str, revision: int, material: DetailMaterial,
+                    extracted: ExtractionResult, policy: SourcePolicy,
+                    snapshot: dict[str, Any]) -> bool:
+        """Evidence and private body commit together or neither is retained."""
+        with self.db.transaction():
+            saved = self.save_evidence(run_id, revision, extracted.bundle, policy, snapshot)
+            if saved and is_private(policy):
+                self.contents.put(run_id, revision, material, extracted, policy)
+            return saved
 
     def save_evidence(self, run_id: str, revision: int, bundle: EvidenceBundle,
                       policy: SourcePolicy, snapshot: dict[str, Any]) -> bool:
@@ -297,7 +319,8 @@ class EvidenceStore:
             if run is None:
                 return False
             source_id, scope = _identifier(bundle["source_id"]), run["account_scope"]
-            if policy["policy_id"] != bundle["policy_id"] or not self._allowed(policy):
+            if (policy["policy_id"] != bundle["policy_id"] or not self._allowed(policy)
+                or not scope_allowed(policy, scope)):
                 raise PermissionError("来源策略不允许本次证据存储方式")
             if bundle["is_synthetic"] and policy["basis"] != "SYNTHETIC":
                 raise PermissionError("合成证据需要合成来源策略")
@@ -417,6 +440,12 @@ class EvidenceStore:
                           "(SELECT source_id FROM sources WHERE account_scope=?)",
                 "snapshots": "SELECT count(*) FROM source_snapshots WHERE account_scope=?",
             }
+            if self.db.version >= 5:
+                count_queries.update({
+                    "source_contents": "SELECT count(*) FROM source_contents WHERE account_scope=?",
+                    "body_blocks": "SELECT count(*) FROM source_body_blocks WHERE content_id IN "
+                                   "(SELECT content_id FROM source_contents WHERE account_scope=?)",
+                })
             counts = {name: int(con.execute(query, (scope,)).fetchone()[0])
                       for name, query in count_queries.items()}
             # sources -> claims/chunks/lineage; chunks' existing trigger deletes FTS rows.

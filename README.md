@@ -1,4 +1,4 @@
-# TravelAgent｜开源旅行规划助手
+# TravelAgent｜私人本地旅行研究助手
 ## Codex 设计、开发与测试文档包 v1.1（小红书研究 PoC 强化版）
 
 **编制日期：2026-09-22。交付状态：开发规格，不是已经开发完成的应用。**
@@ -6,6 +6,16 @@
 目标：用户给出模糊旅行需求后，工具自动研究小红书等来源，先提供几个大致路线和停留时间，再通过带建议的对话确定交通、项目、住宿和预算。研究成果在权限允许的范围内进入个人资料库；修改选择后进行局部重算。
 
 目标仓库是 `wenbox98/TravelAgent`，与 `devagent-lab` 学习仓库独立。项目许可证尚未确定，不在本次文档导入中代选。此压缩包是待导入材料，不表示已经写入远端仓库。
+
+## 当前定位：私人本地研究
+
+当前仅供当前用户本人私人使用，暂不考虑公开发布和多用户产品。默认数据模式为 `PRIVATE_LOCAL_RESEARCH`，正文保留默认 `PERSISTENT`；后续保留选择支持 `7_DAYS / 30_DAYS / PERSISTENT / EPHEMERAL`。
+
+只缓存实际精读用于旅行研究的少量正文、规范文本、正文块与 Evidence，以减少下一次重复访问。搜索候选不自动缓存全文；不长期保存原始图片。研究数据仅在本机 SQLite，不建公共数据集、不跨用户共享、不上传自有服务端、不提交 Git。配置的外部模型只处理必要正文块，认证材料始终隔离在浏览器会话中。
+
+私人用途模式不代表作者授权、平台授权或合规认证；权利依据仍记录 UNKNOWN。明确的本次用户用途决策覆盖旧的 UNKNOWN 一律禁止本地保存规则，但不取消只读、预算和验证暂停要求。设计与迁移见 [私人研究数据策略](docs/architecture/t06-private-local-research.md)。下方早期发布计划及阶段结果作为历史记录保留。
+
+真实验收入口为 `scripts/private_research_smoke.py --live`，上限 1 次搜索、3 篇详情、OBSERVE_ONLY。正常关闭保留 profile 与 `.local/t06.1-private/research.sqlite3`；清研究缓存使用既有 `research_quality.py clear-cache`，不会 disconnect 或清理登录 profile。独立进程恢复验证使用 `tools/private_cache_probe.py`，禁止网络访问。模型已验证可用，不重跑合成连通性请求。
 
 ## 现在怎么交给 Codex
 
@@ -119,17 +129,18 @@ T05 最终离线测试 581 PASS；真实 1 次 search、2 次 detail 取得 6 �
 
 新增 SQLite v4 研究约束、证据质量与报告元数据；缓存判断在登录前，跨进程复用和清除研究缓存均有离线验收。正文先 canonicalize，再做有块定位的严格抽取，按来源/条件去重、时效、冲突与 Q1–Q4 coverage 形成可追溯的候选方向。只处理研究材料，不生成最终详细行程。
 
-本机没有真实 LLM 配置，本轮真实状态为 **G1_LIVE_LLM_BLOCKED，G1 未通过**；没有新增小红书访问。合成 benchmark 与示例是离线验收，不是真实川西攻略。用法和数据边界见 [T06 设计](docs/architecture/t06-research-quality.md)，结果见 [T06 报告](reports/T06-g1-research-quality.md)；G0 保留此前 PASS。
+T06 交付时没有真实 LLM 配置，当时为 **G1_LIVE_LLM_BLOCKED，G1 未通过**。后续 T06.1 已通过合成正文的真实模型检查，真实资料仍受来源策略阻塞，见 [T06.1 报告](reports/T06.1-g1-live-llm-validation.md)。合成 benchmark 与示例是离线验收，不是真实川西攻略。用法和数据边界见 [T06 设计](docs/architecture/t06-research-quality.md)，历史结果见 [T06 报告](reports/T06-g1-research-quality.md)；G0 保留此前 PASS。
 
 ## 真实模型配置（T06.1）
 
-沿用 `OpenAICompatibleProvider`，使用 OpenAI 兼容的 Chat Completions 接口及 JSON Schema structured output。模型配置只从进程环境变量读取；[.env.example](.env.example) 仅列变量名称，程序不会自动加载 `.env`，复制文件不会使配置生效。
+沿用 `OpenAICompatibleProvider`，使用 OpenAI 兼容的 Chat Completions 接口。默认使用 `json_schema`，也支持显式选择 `json_object`；两种模式都保留严格的本地 schema 和正文定位校验。模型配置只从进程环境变量读取；[.env.example](.env.example) 仅为名称与默认值参考，程序不会自动加载 `.env`，复制文件不会使配置生效。
 
 | 环境变量 | 在本机填写的内容 |
 |---|---|
 | `LLM_BASE_URL` | 服务商提供的 API 根地址，通常包含版本路径；程序会追加 `/chat/completions`，不要填写完整请求地址 |
 | `LLM_API_KEY` | 该服务的 API key |
-| `LLM_MODEL` | 服务商提供的准确模型 ID，需要支持 JSON Schema 结构化输出 |
+| `LLM_MODEL` | 服务商提供的准确模型 ID，需要支持所选 JSON 输出模式 |
+| `LLM_RESPONSE_FORMAT`（可选） | 默认 `json_schema`；仅支持 JSON Object 的服务显式填写 `json_object`，不支持其他值或自动切换 |
 
 Windows 可在开始菜单搜索“编辑账户的环境变量”，在“用户变量”中新建这三个变量并填写自己的值。保存后重新打开运行项目的终端；如果从 Codex 启动验收，应重启 Codex，使新进程继承环境变量。真实 key 只配置在本机，不写入 `.env.example`、源码、报告或聊天。
 
@@ -139,13 +150,15 @@ Windows 可在开始菜单搜索“编辑账户的环境变量”，在“用户
 .venv\Scripts\python.exe scripts/research_quality.py live-preflight
 ```
 
-`G1_LIVE_LLM_BLOCKED` 表示模型未配置或配置格式不完整。配置通过时，现有预检仍可能返回 `G1_LIVE_SOURCE_POLICY_BLOCKED`，表示来源用途尚未确认，不代表模型连接失败，也不表示已完成真实调用。预检的阻塞退出码为 2。
+`G1_LIVE_LLM_BLOCKED` 表示模型未配置或配置格式不完整。当前私人模式配置通过时返回 `PRIVATE_LOCAL_CONFIG_READY`，只表示本地配置可用，不表示刚刚调用了模型或 G1 已通过；旧 SOURCE_POLICY 模式仍可返回来源策略阻塞。阻塞退出码为 2。
 
 T06.1 的顺序是：环境配置 → 全部离线测试 → 完全合成 BodyBlock 的极少真实模型调用 → 来源用途检查 → 真实小红书受控验收。真实验收采用 OBSERVE_ONLY，首次最多 1 次搜索、3 次详情；模型连通失败或出现访问验证要求时停止。未配置模型时暂停，不把 Mock 验收作为 G1 PASS。
 
-T06.1 合成正文的单次真实模型检查工具是 `.venv\Scripts\python.exe tools/llm_connectivity_smoke.py --live-llm`。不加 `--live-llm` 不调用模型；工具不导入浏览器，只记录脱敏错误、请求次数及合成引文。尝试前写入 `.local/t06.1-llm/connectivity.json`，已有记录就拒绝自动重跑，失败不会把本地摘取记为模型通过。
+T06.1 合成正文的单次真实模型检查工具是 `.venv\Scripts\python.exe tools/llm_connectivity_smoke.py --live-llm`。不加 `--live-llm` 不调用模型；工具不导入浏览器，只记录脱敏错误、请求次数及合成引文。尝试前写入 `.local/t06.1-llm/connectivity.json`，已有记录就拒绝自动重跑，失败不会把本地摘取记为模型通过。人工修正配置、明确安排新检查后可加 `--attempt <新名称>`，保存独立账本；同名尝试仍拒绝重复，不删除历史记录，也不用于重置真实小红书预算。
 
-本机首次模型检查返回 HTTP 404：配置使用 DeepSeek 的 `/anthropic` 地址，与项目 Chat Completions 协议不匹配。DeepSeek 的 OpenAI 兼容根地址是 `https://api.deepseek.com`，`/anthropic` 对应另一种接口。[官方协议说明](https://api-docs.deepseek.com/guides/anthropic_api/)；[OpenAI 兼容调用示例](https://api-docs.deepseek.com/guides/json_mode/)。此外，官方当前文档的 `response_format` 只声明 `text/json_object`，本项目当前发送 `json_schema`；修改地址不等于结构化输出已经兼容。该能力差异尚需在现有 provider 内处理并补测试，不能靠丢弃 schema 校验继续验收。[Chat Completions 参数](https://api-docs.deepseek.com/api/create-chat-completion/)
+本机首次模型检查返回 HTTP 404：配置使用 DeepSeek 的 `/anthropic` 地址，与项目 Chat Completions 协议不匹配。DeepSeek 的 OpenAI 兼容根地址是 `https://api.deepseek.com`，`/anthropic` 对应另一种接口。[官方协议说明](https://api-docs.deepseek.com/guides/anthropic_api/)；[OpenAI 兼容调用示例](https://api-docs.deepseek.com/guides/json_mode/)。此外，官方当前文档的 `response_format` 声明 `text/json_object`，因此该服务需要显式选择 `LLM_RESPONSE_FORMAT=json_object`。[Chat Completions 参数](https://api-docs.deepseek.com/api/create-chat-completion/)
+
+地址修正后，本机以 `deepseek-v4-flash`、`json_object` 完成一次 HTTP 200 的合成正文检查，5 条证据的 schema 与正文定位全部通过。本次只在验收子进程中设置输出模式，没有修改 Windows 用户环境变量；之后使用该服务的进程仍需选择同一模式。当时真实资料仍为 **G1_LIVE_SOURCE_POLICY_BLOCKED**；后续用户已明确私人本地用途策略，当前按上方私人模式执行。模型检查通过仍不能替代真实 G1。
 
 ## 离线开发启动（T00/T01）
 

@@ -52,15 +52,18 @@ class NoAccessReader:
         raise AssertionError("BENCHMARK_FALLBACK_CALLED")
 
 
-def live_preflight(environ: Mapping[str, str] | None = None) -> dict[str, Any]:
+def live_preflight(environ: Mapping[str, str] | None = None, *,
+                   usage_mode: str = "PRIVATE_LOCAL_RESEARCH") -> dict[str, Any]:
     """Configuration presence only: no provider request, login or live permission grant."""
     try:
         configured = OpenAICompatibleProvider.from_env(environ) is not None
     except LLMError:
         return {"status": "G1_LIVE_LLM_BLOCKED", "reason": "LLM_CONFIG_INVALID", "live_operations": 0}
-    return {"status": "G1_LIVE_SOURCE_POLICY_BLOCKED" if configured else "G1_LIVE_LLM_BLOCKED",
-            "reason": "SOURCE_POLICY_NOT_ESTABLISHED" if configured else "LLM_NOT_CONFIGURED",
-            "live_operations": 0}
+    if not configured:
+        return {"status": "G1_LIVE_LLM_BLOCKED", "reason": "LLM_NOT_CONFIGURED", "live_operations": 0}
+    return {"status": "PRIVATE_LOCAL_CONFIG_READY" if usage_mode == "PRIVATE_LOCAL_RESEARCH"
+            else "G1_LIVE_SOURCE_POLICY_BLOCKED", "usage_mode": usage_mode,
+            "real_model_verified": False, "live_operations": 0}
 
 
 class QualityBenchmark:

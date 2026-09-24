@@ -27,8 +27,9 @@ def main() -> int:
     commands.add_parser("live-preflight", help="仅检查模型配置，不发模型请求、不登录或访问站点")
     args = parser.parse_args()
     if args.command == "live-preflight":
-        print(json.dumps(live_preflight(), ensure_ascii=False))
-        return 2
+        result = live_preflight()
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result["status"] == "PRIVATE_LOCAL_CONFIG_READY" else 2
     if args.command == "clear-cache":
         # Refuse an absent file rather than manufacturing an empty cache as success.
         if not args.database.is_file():

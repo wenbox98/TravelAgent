@@ -2,6 +2,7 @@ from datetime import datetime
 import json
 
 from travel_agent.domain.models import EvidenceBundle, ResearchSession, SourcePolicy, Trip
+from travel_agent.domain.source_policy import has_usage_basis, scope_allowed
 from travel_agent.settings import PROJECT_ROOT
 
 
@@ -80,12 +81,13 @@ class EvidenceRepository:
 
     def permitted(self, policy):
         now = self.db.clock()
-        return (policy["basis"] != "UNKNOWN" and policy["allow_read"] and policy["allow_persist_metadata"] and policy["allow_persist_derived"]
+        return (has_usage_basis(policy) and policy["allow_read"] and policy["allow_persist_metadata"] and policy["allow_persist_derived"]
                 and policy["reviewed_at"] is not None and datetime.fromisoformat(policy["reviewed_at"]) <= now
                 and (policy["expires_at"] is None or datetime.fromisoformat(policy["expires_at"]) > now))
 
     def save(self, evidence: EvidenceBundle, policy: SourcePolicy, *, account_scope):
-        if not self.permitted(policy) or policy["policy_id"] != evidence["policy_id"]:
+        if (not self.permitted(policy) or policy["policy_id"] != evidence["policy_id"]
+            or not scope_allowed(policy, account_scope)):
             raise PermissionError("来源策略不允许保存证据")
         if evidence["is_synthetic"] and policy["basis"] != "SYNTHETIC":
             raise PermissionError("合成证据需要合成来源策略")
@@ -109,7 +111,10 @@ class EvidenceRepository:
 
     def get(self, source_id, account_scope):
         row = self.db.connection.execute("SELECT s.*,p.policy_json FROM sources s JOIN source_policies p ON s.policy_id=p.policy_id AND s.policy_version=p.version WHERE s.source_id=? AND s.account_scope=? AND s.deleted_at IS NULL", (source_id, account_scope)).fetchone()
-        if row is None or not self.permitted(SourcePolicy(json.loads(row["policy_json"]))):
+        if row is None:
+            return None
+        policy = SourcePolicy(json.loads(row["policy_json"]))
+        if not self.permitted(policy) or not scope_allowed(policy, account_scope):
             return None
         claims = []
         for claim in self.db.connection.execute("SELECT * FROM claims WHERE source_id=? AND deleted_at IS NULL ORDER BY rowid", (source_id,)):

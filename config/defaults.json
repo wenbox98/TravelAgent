@@ -34,5 +34,7 @@
   "share_external_content": false,
   "knowledge_chunk_capacity_target": 10000,
   "mock_label_required": true,
-  "remarks": "All numeric limits are application cost/quality guardrails, not platform quotas, safe-rate claims or anti-ban thresholds. Reuse evidence and stop early when sufficient."
+  "remarks": "All numeric limits are application cost/quality guardrails, not platform quotas, safe-rate claims or anti-ban thresholds. Reuse evidence and stop early when sufficient.",
+  "research_data_mode": "PRIVATE_LOCAL_RESEARCH",
+  "source_content_retention": "PERSISTENT"
 }

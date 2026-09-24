@@ -1,7 +1,7 @@
 # Codex / coding-agent instructions
 
 ## Context
-This repository is an open-source, local-first travel planning application for mainland-China users. Read `README.md`, the current task file and its referenced contracts before editing. User-facing text and implementation reports are in Simplified Chinese; code identifiers are English.
+This repository currently builds a private, local travel research tool for its current owner. Public release and multi-user product work are deferred. Read `README.md`, the current task file and its referenced contracts before editing. User-facing text and implementation reports are in Simplified Chinese; code identifiers are English.
 
 ## Non-negotiable product rules
 1. A vague travel request produces provisional high-level route options before a detailed questionnaire. Unknown budget, party size and transport stay unknown.
@@ -11,7 +11,7 @@ This repository is an open-source, local-first travel planning application for m
 5. Grounded evidence, source completeness, time applicability and provenance must be preserved. Search metadata is not full article content.
 6. No invented prices, availability, supplier API endpoints or successful test results. Missing data is explicitly unknown.
 7. Budget and time constraints are evaluated by deterministic code. Locked choices cannot be silently changed.
-8. External content storage and inference are controlled by the source policy; user session consent does not itself establish content rights.
+8. External content storage and inference are controlled by the source policy. The current user explicitly selects PRIVATE_LOCAL_RESEARCH: limited researched detail text and derived data may be cached locally and supplied to the configured model for personal travel research. This usage mode does not assert author/platform permission; rights basis remains UNKNOWN. No public dataset, cross-user sharing, own-server upload or real-content Git commits. Keep authentication materials isolated in the dedicated browser profile.
 
 ## Work mode
 - Inspect first; do not overwrite existing code blindly. Paths in task sheets are intended target paths, not claims that code already exists.

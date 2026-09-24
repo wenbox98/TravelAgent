@@ -2,6 +2,10 @@
 
 本阶段范围以本轮用户任务为准：G0 已通过，补足 G1 离线质量与持久缓存。没有模型配置时为 `G1_LIVE_LLM_BLOCKED`，合成 benchmark 不替代真实验收。不进入地图、酒店、报价、最终行程或 Electron。
 
+## T06.1 后续私人模式
+
+本次用户更新为私人本机研究，SQLite v5 持久保存实际精读正文和 BodyBlocks；PRIVATE_LOCAL_RESEARCH 允许有限本地保存与模型提取，第三方权利依据仍 UNKNOWN。以 [私人本地研究设计](t06-private-local-research.md) 为当前规则。下文“原文仅内存、UNKNOWN 禁止持久化”为 T06 原始模式记录，不再覆盖显式私人模式。
+
 ## 数据与契约
 
 SQLite 运行时迁移至 v4，初始 `contracts/database.sql` 仍是 v1 基线，后续升级必须依次应用 migrations。新增 `research_constraints`、`research_reports` 和 `sources.claim_metadata_json`；来源、证据、定位、研究问题、运行、缺口沿用既有表。没有引入向量库。
@@ -20,7 +24,7 @@ state/DOM 先 NFC、换行/空白标准化，再比较 EQUAL、单侧存在、�
 
 `BodyBlock` 含 block index、normalized text、origin 与 truncation risk。新 locator 为 `note-body:v2:<origin>:<sha256>:chars:<start>-<end>`，指向当时唯一 normalized body，不能拿后来网页文本套用旧 offset。仅保存短引文和块范围，因此离线可审核引文与提取记录，不能重建已丢弃的整个正文。
 
-真实 provider 使用环境中的 `LLM_BASE_URL / LLM_API_KEY / LLM_MODEL`，兼容原 `TRAVEL_LLM_*` 与 `OPENAI_*`；不读取 `.env`、不打印 key。一次请求使用 JSON Schema structured output，无自动 HTTP 重试，无 ambient proxy 或重定向。外部模型仍需 SourcePolicy 允许。
+真实 provider 使用环境中的 `LLM_BASE_URL / LLM_API_KEY / LLM_MODEL`，兼容原 `TRAVEL_LLM_*` 与 `OPENAI_*`；不读取 `.env`、不打印 key。`LLM_RESPONSE_FORMAT` 默认 `json_schema`，也可显式选择 `json_object`，不按厂商自动猜测。前者请求服务端 strict schema；后者把同一份可信 schema 放入 system message，只要求服务端 JSON Object。两者返回后都使用同一份严格本地 schema 校验与正文 grounding；JSON Object 本身不保证 schema 正确。不自动切换格式、重试 HTTP、使用 ambient proxy 或重定向。外部模型仍需 SourcePolicy 允许。
 
 每条模型结果必须有 claim、quote、topic、kind、source_block_ids、条件引用、LOW/MEDIUM/HIGH 与简短 extraction_basis。沿用现有 `kind=AUTHOR_OPINION` 表示 claim_type，不能把作者观点升格官方事实。claim 必须等于原文短引文，并在指定块中逐字出现；条件也必须有逐字引用。无效 block、正文没有的时长、图片中的猜测及无来源条件均拒绝。模型给出的依据不原样存储，程序生成短核验说明；不保存隐藏推理。
 

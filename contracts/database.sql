@@ -1,6 +1,7 @@
 -- TravelAgent v0.1 initial schema DRAFT. Executed against SQLite for structural validation only.
 -- No external content may be written until application SourcePolicy checks succeed.
 -- Immutable v1 baseline. Apply migrations/002_poc.sql for the current v1.1 contract.
+-- Current runtime also applies 003, 004 and 005; 005 adds private detail text/blocks.
 PRAGMA foreign_keys = ON;
 CREATE TABLE schema_version(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 INSERT INTO schema_version VALUES(1, '2026-09-22T00:00:00Z');

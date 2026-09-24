@@ -200,8 +200,8 @@ class ResearchService:
                         "extraction_mode": extracted.mode,
                         "evidence_count": len(extracted.bundle["claims"]),
                     }
-                    saved = self.store.save_evidence(run_id, revision, extracted.bundle,
-                                                     self.policy, snapshot)
+                    saved = self.store.save_detail(run_id, revision, material, extracted,
+                                                   self.policy, snapshot)
                     if not saved:
                         current()
                         diagnostic = "SOURCE_POLICY_STORAGE_DENIED"

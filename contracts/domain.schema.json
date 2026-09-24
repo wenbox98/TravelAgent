@@ -74,6 +74,24 @@
               "type": "null"
             }
           ]
+        },
+        "usage_mode": {
+          "enum": [
+            "SOURCE_POLICY",
+            "PRIVATE_LOCAL_RESEARCH"
+          ]
+        },
+        "local_account_scope": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9:_-]{1,100}$"
+        },
+        "source_content_retention": {
+          "enum": [
+            "7_DAYS",
+            "30_DAYS",
+            "PERSISTENT",
+            "EPHEMERAL"
+          ]
         }
       },
       "required": [
@@ -138,6 +156,16 @@
               "basis": {
                 "const": "UNKNOWN"
               }
+            },
+            "not": {
+              "properties": {
+                "usage_mode": {
+                  "const": "PRIVATE_LOCAL_RESEARCH"
+                }
+              },
+              "required": [
+                "usage_mode"
+              ]
             }
           },
           "then": {
@@ -152,6 +180,55 @@
                 "const": false
               },
               "allow_export": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "usage_mode": {
+                "const": "PRIVATE_LOCAL_RESEARCH"
+              }
+            },
+            "required": [
+              "usage_mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "local_account_scope",
+              "source_content_retention"
+            ],
+            "properties": {
+              "allow_export": {
+                "const": false
+              },
+              "allow_embed": {
+                "const": false
+              },
+              "reviewed_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source_content_retention": {
+                "const": "EPHEMERAL"
+              }
+            },
+            "required": [
+              "source_content_retention"
+            ]
+          },
+          "then": {
+            "properties": {
+              "allow_persist_raw": {
                 "const": false
               }
             }
@@ -684,29 +761,84 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "source_block_ids", "body_origin", "extraction_method", "extraction_basis",
-        "confidence_level", "applicable_conditions", "canonical_relation",
-        "truncation_risk", "block_locators"
+        "source_block_ids",
+        "body_origin",
+        "extraction_method",
+        "extraction_basis",
+        "confidence_level",
+        "applicable_conditions",
+        "canonical_relation",
+        "truncation_risk",
+        "block_locators"
       ],
       "properties": {
         "source_block_ids": {
-          "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true,
-          "items": { "type": "integer", "minimum": 0 }
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
-        "body_origin": { "enum": ["STATE", "DOM", "UNKNOWN"] },
-        "extraction_method": { "enum": ["LLM", "MOCK", "LOCAL_EXTRACTIVE", "LEGACY"] },
-        "extraction_basis": { "type": "string", "minLength": 1, "maxLength": 240 },
-        "confidence_level": { "enum": ["LOW", "MEDIUM", "HIGH"] },
+        "body_origin": {
+          "enum": [
+            "STATE",
+            "DOM",
+            "UNKNOWN"
+          ]
+        },
+        "extraction_method": {
+          "enum": [
+            "LLM",
+            "MOCK",
+            "LOCAL_EXTRACTIVE",
+            "LEGACY"
+          ]
+        },
+        "extraction_basis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "confidence_level": {
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH"
+          ]
+        },
         "applicable_conditions": {
-          "type": "array", "maxItems": 8, "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
         },
         "canonical_relation": {
-          "enum": ["EQUAL", "STATE_CONTAINS_DOM", "DOM_CONTAINS_STATE", "OVERLAP", "CONFLICT", "STATE_ONLY", "DOM_ONLY", "NONE"]
+          "enum": [
+            "EQUAL",
+            "STATE_CONTAINS_DOM",
+            "DOM_CONTAINS_STATE",
+            "OVERLAP",
+            "CONFLICT",
+            "STATE_ONLY",
+            "DOM_ONLY",
+            "NONE"
+          ]
         },
-        "truncation_risk": { "type": "boolean" },
+        "truncation_risk": {
+          "type": "boolean"
+        },
         "block_locators": {
-          "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true,
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
           "items": {
             "type": "string",
             "pattern": "^note-body:(?:v1:|v2:(?:STATE|DOM|UNKNOWN):)[a-f0-9]{64}:chars:[0-9]+-[0-9]+$"
@@ -770,8 +902,14 @@
         },
         "claim_metadata": {
           "type": "object",
-          "propertyNames": { "type": "string", "minLength": 1, "maxLength": 160 },
-          "additionalProperties": { "$ref": "#/$defs/ClaimAssessment" }
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/ClaimAssessment"
+          }
         },
         "missing_fields": {
           "type": "array",
@@ -2304,6 +2442,184 @@
         "closed_at"
       ],
       "additionalProperties": false
+    },
+    "SourceBodyBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "block_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string"
+        },
+        "start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "locator": {
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "STATE",
+            "DOM",
+            "UNKNOWN"
+          ]
+        },
+        "truncation_risk": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "block_index",
+        "text",
+        "start",
+        "end",
+        "locator",
+        "origin",
+        "truncation_risk"
+      ]
+    },
+    "SourceContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "content_id": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        },
+        "account_scope": {
+          "type": "string"
+        },
+        "policy_id": {
+          "type": "string"
+        },
+        "raw_text": {
+          "type": "string"
+        },
+        "normalized_text": {
+          "type": "string"
+        },
+        "dom_text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "policy_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "normalization_version": {
+          "const": 1
+        },
+        "content_completeness": {
+          "enum": [
+            "FULL_TEXT",
+            "PARTIAL_TEXT"
+          ]
+        },
+        "body_origin": {
+          "enum": [
+            "STATE",
+            "DOM",
+            "UNKNOWN"
+          ]
+        },
+        "canonical_relation": {
+          "enum": [
+            "EQUAL",
+            "STATE_ONLY",
+            "DOM_ONLY",
+            "STATE_CONTAINS_DOM",
+            "DOM_CONTAINS_STATE",
+            "OVERLAP",
+            "CONFLICT"
+          ]
+        },
+        "truncation_risk": {
+          "type": "boolean"
+        },
+        "image_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "image_status": {
+          "const": "IMAGE_NOT_ANALYZED"
+        },
+        "retention": {
+          "enum": [
+            "7_DAYS",
+            "30_DAYS",
+            "PERSISTENT"
+          ]
+        },
+        "body_blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SourceBodyBlock"
+          }
+        },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_retrieved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "published_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "content_id",
+        "source_id",
+        "account_scope",
+        "policy_id",
+        "raw_text",
+        "normalized_text",
+        "dom_text",
+        "policy_version",
+        "content_hash",
+        "normalization_version",
+        "content_completeness",
+        "body_origin",
+        "canonical_relation",
+        "truncation_risk",
+        "image_count",
+        "image_status",
+        "retention",
+        "body_blocks",
+        "retrieved_at",
+        "last_retrieved_at",
+        "published_at",
+        "expires_at"
+      ],
+      "description": "Private local, successfully read detail snapshots only. Never a public response or browser session object."
     }
   }
 }

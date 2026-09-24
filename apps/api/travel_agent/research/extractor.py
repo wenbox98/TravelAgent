@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from travel_agent.domain.models import EvidenceBundle, SourcePolicy, validator
+from travel_agent.domain.source_policy import SENSITIVE_RESEARCH_TEXT, has_usage_basis
 from travel_agent.providers.llm import LLMProvider, validate_structured
 from .canonical import BodyBlock, CanonicalBody, body_blocks, canonicalize, evidence_key
 
@@ -41,10 +42,7 @@ EXTRACTION_SCHEMA = {
     }}},
 }
 _IMAGE_REFERENCE = re.compile(r"(?:见|看|如|参考|详见)图|图[一二三四五六七八九十\d]+|图片|图中|图里")
-_PRIVATE = re.compile(
-    r"(?i)xsec[_-]?token|access[_-]?token|authorization|cookie\s*[:=]|"
-    r"session\s*[:=]|bearer\s+|[?&]token=|SECRET_(?:COOKIE|XSEC|SESSION|AUTHORIZATION|QR)"
-)
+_PRIVATE = SENSITIVE_RESEARCH_TEXT
 _TOPIC_PATTERNS = (
     ("TRANSPORT", r"公交|大巴|班车|包车|自驾|交通|打车|地铁|换乘"),
     ("DURATION", r"[\d一二三四五六七八九十两]+\s*(?:天|日|小时)|半天|停留"),
@@ -78,7 +76,7 @@ def policy_allows_model(policy: SourcePolicy, *, external: bool, now: datetime) 
     """Inference permission is independent from ephemeral manual reading permission."""
     reviewed, expires = policy["reviewed_at"], policy["expires_at"]
     return bool(
-        policy["basis"] != "UNKNOWN" and policy["allow_read"] and policy["allow_inference"]
+        has_usage_basis(policy) and policy["allow_read"] and policy["allow_inference"]
         and (not external or policy["allow_external_model"])
         and reviewed is not None and datetime.fromisoformat(reviewed) <= now
         and (expires is None or datetime.fromisoformat(expires) > now)
