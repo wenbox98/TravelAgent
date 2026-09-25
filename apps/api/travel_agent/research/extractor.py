@@ -9,7 +9,8 @@ from typing import Any
 
 from travel_agent.domain.models import EvidenceBundle, SourcePolicy, validator
 from travel_agent.domain.source_policy import SENSITIVE_RESEARCH_TEXT, has_usage_basis
-from travel_agent.providers.llm import LLMProvider, validate_structured
+from travel_agent.providers.llm import LLMError, LLMProvider, validate_structured
+from travel_agent.providers.diagnostics import Diagnostic
 from .canonical import BodyBlock, CanonicalBody, body_blocks, canonicalize, evidence_key
 from .model_input import outbound_blocks
 
@@ -64,13 +65,15 @@ class ExtractionResult:
     provider_called: bool
     rejected_claims: int
     canonical: CanonicalBody | None = None
+    diagnostic: Diagnostic | None = None
 
     def safe_summary(self) -> dict[str, object]:
         return {"mode": self.mode, "provider_called": self.provider_called,
                 "block_count": len(self.blocks), "evidence_count": len(self.bundle["claims"]),
                 "rejected_claims": self.rejected_claims, "gaps": list(self.gaps),
                 "completeness": self.bundle["completeness"],
-                "canonical": self.canonical.safe_summary() if self.canonical else None}
+                "canonical": self.canonical.safe_summary() if self.canonical else None,
+                "diagnostic": self.diagnostic.safe_dict() if self.diagnostic else None}
 
 
 def policy_allows_model(policy: SourcePolicy, *, external: bool, now: datetime) -> bool:
@@ -156,6 +159,7 @@ class EvidenceExtractor:
         image_count: int = 0, temporary_read_allowed: bool = False,
         research_gaps: Sequence[str] = (),
         dom_body: str | None = None,
+        allow_fallback: bool = True,
     ) -> ExtractionResult:
         if re.fullmatch(r"[A-Za-z0-9:_-]{1,160}", source_id) is None or _PRIVATE.search(source_id):
             raise ValueError("证据来源标识无效")
@@ -177,6 +181,7 @@ class EvidenceExtractor:
         rows: list[dict[str, Any]] = []
         mode, called, rejected = "NO_BODY", False, 0
         sent_block_ids: set[int] | None = None
+        diagnostic: Diagnostic | None = None
         canonical: CanonicalBody | None = view
         now = self.clock()
         expiry = policy["expires_at"]
@@ -229,9 +234,16 @@ class EvidenceExtractor:
                     }, EXTRACTION_SCHEMA)
                     rows = validate_structured(output, EXTRACTION_SCHEMA)["claims"]
                     mode = "MOCK" if getattr(provider, "is_mock", False) else "LLM"
-                except Exception:
+                except LLMError as error:
+                    diagnostic = error.diagnostic
                     gaps.append("LLM_UNAVAILABLE_OR_INVALID")
-            if mode == "LOCAL_EXTRACTIVE":
+                except Exception:
+                    diagnostic = Diagnostic(stage="INTERNAL", category="UNEXPECTED_ERROR")
+                    gaps.append("LLM_UNAVAILABLE_OR_INVALID")
+                if diagnostic is None:
+                    observed = getattr(provider, "last_diagnostic", None)
+                    diagnostic = observed if isinstance(observed, Diagnostic) else Diagnostic(stage="COMPLETE", category="SUCCESS")
+            if mode == "LOCAL_EXTRACTIVE" and allow_fallback:
                 rows = _fallback(blocks)
                 gaps.append("LOCAL_EXTRACTIVE_ONLY")
         claims: list[dict[str, Any]] = []
@@ -275,6 +287,12 @@ class EvidenceExtractor:
             gaps.append("UNSUPPORTED_CLAIMS_REJECTED")
         if not claims:
             gaps.append("NO_GROUNDED_CLAIMS")
+        if mode in {"LLM", "MOCK"}:
+            diagnostic = diagnostic or Diagnostic()
+            diagnostic.generated_claims = diagnostic.reviewed_claims = len(rows)
+            diagnostic.rejected_claims, diagnostic.accepted_claims = rejected, len(claims)
+            diagnostic.stage = "GROUNDING" if rejected or not claims else "COMPLETE"
+            diagnostic.category = "UNGROUNDED" if rejected else "NO_CLAIMS" if not claims else "SUCCESS"
         travel_date = _travel_date(canonical.text) if canonical is not None and blocks else None
         if travel_date is None:
             gaps.append("TRAVEL_TIME_UNKNOWN")
@@ -287,4 +305,4 @@ class EvidenceExtractor:
             "claim_metadata": metadata,
             "is_synthetic": source_type == "SYNTHETIC",
         })
-        return ExtractionResult(bundle, blocks, tuple(gaps), mode, called, rejected, canonical)
+        return ExtractionResult(bundle, blocks, tuple(gaps), mode, called, rejected, canonical, diagnostic)

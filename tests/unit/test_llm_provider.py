@@ -101,7 +101,7 @@ def test_one_strict_request_has_no_tools_no_storage_and_returns_validated_json(m
     class Opener:
         def open(self, request, timeout):
             calls.append((request, timeout))
-            return FakeResponse(json.dumps({"choices": [{"message": {
+            return FakeResponse(json.dumps({"choices": [{"finish_reason": "stop", "message": {
                 "content": '{"ok": true}'
             }}]}).encode())
     monkeypatch.setattr("travel_agent.providers.llm.build_opener", lambda *args: Opener())
@@ -123,7 +123,7 @@ def test_json_object_sends_exact_schema_and_enforces_it_locally(monkeypatch, con
     class Opener:
         def open(self, request, timeout):
             calls.append(json.loads(request.data))
-            return FakeResponse(json.dumps({"choices": [{"message": {
+            return FakeResponse(json.dumps({"choices": [{"finish_reason": "stop", "message": {
                 "content": content
             }}]}).encode())
     monkeypatch.setattr("travel_agent.providers.llm.build_opener", lambda *args: Opener())

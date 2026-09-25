@@ -5,22 +5,31 @@ from dataclasses import dataclass, field
 import json
 import os
 import re
-from typing import Any, Protocol, Self, cast
+import ssl
+from time import monotonic
+from typing import Any, NoReturn, Protocol, Self, cast
 from urllib.parse import urlsplit
+from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from pydantic import SecretStr
 
 from travel_agent.domain.models import DomainModel
+from .diagnostics import Diagnostic, safe_model, safe_request_id, schema_issue
 
 
 class LLMError(RuntimeError):
-    def __init__(self, code: str = "LLM_UNAVAILABLE") -> None:
+    def __init__(self, code: str = "LLM_UNAVAILABLE", diagnostic: Diagnostic | None = None) -> None:
         # No provider response, URL, key or source content in exceptions.
         self.code = code if code in {
             "LLM_UNAVAILABLE", "LLM_INVALID_OUTPUT", "LLM_NOT_CONFIGURED", "LLM_POLICY_BLOCKED"
         } else "LLM_UNAVAILABLE"
+        self.diagnostic = diagnostic or Diagnostic(
+            stage="CONFIG" if self.code == "LLM_NOT_CONFIGURED" else "POLICY"
+            if self.code == "LLM_POLICY_BLOCKED" else "INTERNAL",
+            category="NOT_CONFIGURED" if self.code == "LLM_NOT_CONFIGURED" else "POLICY_BLOCKED"
+            if self.code == "LLM_POLICY_BLOCKED" else "UNEXPECTED_ERROR")
         super().__init__(self.code)
 
 
@@ -38,11 +47,13 @@ class LLMProvider(Protocol):
 def validate_structured(value: object, schema: dict[str, Any]) -> dict[str, Any]:
     try:
         copied = json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
-        if not isinstance(copied, dict) or not Draft202012Validator(schema).is_valid(copied):
-            raise LLMError("LLM_INVALID_OUTPUT")
+        errors = list(Draft202012Validator(schema).iter_errors(copied))
+        if not isinstance(copied, dict) or errors:
+            raise LLMError("LLM_INVALID_OUTPUT", Diagnostic(stage="SCHEMA", category="SCHEMA_INVALID",
+                           schema_errors=[schema_issue(e, schema) for e in errors[:8]]))
         return cast(dict[str, Any], copied)
     except (TypeError, ValueError, OverflowError):
-        raise LLMError("LLM_INVALID_OUTPUT") from None
+        raise LLMError("LLM_INVALID_OUTPUT", Diagnostic(stage="SCHEMA", category="SCHEMA_INVALID")) from None
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -63,6 +74,7 @@ class OpenAICompatibleProvider:
     response_format: str = "json_schema"
     is_external: bool = field(default=True, init=False)
     is_mock: bool = field(default=False, init=False)
+    last_diagnostic: Diagnostic | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         try:
@@ -109,15 +121,21 @@ class OpenAICompatibleProvider:
     def structured(
         self, task: str, payload: dict[str, Any], schema: dict[str, Any],
     ) -> dict[str, Any]:
-        if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", task) is None:
-            raise LLMError("LLM_INVALID_OUTPUT")
+        started = monotonic()
+        diagnostic = Diagnostic(requested_model=safe_model(self.model, self.api_key.get_secret_value()))
+        self.last_diagnostic = diagnostic
+        def fail(stage: str, category: str, code: str = "LLM_INVALID_OUTPUT") -> NoReturn:
+            diagnostic.stage, diagnostic.category = stage, category
+            raise LLMError(code, diagnostic)
         try:
+            if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", task) is None:
+                fail("POLICY", "POLICY_BLOCKED", "LLM_POLICY_BLOCKED")
             serialized = json.dumps(payload, ensure_ascii=False, allow_nan=False)
             if re.search(
                 r'(?i)xsec[_-]?token|access[_-]?token|authorization|bearer\s+|'
                 r'"(?:cookie|cookies|session|session_id)"\s*:|[?&]token=', serialized,
             ):
-                raise LLMError("LLM_POLICY_BLOCKED")
+                fail("POLICY", "POLICY_BLOCKED", "LLM_POLICY_BLOCKED")
             output_format: dict[str, Any] = {"type": self.response_format}
             schema_instruction = ""
             if self.response_format == "json_schema":
@@ -154,16 +172,74 @@ class OpenAICompatibleProvider:
                 "Authorization": "Bearer " + self.api_key.get_secret_value(),
             }, method="POST")
             opener = build_opener(ProxyHandler({}), _NoRedirect())
+            diagnostic.http_attempts = 1
             with opener.open(request, timeout=self.timeout) as response:
+                status = getattr(response, "status", None)
+                diagnostic.http_status = status if type(status) is int else None
+                headers = getattr(response, "headers", None)
+                if headers is not None:
+                    diagnostic.request_id = safe_request_id(headers.get("x-request-id"), self.api_key.get_secret_value())
                 raw = response.read(524_289)
+            diagnostic.response_bytes = len(raw)
             if len(raw) > 524_288:
-                raise LLMError("LLM_INVALID_OUTPUT")
-            envelope = json.loads(raw)
-            message = envelope["choices"][0]["message"]
-            if message.get("refusal") or not isinstance(message.get("content"), str):
-                raise LLMError("LLM_INVALID_OUTPUT")
-            return validate_structured(json.loads(message["content"]), schema)
-        except LLMError:
-            raise
+                fail("ENVELOPE", "OVERSIZED_RESPONSE")
+            try:
+                envelope = json.loads(raw)
+            except (ValueError, UnicodeError):
+                fail("ENVELOPE", "INVALID_ENVELOPE")
+            if not isinstance(envelope, dict):
+                fail("ENVELOPE", "INVALID_ENVELOPE")
+            diagnostic.response_model = safe_model(envelope.get("model"), self.api_key.get_secret_value())
+            choices = envelope.get("choices")
+            if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
+                fail("ENVELOPE", "INVALID_ENVELOPE")
+            choice = choices[0]
+            finish = choice.get("finish_reason")
+            diagnostic.finish_reason = finish if isinstance(finish, str) else None
+            message = choice.get("message")
+            if not isinstance(message, dict):
+                fail("ENVELOPE", "INVALID_ENVELOPE")
+            content = message.get("content")
+            diagnostic.content_present = isinstance(content, str)
+            diagnostic.content_chars = len(content) if isinstance(content, str) else None
+            if finish == "length":
+                fail("COMPLETION", "TRUNCATED")
+            if message.get("refusal") or finish == "content_filter":
+                fail("COMPLETION", "REFUSED")
+            if finish in {"aborted", "insufficient_system_resource"}:
+                fail("COMPLETION", "ABORTED")
+            if not isinstance(content, str):
+                fail("COMPLETION", "MISSING_CONTENT")
+            if not content.strip():
+                fail("COMPLETION", "EMPTY_CONTENT")
+            if finish != "stop":
+                fail("COMPLETION", "UNEXPECTED_FINISH")
+            try:
+                output = json.loads(content)
+            except ValueError:
+                fail("CONTENT_JSON", "INVALID_JSON")
+            result = validate_structured(output, schema)
+            diagnostic.stage, diagnostic.category = "COMPLETE", "SUCCESS"
+            return result
+        except HTTPError as error:
+            diagnostic.http_status = error.code if 100 <= error.code <= 599 else None
+            diagnostic.request_id = safe_request_id(error.headers.get("x-request-id") if error.headers else None,
+                                                     self.api_key.get_secret_value())
+            error.close()  # Do not persist or print error bodies/headers.
+            category = {400: "BAD_REQUEST", 401: "UNAUTHORIZED", 403: "FORBIDDEN", 429: "RATE_LIMITED"}.get(error.code,
+                       "SERVER_ERROR" if 500 <= error.code <= 599 else "HTTP_OTHER")
+            fail("HTTP", category, "LLM_UNAVAILABLE")
+        except (TimeoutError, ssl.SSLError, URLError, ConnectionError) as error:
+            reason = error.reason if isinstance(error, URLError) else error
+            category = "TIMEOUT" if isinstance(reason, TimeoutError) else "TLS_ERROR" if isinstance(reason, ssl.SSLError) else "NETWORK_ERROR"
+            fail("TRANSPORT", category, "LLM_UNAVAILABLE")
+        except LLMError as error:
+            diagnostic.stage, diagnostic.category = error.diagnostic.stage, error.diagnostic.category
+            diagnostic.schema_errors = error.diagnostic.schema_errors
+            raise LLMError(error.code, diagnostic) from None
         except Exception:
-            raise LLMError() from None
+            diagnostic.stage, diagnostic.category = "INTERNAL", "UNEXPECTED_ERROR"
+            raise LLMError(diagnostic=diagnostic) from None
+        finally:
+            diagnostic.elapsed_seconds = round(monotonic() - started, 4)
+        raise LLMError(diagnostic=diagnostic)

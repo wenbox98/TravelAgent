@@ -30,7 +30,7 @@ def fake_transport(monkeypatch, *, row=None, failure=None, raw=None):
         def __enter__(self): return self
         def __exit__(self, *args): return False
         def read(self, limit):
-            return raw if raw is not None else json.dumps({"choices": [{"message": {
+            return raw if raw is not None else json.dumps({"choices": [{"finish_reason": "stop", "message": {
                 "content": json.dumps({"claims": [row or response_row()]}, ensure_ascii=False)
             }}]}).encode()
     class Opener:
