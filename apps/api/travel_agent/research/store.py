@@ -83,7 +83,8 @@ def _summary(data: dict[str, Any]) -> dict[str, Any]:
         for diagnostic in diagnostics:
             validator("LLMDiagnostic").validate(diagnostic)
         output["extraction_diagnostics"] = diagnostics
-    for key in ("stop_reason", "diagnostic", "claim_basis", "gaps_basis"):
+    for key in ("stop_reason", "diagnostic", "claim_basis", "gaps_basis",
+                "grounding_review_status", "conflict_review_status"):
         if key in data:
             output[key] = None if data[key] is None else _identifier(data[key])
     for key in ("obsolete", "is_final_itinerary", "travel_time_unknown"):

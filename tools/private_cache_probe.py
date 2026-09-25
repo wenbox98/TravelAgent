@@ -49,12 +49,16 @@ def probe(database, account_scope, research_id):
             return {"status": "FAIL", "reason": "REPORT_NOT_RESTORED"}
         request = ResearchRequest(**previous["request"])
         evidence = store.lookup(research_id, request.destination, account_scope)
-        if not evidence:
+        source_ids = {b["source_id"] for b in evidence} | {row[0] for row in db.connection.execute(
+            "SELECT DISTINCT c.source_id FROM source_contents c JOIN research_run_contents r USING(content_id) "
+            "WHERE r.run_id=? AND c.account_scope=?", (previous["run_id"], account_scope))}
+        if not source_ids:
             return {"status": "FAIL", "reason": "EVIDENCE_NOT_RESTORED"}
-        contents = {b["source_id"]: store.contents.load(b["source_id"], account_scope) for b in evidence}
+        contents = {source: store.contents.load(source, account_scope) for source in sorted(source_ids)}
+        content_digest = sha256(json.dumps(contents, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         keys = {source: [c["content_hash"] for c in rows] for source, rows in contents.items()}
         row = db.connection.execute("SELECT policy_json FROM source_policies WHERE policy_id=? "
-                                     "ORDER BY version DESC LIMIT 1", (evidence[0]["policy_id"],)).fetchone()
+                                     "ORDER BY version DESC LIMIT 1", (next(iter(contents.values()))[0]["policy_id"],)).fetchone()
         policy = SourcePolicy(json.loads(row[0]))
         reader = NoAccessReader()
         service = ResearchService(store, reader, EvidenceExtractor(), policy)
@@ -66,25 +70,30 @@ def probe(database, account_scope, research_id):
         incremental = service.run(replace(request, days=5, no_self_drive=True),
                                   research_id=research_id + "-cache", revision=1,
                                   account_scope=account_scope, budget=ResearchBudget(0, 0))
-        after = {b["source_id"]: [c["content_hash"] for c in store.contents.load(b["source_id"], account_scope)]
-                 for b in incremental.evidence}
+        after_contents = {source: store.contents.load(source, account_scope) for source in sorted(source_ids)}
+        after = {source: [c["content_hash"] for c in rows] for source, rows in after_contents.items()}
         audits = [audit_grounding(b, contents[b["source_id"]]) for b in evidence]
         checks = {
             "source_content_restored": bool(contents) and all(contents.values()),
-            "evidence_restored": evidence_digest(cached.evidence) == evidence_digest(evidence),
+            "evidence_restored": bool(evidence) and evidence_digest(cached.evidence) == evidence_digest(evidence),
             "coverage_restored": cached_summary["coverage"] == previous["summary"].get("coverage"),
-            "report_restored": restored is not None,
+            "report_restored": restored is not None and restored["summary"]["coverage"] == cached_summary["coverage"],
+            "original_report_preserved": store.load_report(research_id, account_scope) == previous,
             "no_reader_calls": all(value == 0 for value in reader.calls.values()),
             "zero_operations": cached.operations == incremental.operations == {"search": 0, "detail": 0},
-            "incremental_evidence_preserved": evidence_digest(incremental.evidence) == evidence_digest(evidence),
+            "incremental_evidence_preserved": bool(evidence) and evidence_digest(incremental.evidence) == evidence_digest(evidence),
             "incremental_content_preserved": keys == after,
+            "body_blocks_and_metadata_unchanged": contents == after_contents,
             "incremental_gaps": {"DAYS_FIT", "NON_SELF_DRIVE"} <= {g.gap_id for g in incremental.gaps},
-            "grounding_restored": all(a["unsupported"] == 0 and a["checked"] > 0 for a in audits),
+            "grounding_restored": bool(audits) and all(a["unsupported"] == 0 and a["checked"] > 0 for a in audits),
             "browser_modules_absent": not any(m.startswith("xhs_sidecar") for m in sys.modules),
         }
         return {"status": "PASS" if all(checks.values()) else "FAIL", "pid": os.getpid(),
                 "checks": checks, "calls": reader.calls, "browser_sessions": 0,
+                "model_calls": 0, "source_content_digest": content_digest,
                 "source_content_count": sum(map(len, contents.values())),
+                "body_blocks": sum(len(c["body_blocks"]) for rows in contents.values() for c in rows),
+                "normalized_chars": [len(c["normalized_text"]) for rows in contents.values() for c in rows],
                 "evidence_digest": evidence_digest(evidence), "summary": cached_summary,
                 "incremental": incremental.safe_summary(), "grounding": audits}
 

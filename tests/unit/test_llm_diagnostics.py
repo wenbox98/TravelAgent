@@ -88,6 +88,14 @@ def test_policy_does_not_count_http(monkeypatch):
     assert d["stage"] == "POLICY" and d["http_attempts"] == 0 and calls == []
 
 
+def test_deepseek_default_format_matches_documented_json_object_without_changing_model():
+    env = {"LLM_BASE_URL": "https://api.deepseek.com", "LLM_MODEL": "deepseek-v4-flash", "LLM_API_KEY": SECRET}
+    provider = OpenAICompatibleProvider.from_env(env)
+    assert provider.response_format == "json_object" and provider.model == env["LLM_MODEL"]
+    assert OpenAICompatibleProvider.from_env(env | {"LLM_RESPONSE_FORMAT": "json_schema"}).response_format == "json_schema"
+    assert OpenAICompatibleProvider.from_env(env | {"LLM_BASE_URL": "https://model.invalid"}).response_format == "json_schema"
+
+
 def test_error_survives_extractor_without_fallback_claims(monkeypatch,clock):
     class Opener:
         def open(self,*args,**kwargs): raise TimeoutError(SECRET)

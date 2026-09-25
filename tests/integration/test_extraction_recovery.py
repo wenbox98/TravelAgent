@@ -3,6 +3,7 @@
 from asyncio import CancelledError
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -144,7 +145,68 @@ def test_service_failure_boundaries_and_safe_report(clock, monkeypatch, fault):
             report = run().safe_summary()
             assert "SECRET_SENTINEL" not in json.dumps(report)
             assert report["locator_coverage"] is None
+            assert report["grounding_review_status"] == "NOT_EVALUATED"
             assert report["extraction_diagnostics"][0]["category"] == ("TIMEOUT" if fault == "model_timeout" else "SOURCE_SAVE_FAILED")
         assert provider.calls == (0 if fault == "source_save" else 1)
         assert db.connection.execute("SELECT count(*) FROM source_contents").fetchone()[0] == (0 if fault == "source_save" else 1)
         assert db.connection.execute("SELECT count(*) FROM claims").fetchone()[0] == (4 if fault == "report_save" else 0)
+
+
+def test_cache_probe_keeps_failed_body_but_never_calls_empty_evidence_pass(clock, tmp_path):
+    path = tmp_path / "failed.sqlite3"
+    with Database(path, clock=clock) as db:
+        store = EvidenceStore(db)
+        _, kwargs = setup(store, clock)
+        ExtractionRecovery(store, EvidenceExtractor(Timeout(), clock=clock)).execute(**kwargs)
+        store.finish(kwargs["run_id"], 0, [], {"source_count": 0, "evidence_count": 0, "coverage": []})
+    root = Path(__file__).resolve().parents[2]
+    child = subprocess.run([sys.executable, str(root / "tools/private_cache_probe.py"), "--database", str(path),
+                            "--account-scope", "owner", "--research-id", "recovery"],
+                           capture_output=True, text=True, cwd=root, timeout=15)
+    result = json.loads(child.stdout)
+    assert child.returncode == 2 and result["status"] == "FAIL"
+    assert result["checks"]["source_content_restored"]
+    assert result["checks"]["body_blocks_and_metadata_unchanged"]
+    assert result["checks"]["original_report_preserved"]
+    assert result["checks"]["incremental_gaps"]
+    assert not result["checks"]["evidence_restored"]
+    assert not result["checks"]["grounding_restored"]
+    assert result["body_blocks"] == 5 and result["source_content_count"] == 1
+    assert result["calls"] == {"connect": 0, "search": 0, "detail": 0}
+
+
+def test_abrupt_process_exit_preserves_committed_source_and_consumed_attempt(tmp_path, clock):
+    root = Path(__file__).resolve().parents[2]
+    path = tmp_path / "abrupt.sqlite3"
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(root / "apps/api"), str(root / "tests/integration")]))
+    code = """
+import os, sys
+from pathlib import Path
+from datetime import datetime, timezone
+from test_extraction_recovery import Database, EvidenceStore, setup, FixtureProvider, ExtractionRecovery, EvidenceExtractor
+def deny(event,args):
+    if event.startswith('socket.'):
+        raise AssertionError('OFFLINE_ONLY')
+sys.addaudithook(deny)
+clock=lambda:datetime(2026,9,22,tzinfo=timezone.utc)
+class Exit(FixtureProvider):
+    def structured(self,*args):os._exit(9)
+with Database(Path(sys.argv[1]),clock=clock) as db:
+    store=EvidenceStore(db)
+    _,kwargs=setup(store,clock)
+    ExtractionRecovery(store,EvidenceExtractor(Exit(),clock=clock)).execute(**kwargs)
+"""
+    child = subprocess.run([sys.executable, "-c", code, str(path)], cwd=root, env=env,
+                           capture_output=True, text=True, timeout=15)
+    assert child.returncode == 9, child.stdout + child.stderr
+    with Database(path, clock=clock) as db:
+        store = EvidenceStore(db)
+        assert store.contents.load("xhs:synthetic-a", "owner")
+        attempt = db.connection.execute("SELECT * FROM extraction_attempts").fetchone()
+        assert attempt["status"] == "RUNNING"
+        provider = FixtureProvider()
+        with pytest.raises(ValueError, match="BUDGET_OR_RETRY_DENIED"):
+            ExtractionRecovery(store, EvidenceExtractor(provider, clock=clock)).execute(
+                run_id=attempt["run_id"], revision=0, content_id=attempt["content_id"], account_scope="owner",
+                policy=private_policy("owner", now=clock()), batch_id="fixed-batch", max_attempts=4)
+        assert provider.calls == 0

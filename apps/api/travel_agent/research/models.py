@@ -158,6 +158,8 @@ class ResearchReport:
             "freshness": freshness, "grounded_claim_count": grounded,
             "locator_coverage": located / len(claims) if claims else None,
             "unsupported_claims": len(claims) - grounded,
+            "grounding_review_status": "EVALUATED" if claims else "NOT_EVALUATED",
+            "conflict_review_status": "EVALUATED" if claims else "NOT_EVALUATED",
         }
 
     def material_view(self) -> dict[str, Any]:

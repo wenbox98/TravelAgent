@@ -110,7 +110,9 @@ class OpenAICompatibleProvider:
             timeout = float(env.get("LLM_TIMEOUT_SECONDS") or env.get("TRAVEL_LLM_TIMEOUT_SECONDS", "30"))
         except ValueError:
             raise LLMError("LLM_NOT_CONFIGURED") from None
-        response_format = env.get("LLM_RESPONSE_FORMAT") or "json_schema"
+        # This provider documents JSON object, not OpenAI's server-side schema mode.
+        default_format = "json_object" if base and urlsplit(base).hostname == "api.deepseek.com" else "json_schema"
+        response_format = env.get("LLM_RESPONSE_FORMAT") or default_format
         return cls(base or "https://api.openai.com/v1", model, SecretStr(key), timeout,
                    response_format=response_format)
 
