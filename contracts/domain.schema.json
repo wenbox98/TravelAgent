@@ -2620,6 +2620,330 @@
         "expires_at"
       ],
       "description": "Private local, successfully read detail snapshots only. Never a public response or browser session object."
+    },
+    "LLMDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "category",
+        "http_status",
+        "request_id",
+        "requested_model",
+        "response_model",
+        "elapsed_seconds",
+        "response_bytes",
+        "finish_reason",
+        "content_present",
+        "content_chars",
+        "http_attempts",
+        "retry_count",
+        "schema_errors",
+        "generated_claims",
+        "reviewed_claims",
+        "rejected_claims",
+        "accepted_claims"
+      ],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "enum": [
+            "COMPLETE",
+            "COMPLETION",
+            "CONFIG",
+            "CONTENT_JSON",
+            "ENVELOPE",
+            "GROUNDING",
+            "HTTP",
+            "INTERNAL",
+            "POLICY",
+            "SCHEMA",
+            "STORAGE",
+            "TRANSPORT"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "ABORTED",
+            "BAD_REQUEST",
+            "EMPTY_CONTENT",
+            "FORBIDDEN",
+            "HTTP_OTHER",
+            "INVALID_ENVELOPE",
+            "INVALID_JSON",
+            "MISSING_CONTENT",
+            "NETWORK_ERROR",
+            "NOT_CONFIGURED",
+            "NO_CLAIMS",
+            "OVERSIZED_RESPONSE",
+            "POLICY_BLOCKED",
+            "RATE_LIMITED",
+            "REFUSED",
+            "SCHEMA_INVALID",
+            "SERVER_ERROR",
+            "SOURCE_SAVE_FAILED",
+            "SUCCESS",
+            "TIMEOUT",
+            "TLS_ERROR",
+            "TRUNCATED",
+            "UNAUTHORIZED",
+            "UNEXPECTED_ERROR",
+            "UNEXPECTED_FINISH",
+            "UNGROUNDED"
+          ]
+        },
+        "http_status": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 100,
+          "maximum": 599
+        },
+        "request_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 101
+        },
+        "requested_model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 101
+        },
+        "response_model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 101
+        },
+        "elapsed_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "response_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "finish_reason": {
+          "enum": [
+            null,
+            "aborted",
+            "content_filter",
+            "insufficient_system_resource",
+            "length",
+            "stop",
+            "tool_calls"
+          ]
+        },
+        "content_present": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "content_chars": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "http_attempts": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "retry_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "schema_errors": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "validator"
+            ],
+            "properties": {
+              "path": {
+                "type": "array",
+                "maxItems": 12,
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 10000
+                    },
+                    {
+                      "type": "string",
+                      "maxLength": 100
+                    }
+                  ]
+                }
+              },
+              "validator": {
+                "enum": [
+                  "UNKNOWN",
+                  "additionalProperties",
+                  "allOf",
+                  "anyOf",
+                  "const",
+                  "enum",
+                  "format",
+                  "maxItems",
+                  "maxLength",
+                  "maximum",
+                  "minItems",
+                  "minLength",
+                  "minimum",
+                  "not",
+                  "oneOf",
+                  "pattern",
+                  "required",
+                  "type",
+                  "uniqueItems"
+                ]
+              }
+            }
+          }
+        },
+        "generated_claims": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "reviewed_claims": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "rejected_claims": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "accepted_claims": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "ExtractionAttempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt_id",
+        "batch_id",
+        "run_id",
+        "revision",
+        "content_id",
+        "normalization_version",
+        "extraction_version",
+        "attempt_number",
+        "status",
+        "diagnostic",
+        "retry_fix_commit",
+        "created_at",
+        "finished_at"
+      ],
+      "properties": {
+        "attempt_id": {
+          "type": "string"
+        },
+        "batch_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_id": {
+          "type": "string"
+        },
+        "normalization_version": {
+          "const": 1
+        },
+        "extraction_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attempt_number": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "status": {
+          "enum": [
+            "PENDING",
+            "RUNNING",
+            "SUCCEEDED",
+            "FAILED",
+            "INTERRUPTED",
+            "OBSOLETE"
+          ]
+        },
+        "diagnostic": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/LLMDiagnostic"
+            }
+          ]
+        },
+        "retry_fix_commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finished_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
     }
   }
 }

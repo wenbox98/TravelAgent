@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-09-24T16:47:56+00:00",
+  "generated_at_utc": "2026-09-25T02:44:51+00:00",
   "scope": "L0_DOCUMENT_CONTRACT_SYNTHETIC_ONLY",
   "checks": [
     {
@@ -10,12 +10,12 @@
     {
       "check": "DOMAIN_SCHEMA",
       "status": "PASS",
-      "detail": "42 Draft 2020-12 definitions; format checks enabled for fixtures"
+      "detail": "44 Draft 2020-12 definitions; format checks enabled for fixtures"
     },
     {
       "check": "CONTRACT_REFERENCES",
       "status": "PASS",
-      "detail": "78 JSON Schema/OpenAPI reference occurrences resolved offline"
+      "detail": "79 JSON Schema/OpenAPI reference occurrences resolved offline"
     },
     {
       "check": "FIXTURE_SCHEMA",
@@ -65,7 +65,7 @@
   ],
   "counts": {
     "json_files_checked": 18,
-    "domain_definitions": 42,
+    "domain_definitions": 44,
     "positive_contract_fixtures": 27,
     "negative_contract_fixtures": 5,
     "http_operations": 20,

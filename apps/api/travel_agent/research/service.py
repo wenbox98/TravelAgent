@@ -3,9 +3,11 @@
 from collections.abc import Callable
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from travel_agent.domain.models import SourcePolicy
+from travel_agent.domain.source_policy import is_private
+from travel_agent.providers.diagnostics import Diagnostic
 
 from .extractor import EvidenceExtractor, policy_allows_model
 from .ephemeral import EphemeralSourceContent
@@ -15,6 +17,7 @@ from .models import (
 )
 from .planning import CandidateSelector, QueryPlanner, SufficiencyEvaluator
 from .store import EvidenceStore
+from .recovery import ExtractionRecovery
 
 
 class ResearchReader(Protocol):
@@ -47,7 +50,9 @@ class ResearchService:
                  extractor: EvidenceExtractor, policy: SourcePolicy,
                  *, selector: CandidateSelector | None = None,
                  checkpoint: Callable[[dict[str, int]], None] | None = None,
-                 temporary_read_allowed: bool = False) -> None:
+                 temporary_read_allowed: bool = False,
+                 model_batch_id: str | None = None, model_max_attempts: int = 4,
+                 after_extraction: Callable[[dict[str, Any]], None] | None = None) -> None:
         self.store, self.reader, self.extractor, self.policy = store, reader, extractor, policy
         self.selector = selector or CandidateSelector()
         self.selector.allow_external = self.selector.allow_external and policy_allows_model(
@@ -56,6 +61,9 @@ class ResearchService:
         self.checkpoint = checkpoint or (lambda _: None)
         self.temporary_read_allowed = temporary_read_allowed
         self.evaluator, self.planner = SufficiencyEvaluator(clock=store.db.clock), QueryPlanner()
+        self.model_batch_id, self.model_max_attempts = model_batch_id, model_max_attempts
+        self.after_extraction = after_extraction
+        self.extraction_attempts: list[dict[str, Any]] = []
 
     def run(self, request: ResearchRequest, *, research_id: str, revision: int,
             account_scope: str, budget: ResearchBudget = ResearchBudget()) -> ResearchReport:
@@ -76,6 +84,8 @@ class ResearchService:
         extra_gaps = {code: self._material_gap(code)
                       for bundle in evidence for code in bundle["missing_fields"]}
         diagnostic: str | None = None
+        self.extraction_attempts = []
+        extraction_diagnostics: list[dict[str, Any]] = []
         fallback_used = False
 
         def current() -> None:
@@ -91,6 +101,7 @@ class ResearchService:
                 query_count, candidate_count, tuple(modes), obsolete,
                 "STALE_REVISION" if obsolete else diagnostic, tuple(choices),
                 assessed_at=self.store.db.stamp(),
+                extraction_diagnostics=tuple(extraction_diagnostics),
             )
             self.store.finish(run_id, revision, [g.to_dict() for g in report.gaps], report.safe_summary())
             return report
@@ -178,10 +189,37 @@ class ResearchService:
                         else:
                             raise
                     current()
+                    content_id = None
+                    if is_private(self.policy) and self.policy["allow_persist_raw"]:
+                        try:
+                            content_id = self.store.save_source(run_id, revision, material, self.policy,
+                                                                request.destination)
+                        except Exception:
+                            diagnostic = "SOURCE_SAVE_FAILED"
+                            extraction_diagnostics.append(Diagnostic(stage="STORAGE", category=diagnostic).safe_dict())
+                            return finish("ERROR")
                     content = EphemeralSourceContent(material.body, material.dom_body)
                     try:
                         state_body, dom_body = content.read()
-                        extracted = self.extractor.extract(
+                        if content_id is not None:
+                            outcome = ExtractionRecovery(self.store, self.extractor).execute(
+                                run_id=run_id, revision=revision, content_id=content_id, account_scope=account_scope,
+                                policy=self.policy, batch_id=self.model_batch_id or research_id,
+                                max_attempts=self.model_max_attempts, research_gaps=tuple(g.gap_id for g in gaps))
+                            safe_outcome = {k: v for k, v in outcome.items() if k != "result"}
+                            self.extraction_attempts.append(safe_outcome)
+                            if outcome.get("diagnostic") is not None:
+                                extraction_diagnostics.append(outcome["diagnostic"])
+                            if outcome["status"] != "SUCCEEDED":
+                                diagnostic = "LIVE_LLM_EXTRACTION_FAILED"
+                                return finish("ERROR")
+                            extracted = outcome["result"]
+                            if extracted is None:
+                                raise ResearchStopped("ERROR", "UNEXPECTED_CACHED_ATTEMPT")
+                            if self.after_extraction is not None:
+                                self.after_extraction(safe_outcome)
+                        else:
+                            extracted = self.extractor.extract(
                             source_id=material.source_id, source_title=material.title,
                             body=state_body, dom_body=dom_body, completeness=material.completeness,
                             fetched_at=material.fetched_at, source_published_at=material.published_at,
@@ -201,8 +239,8 @@ class ResearchService:
                         "extraction_mode": extracted.mode,
                         "evidence_count": len(extracted.bundle["claims"]),
                     }
-                    saved = self.store.save_detail(run_id, revision, material, extracted,
-                                                   self.policy, snapshot)
+                    saved = content_id is not None or self.store.save_detail(
+                        run_id, revision, material, extracted, self.policy, snapshot)
                     if not saved:
                         current()
                         diagnostic = "SOURCE_POLICY_STORAGE_DENIED"

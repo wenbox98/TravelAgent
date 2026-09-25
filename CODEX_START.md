@@ -1,5 +1,9 @@
 # v1.1 第一次发给 Codex 的指令
 
+## 当前持续协作规则（优先于下方历史启动示例）
+
+后续每轮 TravelAgent 开发必须 commit + push 实际工作分支，并核对本地 HEAD 与远端该分支完整 SHA，返回 GitHub commit/compare 链接。开始先确认仓库、分支、remote、upstream 和全部未推送提交；扫描密钥、认证材料、profile、真实 SQLite、原文、图片和调试响应，安全后先推送已有提交，再继续开发。只按明确文件清单暂存，保留原有三份未跟踪 T03 报告和未知改动。不得 force push、自动合并 master、直接在 master 开发或盲目 pull/reset/rebase。失败报告与安全修复也要提交推送；网络/权限/冲突阻塞则如实记录 PUSH_BLOCKED。下方初始分支名是历史示例，不要写死为所有后续任务的目标。
+
 ```text
 你是 TravelAgent 项目的开发负责人。当前版本是 v1.1“小红书研究 PoC 强化版”。
 

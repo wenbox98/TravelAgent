@@ -16,7 +16,7 @@ from travel_agent.settings import PROJECT_ROOT
 
 from .content_store import audit_grounding
 from .extractor import EvidenceExtractor, ExtractionResult
-from .models import ResearchBudget, ResearchRequest, ResearchStopped
+from .models import ResearchBudget, ResearchRequest
 from .planning import CandidateSelector
 from .reporting import render_private_report
 from .service import ResearchService
@@ -36,10 +36,6 @@ class ObservedExtractor(EvidenceExtractor):
         self.results.append(result.safe_summary())
         print(json.dumps({"stage": "EXTRACTION", "detail": len(self.results),
                           **result.safe_summary()}, ensure_ascii=True), flush=True)
-        if result.mode != "LLM":
-            # Business code still supports safe fallback; the live gate must not
-            # consume further site reads after model/schema failure.
-            raise ResearchStopped("ERROR", "LIVE_LLM_EXTRACTION_FAILED")
         return result
 
 
@@ -48,13 +44,22 @@ class LimitedSelector(CandidateSelector):
         return super().select(*args, **kwargs)[:3]
 
 
-def run_live(project: Path, *, login_prompt: Any = None) -> dict[str, Any]:
+def run_live(project: Path, *, login_prompt: Any = None, t062: bool = False,
+             after_extraction: Any = None) -> dict[str, Any]:
     # Imports are below explicit opt-in; cache probe never imports these modules.
     from xhs_sidecar.live_smoke import AuditCounter
     from xhs_sidecar.resource_policy import ResourcePolicy
     from .live import LiveResearchReader
 
-    folder = project / ".local/t06.1-private"
+    folder = project / (".local/t06.2-live" if t062 else ".local/t06.1-private")
+    research_id = "t062-private-live" if t062 else RESEARCH_ID
+    if t062:
+        synthetic = project / ".local/t06.2-synthetic"
+        proof = synthetic / ("retry.json" if (synthetic / "retry.json").exists() else "attempt.json")
+        if not proof.is_file() or json.loads(proof.read_text(encoding="utf-8")).get("status") != "SUCCEEDED":
+            return {"status": "BLOCKED", "reason": "SYNTHETIC_EXTRACTION_NOT_PASSED"}
+        if after_extraction is None:
+            return {"status": "BLOCKED", "reason": "WORK_REVIEW_CHECKPOINT_REQUIRED"}
     ledger = folder / "attempt.json"
     if ledger.exists():
         return {"status": "BLOCKED", "reason": "EXISTING_ATTEMPT_NO_AUTOMATIC_RETRY"}
@@ -71,6 +76,8 @@ def run_live(project: Path, *, login_prompt: Any = None) -> dict[str, Any]:
         and provider.api_key.get_secret_value() not in provider.model else "REDACTED",
         "budget": {"search": 1, "detail": 3}, "operations": {"search": 0, "detail": 0},
         "network_policy": "OBSERVE_ONLY", "closed": False,
+        "research_id": research_id, "model_budget": 4,
+        "historical_failed_run": RESEARCH_ID if t062 else None,
     }
     try:
         with ledger.open("x", encoding="utf-8") as handle:
@@ -101,25 +108,30 @@ def run_live(project: Path, *, login_prompt: Any = None) -> dict[str, Any]:
             policy = private_policy(SCOPE)
             extractor = ObservedExtractor(provider)
             service = ResearchService(store, reader, extractor, policy, selector=LimitedSelector(),
-                                      checkpoint=checkpoint)
+                                      checkpoint=checkpoint, model_batch_id=research_id,
+                                      model_max_attempts=4, after_extraction=after_extraction)
             request = ResearchRequest(departure="成都", destination="川西", time_hint="国庆")
-            report = service.run(request, research_id=RESEARCH_ID, revision=0,
+            report = service.run(request, research_id=research_id, revision=0,
                                  account_scope=SCOPE, budget=ResearchBudget(1, 3))
             result["first"] = report.safe_summary()
             result["operations"] = report.operations
-            result["queries"] = sorted(store.queries(RESEARCH_ID))
+            result["queries"] = sorted(store.queries(research_id))
             result["selection"] = [{"source": f"S{i}", "reason": choice.reason,
                                     "metadata_used": list(choice.metadata_used)}
                                    for i, choice in enumerate(report.selection, 1)]
             result["extractions"] = extractor.results
-            contents = {b["source_id"]: store.contents.load(b["source_id"], SCOPE) for b in report.evidence}
+            result["model_attempts"] = service.extraction_attempts
+            saved = [store.repository.get(row[0], SCOPE) for row in db.connection.execute(
+                "SELECT DISTINCT source_id FROM source_contents WHERE account_scope=?", (SCOPE,))]
+            saved = [b for b in saved if b is not None]
+            contents = {b["source_id"]: store.contents.load(b["source_id"], SCOPE) for b in saved}
             result["source_contents"] = [
                 {"source": f"S{i}", "snapshots": len(contents[b["source_id"]]),
                  "blocks": sum(len(c["body_blocks"]) for c in contents[b["source_id"]]),
                  "normalized_chars": [len(c["normalized_text"]) for c in contents[b["source_id"]]],
                  "completeness": b["completeness"],
                  **audit_grounding(b, contents[b["source_id"]])}
-                for i, b in enumerate(report.evidence, 1)
+                for i, b in enumerate(saved, 1)
             ]
             if report.evidence:
                 # The local generated report contains only short accepted excerpts;
@@ -158,6 +170,7 @@ def run_live(project: Path, *, login_prompt: Any = None) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="T06.1 私人本机真实研究验收，固定最多 1 搜索 / 3 详情")
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--t062", action="store_true")
     args = parser.parse_args()
     if not args.live:
         print(json.dumps({"status": "NOT_RUN", "live_operations": 0}))
@@ -165,8 +178,13 @@ def main() -> int:
     def prompt() -> None:
         print("现在请在打开的小红书官方页面完成正常登录。完成后按回车；不要提供 Cookie 或 token。", flush=True)
         input()
+    def review(outcome: dict[str, Any]) -> None:
+        print(json.dumps({"stage": "WORK_REVIEW_REQUIRED", "attempt_id": outcome["attempt_id"]}), flush=True)
+        if input().strip() != "REVIEWED":
+            raise ValueError("WORK_REVIEW_NOT_ACCEPTED")
     try:
-        result = run_live(PROJECT_ROOT, login_prompt=prompt)
+        result = run_live(PROJECT_ROOT, login_prompt=prompt, t062=args.t062,
+                          after_extraction=review if args.t062 else None)
     except Exception:
         result = {"status": "LIVE_TEST_BLOCKED", "error": "LOCAL_SETUP_ERROR"}
     print(json.dumps(result, ensure_ascii=True), flush=True)

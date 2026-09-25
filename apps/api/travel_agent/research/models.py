@@ -117,6 +117,7 @@ class ResearchReport:
     diagnostic: str | None = None
     selection: tuple[CandidateChoice, ...] = field(default=(), repr=False)
     assessed_at: str | None = None
+    extraction_diagnostics: tuple[dict[str, Any], ...] = ()
 
     def _now(self) -> datetime:
         return datetime.fromisoformat(self.assessed_at) if self.assessed_at else datetime.now(timezone.utc)
@@ -145,6 +146,7 @@ class ResearchReport:
             "completeness": [bundle["completeness"] for bundle in self.evidence],
             "extraction_modes": list(self.extraction_modes), "obsolete": self.obsolete,
             "diagnostic": self.diagnostic, "is_final_itinerary": False,
+            "extraction_diagnostics": list(self.extraction_diagnostics),
             "claim_basis": "EXTRACTED_FROM_SOURCE", "gaps_basis": "DERIVED",
             "travel_time_unknown": all(bundle["travel_occurred_at"] is None
                                        for bundle in self.evidence),

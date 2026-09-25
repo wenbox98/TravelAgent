@@ -23,7 +23,7 @@ This repository currently builds a private, local travel research tool for its c
 - Preserve a distinction among PASS, FAIL, SKIPPED and BLOCKED. SKIPPED is not PASS.
 - Do not commit runtime data, authentication material, real scraped datasets, screenshots of logged-in accounts, `.env`, profiles or raw traces.
 - Do not modify an unrelated learning repository. Do not publish a package, create a public repository, push branches or create a PR unless the user explicitly requests it.
-- A local commit may be made only under the current user's instructions; otherwise leave changes and report the diff.
+- Standing user instruction: every TravelAgent development batch must commit and push its actual feature branch after checking the full unpushed commit range for secrets, profiles, real databases, raw sources/images, and sensitive diagnostics. Stage only an explicit file list; preserve unrelated changes and the three existing untracked T03 reports. At batch start, safely push any existing reviewed local commits before further development. At batch end, compare the full local HEAD with the remote branch SHA and return commit/compare links. Never force-push, automatically merge, or develop directly on master. Report PUSH_BLOCKED with the actual reason if synchronization fails; a failed G1 does not prevent pushing safe fixes and honest reports.
 
 ## Required task report
 Write `reports/Txx-implementation.md`: intent; modified files and exact symbols; contract changes; commands actually executed and outputs; tests passed/failed/skipped; network calls (none unless opted in); pending manual work; risks; next task. Include `git diff --stat` if a Git repository exists. Never substitute planned tests for executed tests.

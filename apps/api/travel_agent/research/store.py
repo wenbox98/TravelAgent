@@ -8,12 +8,12 @@ import sqlite3
 from typing import Any, Literal, cast
 from uuid import uuid4
 
-from travel_agent.domain.models import EvidenceBundle, SourcePolicy
+from travel_agent.domain.models import EvidenceBundle, SourcePolicy, validator
 from travel_agent.domain.source_policy import is_private, scope_allowed
 from travel_agent.persistence.database import Database
 from travel_agent.persistence.repositories import EvidenceRepository, encode
 from .content_store import SourceContentStore
-from .extractor import ExtractionResult
+from .extractor import EvidenceExtractor, ExtractionResult
 from .models import DetailMaterial
 
 _PRIVATE = re.compile(
@@ -76,6 +76,13 @@ def _gap(data: dict[str, Any]) -> dict[str, Any]:
 def _summary(data: dict[str, Any]) -> dict[str, Any]:
     # Explicitly omit report materials/claims/body and the separately stored gaps.
     output: dict[str, Any] = {key: _count(data[key]) for key in _SUMMARY_COUNT if key in data}
+    if "extraction_diagnostics" in data:
+        diagnostics = data["extraction_diagnostics"]
+        if not isinstance(diagnostics, list) or len(diagnostics) > 12:
+            raise ValueError("INVALID_DIAGNOSTICS")
+        for diagnostic in diagnostics:
+            validator("LLMDiagnostic").validate(diagnostic)
+        output["extraction_diagnostics"] = diagnostics
     for key in ("stop_reason", "diagnostic", "claim_basis", "gaps_basis"):
         if key in data:
             output[key] = None if data[key] is None else _identifier(data[key])
@@ -298,8 +305,27 @@ class EvidenceStore:
                 if is_private(latest) and latest["allow_persist_raw"]:
                     if not self.contents.load(bundle["source_id"], account_scope):
                         continue
-                result.append(bundle)
+                if bundle["claims"]:
+                    result.append(bundle)
         return tuple(result)
+
+    def save_source(self, run_id: str, revision: int, material: DetailMaterial,
+                    policy: SourcePolicy, destination: str | None) -> str:
+        """Commit a detail and empty source metadata BEFORE any model invocation."""
+        empty = EvidenceExtractor(clock=self.db.clock).extract(
+            source_id=material.source_id, source_title=material.title, body=material.body,
+            dom_body=material.dom_body, completeness=material.completeness,
+            fetched_at=material.fetched_at, source_published_at=material.published_at,
+            source_type=material.source_type, image_count=material.image_count,
+            policy=policy, destination=destination, allow_fallback=False)
+        with self.db.transaction():
+            if not self.save_evidence(run_id, revision, empty.bundle, policy,
+                                      {"identity_match": material.identity_match}):
+                raise ValueError("STALE_REVISION")
+            identifier = self.contents.put(run_id, revision, material, empty, policy)
+            if identifier is None:
+                raise ValueError("SOURCE_CONTENT_NOT_SAVED")
+        return identifier
 
     def save_detail(self, run_id: str, revision: int, material: DetailMaterial,
                     extracted: ExtractionResult, policy: SourcePolicy,
@@ -348,7 +374,22 @@ class EvidenceStore:
                     stored_bundle = self.repository.get(source_id, scope)
                     if stored_bundle is None or stored[0] != policy["policy_id"]:
                         raise PermissionError("已有来源不能按不同或失效策略覆盖")
-                    retained = stored_bundle
+                    if not stored_bundle["claims"] and bundle["claims"]:
+                        # Complete a source-only record, never overwrite accepted evidence.
+                        con.execute("UPDATE sources SET title=?,completeness=?,fetched_at=?,published_at=?,"
+                                    "travel_occurred_at=?,destination=?,applicable_conditions_json=?,"
+                                    "missing_fields_json=?,claim_metadata_json=? WHERE source_id=?",
+                                    (bundle["source_title"], bundle["completeness"], bundle["fetched_at"],
+                                     bundle["source_published_at"], bundle["travel_occurred_at"], bundle["destination"],
+                                     encode(bundle["applicable_conditions"]), encode(bundle["missing_fields"]),
+                                     encode(bundle.get("claim_metadata", {})), source_id))
+                        for claim in bundle["claims"]:
+                            con.execute("INSERT INTO claims(claim_id,source_id,topic,text,kind,locator,support,"
+                                        "valid_from,valid_until,confidence) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                                        tuple(claim[k] for k in ("claim_id", "source_id", "topic", "text", "kind",
+                                              "locator", "support", "valid_from", "valid_until", "confidence")))
+                    else:
+                        retained = stored_bundle
             if retained["policy_id"] != policy["policy_id"]:
                 raise PermissionError("已有来源不能改换来源策略")
             metadata = _snapshot(snapshot, retained)
