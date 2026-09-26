@@ -63,7 +63,7 @@ def write(store, clock, note=None, *, policy=None, reserve=True, provider=None, 
     store.register_policy(run, revision, policy)
     if reserve:
         assert store.reserve_operation(run, revision, "DETAIL", note.source_id, 3)
-    result = EvidenceExtractor(provider or FixtureProvider(), clock=clock).extract(
+    result = EvidenceExtractor(provider or FixtureProvider(), clock=clock, protocol_version=2).extract(
         source_id=note.source_id, source_title=note.title, body=note.body, dom_body=note.dom_body,
         completeness=note.completeness, fetched_at=note.fetched_at, source_published_at=note.published_at,
         destination="synthetic-region", policy=policy, image_count=note.image_count)
@@ -207,14 +207,14 @@ def test_p04_p05_p14_independent_process_restores_source_content_and_incremental
             def detail(self, candidate, number): return next(n for n in notes if n.source_id == candidate.source_id)
             def disable_text_first(self): raise AssertionError("no fallback")
         request = ResearchRequest(destination="synthetic-region")
-        service = ResearchService(store, Reader(), EvidenceExtractor(FixtureProvider(), clock=clock), policy,
+        service = ResearchService(store, Reader(), EvidenceExtractor(FixtureProvider(), clock=clock, protocol_version=2), policy,
                                   after_extraction=lambda outcome: review_fixture(store, outcome))
         first = service.run(request, research_id="private", revision=0, account_scope="owner", budget=ResearchBudget(1, 3))
         assert first.stop_reason == "EVIDENCE_SUFFICIENT", first.safe_summary()
         assert first.operations == {"search": 1, "detail": 2}  # Early stop before detail 3.
         class Never(Reader):
             def connect(self): raise AssertionError("cache must be before connect")
-        cached = ResearchService(store, Never(), EvidenceExtractor(), policy).run(
+        cached = ResearchService(store, Never(), EvidenceExtractor(protocol_version=2), policy).run(
             request, research_id="private", revision=0, account_scope="owner", budget=ResearchBudget(1, 3))
         assert cached.stop_reason == "EVIDENCE_SUFFICIENT" and cached.operations == {"search": 0, "detail": 0}
     project = Path(__file__).resolve().parents[2]

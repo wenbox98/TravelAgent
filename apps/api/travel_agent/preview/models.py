@@ -51,7 +51,7 @@ class PreviewEvidence(StrictModel):
     block_locators: list[str]
     span_ids: list[str]
     completeness: str
-    review_status: Literal["WORK_REVIEWED"]
+    review_status: Literal["WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED"]
     travel_time: str | None
     retrieved_at: str
     source_url: str | None
@@ -152,6 +152,8 @@ class PreviewView(StrictModel):
     cache_message: str | None
     feasibility: Literal["UNVERIFIED"]
     business_calls: PreviewCalls
+    interest_needs_confirmation: bool = False
+    previous_interest: str | None = None
 
 
 class PreviewResearch(StrictModel):
@@ -166,3 +168,57 @@ class PreviewIndex(StrictModel):
     csrf_token: str
     researches: list[PreviewResearch]
     session: PreviewView | None
+    workbench_available: bool = False
+
+
+class JobCreate(StrictModel):
+    session_id: str = Field(max_length=100)
+    expected_revision: int = Field(ge=0)
+    destination: str | None = Field(default=None,max_length=80)
+
+    @field_validator('destination')
+    @classmethod
+    def safe(cls, value: str | None) -> str | None:
+        return safe_text(value,80) if value is not None else None
+
+
+class JobAction(StrictModel):
+    action: Literal['cancel','adopt']
+    expected_revision: int = Field(ge=0)
+
+
+class JobView(StrictModel):
+    job_id: str
+    session_id: str
+    status: Literal['QUEUED','RUNNING','WAITING_LOGIN','VERIFICATION_REQUIRED','PARTIAL','COMPLETED',
+                    'NEEDS_REVIEW','FAILED','CANCELED','INTERRUPTED']
+    request_revision: int
+    cancel_requested: bool
+    new_evidence_count: int
+    reviewed: int
+    pending: int
+    rejected: int
+    reason: str | None
+    can_adopt: bool
+
+
+class WorkbenchCounts(StrictModel):
+    connect: int = Field(ge=0)
+    search: int = Field(ge=0)
+    detail: int = Field(ge=0)
+    model: int = Field(ge=0)
+
+
+class WorkbenchBudget(StrictModel):
+    used: WorkbenchCounts
+    remaining: WorkbenchCounts
+    gate: str
+    closed: bool
+
+
+class WorkbenchIndex(StrictModel):
+    enabled: bool
+    configured: bool
+    budget: WorkbenchBudget
+    jobs: list[JobView]
+    data_use: str

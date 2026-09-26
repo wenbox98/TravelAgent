@@ -45,7 +45,7 @@ def test_failed_source_survives_process_exit_real_http_retry_and_no_version_dupl
     with Database(path, clock=clock) as db:
         store = EvidenceStore(db)
         policy, kwargs = setup(store, clock)
-        result = ExtractionRecovery(store, EvidenceExtractor(Timeout(), clock=clock)).execute(**kwargs)
+        result = ExtractionRecovery(store, EvidenceExtractor(Timeout(), clock=clock, protocol_version=2)).execute(**kwargs)
         assert result["status"] == "FAILED" and result["diagnostic"]["category"] == "TIMEOUT"
         assert not store.lookup("recovery", "synthetic-region", "owner")
         assert db.connection.execute("SELECT count(*) FROM claims").fetchone()[0] == 0
@@ -64,7 +64,7 @@ def test_failed_source_survives_process_exit_real_http_retry_and_no_version_dupl
     with Database(path, clock=clock) as db:
         store = EvidenceStore(db)
         provider = FixtureProvider()
-        cached = retry_saved(store, EvidenceExtractor(provider), attempt_id=result["attempt_id"], fix_commit="a" * 40)
+        cached = retry_saved(store, EvidenceExtractor(provider, protocol_version=2), attempt_id=result["attempt_id"], fix_commit="a" * 40)
         assert cached["cache_hit"] and provider.calls == 0
         assert db.connection.execute("SELECT count(*) FROM claims").fetchone()[0] == 4
         assert db.connection.execute("SELECT count(*) FROM extraction_attempts").fetchone()[0] == 2
@@ -75,18 +75,18 @@ def test_retry_budget_persists_and_all_batch_sources_share_one_retry(clock, tmp_
     with Database(path, clock=clock) as db:
         store = EvidenceStore(db)
         _, kwargs = setup(store, clock)
-        first = ExtractionRecovery(store, EvidenceExtractor(Timeout(), clock=clock)).execute(**kwargs)
+        first = ExtractionRecovery(store, EvidenceExtractor(Timeout(), clock=clock, protocol_version=2)).execute(**kwargs)
     with Database(path, clock=clock) as db:
         store = EvidenceStore(db)
         provider = Timeout()
-        second = retry_saved(store, EvidenceExtractor(provider, clock=clock), attempt_id=first["attempt_id"], fix_commit="b" * 40)
+        second = retry_saved(store, EvidenceExtractor(provider, clock=clock, protocol_version=2), attempt_id=first["attempt_id"], fix_commit="b" * 40)
         assert second["status"] == "FAILED" and provider.calls == 1
         with pytest.raises(ValueError, match="BUDGET_OR_RETRY_DENIED"):
-            retry_saved(store, EvidenceExtractor(provider, clock=clock), attempt_id=first["attempt_id"], fix_commit="c" * 40)
+            retry_saved(store, EvidenceExtractor(provider, clock=clock, protocol_version=2), attempt_id=first["attempt_id"], fix_commit="c" * 40)
         _, kwargs = setup(store, clock, source="xhs:synthetic-b")
-        second_source = ExtractionRecovery(store, EvidenceExtractor(provider, clock=clock)).execute(**kwargs)
+        second_source = ExtractionRecovery(store, EvidenceExtractor(provider, clock=clock, protocol_version=2)).execute(**kwargs)
         with pytest.raises(ValueError, match="BUDGET_OR_RETRY_DENIED"):
-            retry_saved(store, EvidenceExtractor(provider, clock=clock), attempt_id=second_source["attempt_id"], fix_commit="d" * 40)
+            retry_saved(store, EvidenceExtractor(provider, clock=clock, protocol_version=2), attempt_id=second_source["attempt_id"], fix_commit="d" * 40)
         assert provider.calls == 2
 
 
@@ -105,7 +105,7 @@ def test_failed_or_late_extraction_never_saves_claims_and_retains_body(clock, fa
                 else:
                     store.begin("recovery", 1, ResearchRequest(destination="synthetic-region", days=5).to_dict(), "owner")
                 return rows
-        runner = ExtractionRecovery(store, EvidenceExtractor(Fault(), clock=clock))
+        runner = ExtractionRecovery(store, EvidenceExtractor(Fault(), clock=clock, protocol_version=2))
         if fault == "cancel":
             with pytest.raises(CancelledError):
                 runner.execute(**kwargs)
@@ -134,7 +134,7 @@ def test_service_failure_boundaries_and_safe_report(clock, monkeypatch, fault):
             monkeypatch.setattr(store.contents, "put", lambda *args: (_ for _ in ()).throw(OSError("SECRET_SENTINEL")))
         if fault == "report_save":
             monkeypatch.setattr(store, "finish", lambda *args: (_ for _ in ()).throw(OSError("SECRET_SENTINEL")))
-        service = ResearchService(store, Reader(), EvidenceExtractor(provider, clock=clock), private_policy("owner", now=clock()),
+        service = ResearchService(store, Reader(), EvidenceExtractor(provider, clock=clock, protocol_version=2), private_policy("owner", now=clock()),
             after_extraction=lambda outcome: review_fixture(store, outcome))
         def run():
             return service.run(ResearchRequest(destination="synthetic-region"), research_id="service", revision=0,
@@ -158,7 +158,7 @@ def test_cache_probe_keeps_failed_body_but_never_calls_empty_evidence_pass(clock
     with Database(path, clock=clock) as db:
         store = EvidenceStore(db)
         _, kwargs = setup(store, clock)
-        ExtractionRecovery(store, EvidenceExtractor(Timeout(), clock=clock)).execute(**kwargs)
+        ExtractionRecovery(store, EvidenceExtractor(Timeout(), clock=clock, protocol_version=2)).execute(**kwargs)
         store.finish(kwargs["run_id"], 0, [], {"source_count": 0, "evidence_count": 0, "coverage": []})
     root = Path(__file__).resolve().parents[2]
     child = subprocess.run([sys.executable, str(root / "tools/private_cache_probe.py"), "--database", str(path),
@@ -207,7 +207,7 @@ with Database(Path(sys.argv[1]),clock=clock) as db:
         assert attempt["status"] == "RUNNING"
         provider = FixtureProvider()
         with pytest.raises(ValueError, match="BUDGET_OR_RETRY_DENIED"):
-            ExtractionRecovery(store, EvidenceExtractor(provider, clock=clock)).execute(
+            ExtractionRecovery(store, EvidenceExtractor(provider, clock=clock, protocol_version=2)).execute(
                 run_id=attempt["run_id"], revision=0, content_id=attempt["content_id"], account_scope="owner",
                 policy=private_policy("owner", now=clock()), batch_id="fixed-batch", max_attempts=4)
         assert provider.calls == 0

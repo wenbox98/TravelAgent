@@ -53,10 +53,10 @@ def test_private_live_harness_charges_once_keeps_ledger_and_closes_without_disco
         response_format = "json_object"
         api_key = SecretStr("SECRET_API_KEY")
         def structured(self, task, payload, schema):
-            text = payload["blocks"][0]["text"]
-            return {"claims": [{"topic": "ROUTE", "kind": "AUTHOR_OPINION", "claim": text, "quote": text,
-                                "source_block_ids": [0], "confidence": "MEDIUM", "applicable_conditions": [],
-                                "extraction_basis": "合成夹具"}]}
+            assert task == 'select_evidence_references_v1'
+            span = payload['spans'][0]['span_id']
+            return {'claims':[{'topic':'ROUTE','statement_span_id':span,'condition_span_ids':[span],
+                                'proposed_reference_kind':'GUIDE_SUGGESTION'}]}
     monkeypatch.setattr("travel_agent.research.live.LiveResearchReader", Reader)
     monkeypatch.setattr(private_smoke.OpenAICompatibleProvider, "from_env", lambda: Provider())
     def review(outcome):
@@ -67,7 +67,7 @@ def test_private_live_harness_charges_once_keeps_ledger_and_closes_without_disco
         with Database(tmp_path / ".local/t06.1-private/research.sqlite3") as db:
             review_candidates(EvidenceStore(db), attempt_id=outcome["attempt_id"], account_scope=private_smoke.SCOPE,
                 decisions={c["candidate_index"]: {"action":"ACCEPT", "reason_code":"WORK_CONTEXT_VERIFIED",
-                    "dimension_checks":{k:True for k in REVIEW_DIMENSIONS}}
+                    "dimension_checks":{k:True for k in REVIEW_DIMENSIONS},'reference_scope':'GUIDE_SUGGESTION'}
                     for c in outcome["candidate_checks"] if c["context_status"] == "PENDING"})
     result = private_smoke.run_live(tmp_path, after_extraction=review)
     assert result["status"] == "FIRST_ROUND_RECORDED", result

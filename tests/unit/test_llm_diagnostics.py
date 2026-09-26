@@ -101,7 +101,7 @@ def test_error_survives_extractor_without_fallback_claims(monkeypatch,clock):
         def open(self,*args,**kwargs): raise TimeoutError(SECRET)
     monkeypatch.setattr("travel_agent.providers.llm.build_opener",lambda *args:Opener())
     p=OpenAICompatibleProvider("https://model.invalid","synthetic-model",SecretStr(SECRET))
-    r=EvidenceExtractor(p,clock=clock).extract(source_id="xhs:synthetic",source_title=None,
+    r=EvidenceExtractor(p,clock=clock, protocol_version=2).extract(source_id="xhs:synthetic",source_title=None,
         body="虚构旅行路线连接合成山谷。",completeness="PARTIAL_TEXT",fetched_at=clock().isoformat(),
         policy=private_policy("owner",now=clock()),allow_fallback=False)
     assert r.diagnostic.category == "TIMEOUT" and not r.bundle["claims"]

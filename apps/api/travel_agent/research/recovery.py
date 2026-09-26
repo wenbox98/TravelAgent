@@ -78,7 +78,8 @@ class ExtractionRecovery:
             return dispatch(attempt_id, research_gaps)
         return self.run_reserved(attempt_id, research_gaps=research_gaps)
 
-    def run_reserved(self, attempt_id: str, *, research_gaps: tuple[str, ...] = ()) -> dict[str, Any]:
+    def run_reserved(self, attempt_id: str, *, research_gaps: tuple[str, ...] = (),
+                     dispatch_guard: Callable[[], None] | None = None) -> dict[str, Any]:
         """Only one process may transition a durable reservation to RUNNING."""
         db = self.store.db
         attempt = db.connection.execute("SELECT a.*,b.account_scope FROM extraction_attempts a "
@@ -112,6 +113,8 @@ class ExtractionRecovery:
             con.execute("UPDATE extraction_attempts SET status='RUNNING' WHERE attempt_id=?", (attempt_id,))
         provider = self.extractor.provider
         def checkpoint(safe: dict[str, Any]) -> None:
+            if dispatch_guard is not None and safe.get('transport_phase')=='OPENING':
+                dispatch_guard()
             validator("LLMDiagnostic").validate(safe)
             with db.transaction() as con:
                 updated = con.execute("UPDATE extraction_attempts SET diagnostic_json=? WHERE attempt_id=? AND status='RUNNING'",
@@ -127,6 +130,8 @@ class ExtractionRecovery:
         diagnostic = Diagnostic()
         status = "FAILED"
         try:
+            if dispatch_guard is not None:
+                dispatch_guard()
             result = self.extractor.extract(source_id=source_id, source_title=source["source_title"],
                 body=content["raw_text"], dom_body=content["dom_text"], completeness=content["content_completeness"],
                 fetched_at=content["retrieved_at"], source_published_at=content["published_at"],

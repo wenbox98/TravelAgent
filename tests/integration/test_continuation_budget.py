@@ -24,7 +24,7 @@ from test_candidate_grounding import accept
 
 def setup(db, clock):
     store, _, _, kwargs = prepare(db, clock, [])
-    recovery = ExtractionRecovery(store, EvidenceExtractor(Timeout(), clock=clock))
+    recovery = ExtractionRecovery(store, EvidenceExtractor(Timeout(), clock=clock, protocol_version=2))
     recovery.execute(**kwargs)
     failed = recovery.execute(**kwargs, retry_fix_commit="a" * 40)
     provider = OpenAICompatibleProvider("https://api.deepseek.com", "synthetic-model", SecretStr("synthetic-secret"),
@@ -85,11 +85,11 @@ def test_normal_source_reservation_uses_120_180_and_no_second_dispatch(tmp_path,
             ContinuationBudget(store).check_worker(attempt,provider)
             observed.append(attempt)
             fake = Provider([candidate(BODY.splitlines()[0])])
-            return ExtractionRecovery(store,EvidenceExtractor(fake,clock=clock)).run_reserved(attempt)
+            return ExtractionRecovery(store,EvidenceExtractor(fake,clock=clock, protocol_version=2)).run_reserved(attempt)
         monkeypatch.setattr("travel_agent.research.retry.supervise_reserved",supervisor)
         def dispatch(attempt,gaps):
             return supervise_continuation(store,attempt,gaps,provider)
-        recovery = ExtractionRecovery(store,EvidenceExtractor(provider))
+        recovery = ExtractionRecovery(store,EvidenceExtractor(provider, protocol_version=2))
         args = dict(run_id=run,revision=0,content_id=content,account_scope="owner",policy=policy,
                     batch_id=CONTINUATION,max_attempts=2,research_gaps=("ROUTES","DURATION"),dispatch=dispatch)
         result = recovery.execute(**args)
@@ -129,10 +129,10 @@ def test_continuation_service_keeps_partial_then_stops_transport_failure(tmp_pat
             dispatched.append(attempt)
             fake = (Provider([] if first_empty and len(dispatched) == 1 else [candidate(BODY.splitlines()[0]),candidate("不存在")])
                     if len(dispatched) == 1 or second_succeeds else Timeout())
-            return ExtractionRecovery(store,EvidenceExtractor(fake,clock=clock)).run_reserved(attempt) | {"result":None}
+            return ExtractionRecovery(store,EvidenceExtractor(fake,clock=clock, protocol_version=2)).run_reserved(attempt) | {"result":None}
         def review(out):
             review_candidates(store,attempt_id=out["attempt_id"],account_scope="owner",decisions={0:accept()})
-        service = ResearchService(store,reader,EvidenceExtractor(provider),kw["policy"],
+        service = ResearchService(store,reader,EvidenceExtractor(provider, protocol_version=2),kw["policy"],
             model_batch_id=CONTINUATION,model_max_attempts=2,continuation=budget,
             extraction_dispatch=dispatch,after_extraction=review)
         report = service.run(ResearchRequest(destination="合成青谷"),research_id=CONTINUATION,revision=0,
@@ -155,7 +155,7 @@ def test_owned_new_source_worker_exit_keeps_service_run_open(tmp_path,clock):
         def dispatch(attempt,gaps):
             return supervise_reserved(db.path,attempt,provider=provider,deadline=3,
                                       command=[sys.executable,"-c","pass"],finish_report=False)
-        result = ExtractionRecovery(store,EvidenceExtractor(provider)).execute(run_id=run,revision=0,
+        result = ExtractionRecovery(store,EvidenceExtractor(provider, protocol_version=2)).execute(run_id=run,revision=0,
             content_id=content,account_scope="owner",policy=kw["policy"],batch_id="new-worker-test",max_attempts=1,dispatch=dispatch)
         assert result["status"] == "INTERRUPTED" and result["owned_worker_exited"]
         assert store.is_current(run,0) and store.contents.load("xhs:worker-source","owner")

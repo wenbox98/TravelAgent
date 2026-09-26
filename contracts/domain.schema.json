@@ -847,7 +847,9 @@
         "context_review_status": {
           "enum": [
             "PENDING",
-            "WORK_REVIEWED"
+            "WORK_REVIEWED",
+            "MODEL_CONTEXT_REVIEWED",
+            "PENDING_REVIEW"
           ]
         },
         "grounding_rule_version": {
@@ -915,6 +917,10 @@
               ]
             }
           }
+        },
+        "context_review_id": {
+          "type": "string",
+          "pattern": "^review-[a-f0-9]{32}$"
         }
       }
     },
@@ -3169,10 +3175,18 @@
             "DEPENDENCY_INDEPENDENT",
             "DEPENDENCY_UNRESOLVED",
             "DUPLICATE_BLOCK_REFERENCE",
+            "DURATION_SCOPE_MISMATCH",
             "IMAGE_INFORMATION_REQUIRED",
+            "INSUFFICIENT_CONTEXT",
+            "INVALID_REFERENCE",
             "LOCATOR_PASS",
+            "MODEL_CONTEXT_SUPPORTED",
             "NOT_TRAVEL_EVIDENCE",
             "QUOTE_NOT_IN_CITED_BLOCK",
+            "REFERENCE_BLOCK_LIMIT",
+            "REFERENCE_BOUNDARY_INVALID",
+            "REFERENCE_ID_NOT_SENT",
+            "ROLE_MISMATCH",
             "SENSITIVE_CONTENT_REJECTED",
             "UNSENT_BLOCK_REFERENCED",
             "UNSUPPORTED_EXTRA_BLOCK_REFERENCE",
@@ -3699,7 +3713,10 @@
           "type": "string"
         },
         "review_status": {
-          "const": "WORK_REVIEWED",
+          "enum": [
+            "WORK_REVIEWED",
+            "MODEL_CONTEXT_REVIEWED"
+          ],
           "title": "Review Status",
           "type": "string"
         },
@@ -4196,6 +4213,23 @@
         },
         "business_calls": {
           "$ref": "#/$defs/PreviewCalls"
+        },
+        "interest_needs_confirmation": {
+          "default": false,
+          "title": "Interest Needs Confirmation",
+          "type": "boolean"
+        },
+        "previous_interest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Previous Interest"
         }
       },
       "required": [
@@ -4283,6 +4317,11 @@
               "type": "null"
             }
           ]
+        },
+        "workbench_available": {
+          "default": false,
+          "title": "Workbench Available",
+          "type": "boolean"
         }
       },
       "required": [
@@ -4315,6 +4354,395 @@
       ],
       "title": "PreviewCondition",
       "type": "object"
+    },
+    "JobCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "maxLength": 100,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 0,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "destination": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Destination"
+        }
+      },
+      "required": [
+        "session_id",
+        "expected_revision"
+      ],
+      "title": "JobCreate",
+      "type": "object"
+    },
+    "JobAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "cancel",
+            "adopt"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 0,
+          "title": "Expected Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "expected_revision"
+      ],
+      "title": "JobAction",
+      "type": "object"
+    },
+    "JobView": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "QUEUED",
+            "RUNNING",
+            "WAITING_LOGIN",
+            "VERIFICATION_REQUIRED",
+            "PARTIAL",
+            "COMPLETED",
+            "NEEDS_REVIEW",
+            "FAILED",
+            "CANCELED",
+            "INTERRUPTED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "request_revision": {
+          "title": "Request Revision",
+          "type": "integer"
+        },
+        "cancel_requested": {
+          "title": "Cancel Requested",
+          "type": "boolean"
+        },
+        "new_evidence_count": {
+          "title": "New Evidence Count",
+          "type": "integer"
+        },
+        "reviewed": {
+          "title": "Reviewed",
+          "type": "integer"
+        },
+        "pending": {
+          "title": "Pending",
+          "type": "integer"
+        },
+        "rejected": {
+          "title": "Rejected",
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "can_adopt": {
+          "title": "Can Adopt",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "job_id",
+        "session_id",
+        "status",
+        "request_revision",
+        "cancel_requested",
+        "new_evidence_count",
+        "reviewed",
+        "pending",
+        "rejected",
+        "reason",
+        "can_adopt"
+      ],
+      "title": "JobView",
+      "type": "object"
+    },
+    "WorkbenchBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "used": {
+          "$ref": "#/$defs/WorkbenchCounts"
+        },
+        "remaining": {
+          "$ref": "#/$defs/WorkbenchCounts"
+        },
+        "gate": {
+          "title": "Gate",
+          "type": "string"
+        },
+        "closed": {
+          "title": "Closed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "used",
+        "remaining",
+        "gate",
+        "closed"
+      ],
+      "title": "WorkbenchBudget",
+      "type": "object"
+    },
+    "WorkbenchCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "connect": {
+          "minimum": 0,
+          "title": "Connect",
+          "type": "integer"
+        },
+        "search": {
+          "minimum": 0,
+          "title": "Search",
+          "type": "integer"
+        },
+        "detail": {
+          "minimum": 0,
+          "title": "Detail",
+          "type": "integer"
+        },
+        "model": {
+          "minimum": 0,
+          "title": "Model",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "connect",
+        "search",
+        "detail",
+        "model"
+      ],
+      "title": "WorkbenchCounts",
+      "type": "object"
+    },
+    "WorkbenchIndex": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "budget": {
+          "$ref": "#/$defs/WorkbenchBudget"
+        },
+        "jobs": {
+          "items": {
+            "$ref": "#/$defs/JobView"
+          },
+          "title": "Jobs",
+          "type": "array"
+        },
+        "data_use": {
+          "title": "Data Use",
+          "type": "string"
+        }
+      },
+      "required": [
+        "enabled",
+        "configured",
+        "budget",
+        "jobs",
+        "data_use"
+      ],
+      "title": "WorkbenchIndex",
+      "type": "object"
+    },
+    "ModelContextReviewResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviews"
+      ],
+      "properties": {
+        "reviews": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "candidate_index",
+              "decision",
+              "reason_code",
+              "dimension_checks",
+              "context_span_ids",
+              "reference_scope",
+              "duration_scope",
+              "object_span_id",
+              "object_scope",
+              "dependency_resolution",
+              "explanation"
+            ],
+            "properties": {
+              "candidate_index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 11
+              },
+              "decision": {
+                "enum": [
+                  "REFERENCE",
+                  "REJECT",
+                  "NEEDS_REVIEW"
+                ]
+              },
+              "reason_code": {
+                "enum": [
+                  "CONTEXT_CONDITION_OMITTED",
+                  "CONTEXT_NEGATION_OMITTED",
+                  "CONTEXT_REVIEW_REQUIRED",
+                  "CONTEXT_SUBJECT_OMITTED",
+                  "CONTEXT_SUPPORTED",
+                  "CONTEXT_TIME_UNCERTAIN",
+                  "CONTEXT_TRANSPORT_MISMATCH",
+                  "CONTEXT_UNCERTAIN",
+                  "DEPENDENCY_UNRESOLVED",
+                  "DURATION_SCOPE_MISMATCH",
+                  "INSUFFICIENT_CONTEXT",
+                  "INVALID_REFERENCE",
+                  "MODEL_CONTEXT_SUPPORTED",
+                  "NOT_TRAVEL_EVIDENCE",
+                  "ROLE_MISMATCH",
+                  "UNVERIFIED_IMPORTANT_FACT"
+                ]
+              },
+              "dimension_checks": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "hypothesis",
+                  "images",
+                  "negation",
+                  "scope",
+                  "source_kind",
+                  "subject",
+                  "time",
+                  "transport"
+                ],
+                "properties": {
+                  "hypothesis": {
+                    "type": "boolean"
+                  },
+                  "images": {
+                    "type": "boolean"
+                  },
+                  "negation": {
+                    "type": "boolean"
+                  },
+                  "scope": {
+                    "type": "boolean"
+                  },
+                  "source_kind": {
+                    "type": "boolean"
+                  },
+                  "subject": {
+                    "type": "boolean"
+                  },
+                  "time": {
+                    "type": "boolean"
+                  },
+                  "transport": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "context_span_ids": {
+                "type": "array",
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "maxLength": 100
+                }
+              },
+              "reference_scope": {
+                "enum": [
+                  "AUTHOR_RECORDED_TRIP",
+                  "AUTHOR_PROPOSED_PLAN",
+                  "GUIDE_SUGGESTION",
+                  "UNKNOWN"
+                ]
+              },
+              "duration_scope": {
+                "enum": [
+                  "NONE",
+                  "WHOLE_TRIP",
+                  "DAY_SEGMENT"
+                ]
+              },
+              "object_span_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 100
+              },
+              "object_scope": {
+                "enum": [
+                  "WHOLE_TRIP",
+                  "SEGMENT"
+                ]
+              },
+              "dependency_resolution": {
+                "enum": [
+                  "INDEPENDENT",
+                  "UNRESOLVED"
+                ]
+              },
+              "explanation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

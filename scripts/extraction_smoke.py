@@ -68,7 +68,7 @@ def run(fix_commit=None, resume_before_dispatch=False):
             contents = store.contents.load("synthetic:t062", "synthetic-owner")
             assert 900 <= len(contents[0]["normalized_text"]) <= 1500
             assert 12 <= len(contents[0]["body_blocks"]) <= 20
-            outcome = ExtractionRecovery(store, EvidenceExtractor(provider)).execute(
+            outcome = ExtractionRecovery(store, EvidenceExtractor(provider, protocol_version=2)).execute(
                 run_id=run_id, revision=0, content_id=content_id, account_scope="synthetic-owner",
                 policy=policy, batch_id="t062-synthetic", max_attempts=2)
             result = {k: v for k, v in outcome.items() if k != "result"} | {

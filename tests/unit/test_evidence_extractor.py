@@ -44,7 +44,7 @@ def test_body_blocks_preserve_exact_source_offsets_and_version():
 
 def test_r06_strict_claim_uses_program_locator_not_model_source_or_dates(fixture_data, clock):
     provider = MockLLMProvider({"extract_evidence": {"claims": [row()]}})
-    result = EvidenceExtractor(provider, clock=clock).extract(**arguments(fixture_data))
+    result = EvidenceExtractor(provider, clock=clock, protocol_version=2).extract(**arguments(fixture_data))
     data = result.bundle.to_dict()
     assert validator("EvidenceBundle").is_valid(data)
     assert result.mode == "MOCK" and result.provider_called is True
@@ -62,7 +62,7 @@ def test_r06_strict_claim_uses_program_locator_not_model_source_or_dates(fixture
 ])
 def test_ungrounded_or_invented_claims_are_rejected(fixture_data, clock, changed):
     provider = MockLLMProvider({"extract_evidence": {"claims": [row(**changed)]}})
-    result = EvidenceExtractor(provider, clock=clock).extract(**arguments(fixture_data))
+    result = EvidenceExtractor(provider, clock=clock, protocol_version=2).extract(**arguments(fixture_data))
     assert result.bundle["claims"] == [] and result.rejected_claims == 1
     assert "UNSUPPORTED_CLAIMS_REJECTED" in result.gaps
 
@@ -76,14 +76,14 @@ def test_invalid_structured_output_falls_back_without_importing_injected_fields(
     fixture_data, clock, injected,
 ):
     provider = MockLLMProvider({"extract_evidence": {"claims": [row(**injected)]}})
-    result = EvidenceExtractor(provider, clock=clock).extract(**arguments(fixture_data))
+    result = EvidenceExtractor(provider, clock=clock, protocol_version=2).extract(**arguments(fixture_data))
     assert result.mode == "LOCAL_EXTRACTIVE" and result.provider_called is True
     assert all(c["kind"] == "AUTHOR_OPINION" for c in result.bundle["claims"])
     assert "SECRET_XSEC_T05" not in json.dumps(result.bundle.to_dict())
 
 
 def test_r07_image_reference_creates_gap_not_invented_image_evidence(fixture_data):
-    result = EvidenceExtractor().extract(**arguments(
+    result = EvidenceExtractor(protocol_version=2).extract(**arguments(
         fixture_data, body="路线见图2，价格看图片。", image_count=2
     ))
     assert "IMAGE_INFORMATION_REQUIRED" in result.gaps
@@ -91,7 +91,7 @@ def test_r07_image_reference_creates_gap_not_invented_image_evidence(fixture_dat
 
 
 def test_r08_r21_published_date_never_becomes_travel_date_or_full_text(fixture_data):
-    result = EvidenceExtractor().extract(**arguments(fixture_data))
+    result = EvidenceExtractor(protocol_version=2).extract(**arguments(fixture_data))
     assert result.bundle["source_published_at"] == "2025-10-20T02:00:00+08:00"
     assert result.bundle["travel_occurred_at"] is None
     assert result.bundle["completeness"] == "PARTIAL_TEXT"
@@ -99,7 +99,7 @@ def test_r08_r21_published_date_never_becomes_travel_date_or_full_text(fixture_d
 
 
 def test_local_fallback_is_literal_low_confidence_and_retains_useful_topics(fixture_data):
-    result = EvidenceExtractor().extract(**arguments(fixture_data))
+    result = EvidenceExtractor(protocol_version=2).extract(**arguments(fixture_data))
     assert result.mode == "LOCAL_EXTRACTIVE" and result.provider_called is False
     assert {c["topic"] for c in result.bundle["claims"]} == {"ROUTE", "DURATION", "TRANSPORT"}
     assert all(c["text"] in arguments(fixture_data)["body"] for c in result.bundle["claims"])
@@ -114,7 +114,7 @@ def test_unknown_policy_never_calls_model_and_explicit_temporary_read_is_local(f
         def structured(self, *args):
             raise AssertionError("unknown policy must not send data")
     policy = SourcePolicy(fixture_data("policies.json")["policies"][1])
-    extractor = EvidenceExtractor(NeverCalled())
+    extractor = EvidenceExtractor(NeverCalled(), protocol_version=2)
     blocked = extractor.extract(**arguments(fixture_data, policy=policy, source_type="XHS"))
     assert blocked.mode == "POLICY_BLOCKED" and blocked.bundle["claims"] == []
     still_blocked = extractor.extract(**arguments(
@@ -134,7 +134,7 @@ def test_expired_inference_policy_does_not_call_external_model(fixture_data, clo
     policy = fixture_data("policies.json")["policies"][0]
     policy["expires_at"] = "2026-09-21T00:00:00+08:00"
     provider = MockLLMProvider({"extract_evidence": {"claims": [row()]}})
-    result = EvidenceExtractor(provider, clock=clock).extract(**arguments(
+    result = EvidenceExtractor(provider, clock=clock, protocol_version=2).extract(**arguments(
         fixture_data, policy=SourcePolicy(policy)
     ))
     assert result.mode == "POLICY_BLOCKED" and not result.provider_called
@@ -142,19 +142,19 @@ def test_expired_inference_policy_does_not_call_external_model(fixture_data, clo
 
 def test_real_source_never_uses_mock_material_even_with_allowed_policy(fixture_data, clock):
     provider = MockLLMProvider({"extract_evidence": {"claims": [row()]}})
-    result = EvidenceExtractor(provider, clock=clock).extract(**arguments(fixture_data, source_type="XHS"))
+    result = EvidenceExtractor(provider, clock=clock, protocol_version=2).extract(**arguments(fixture_data, source_type="XHS"))
     assert result.mode == "LOCAL_EXTRACTIVE" and not result.provider_called
     assert result.bundle["source_type"] == "XHS" and not result.bundle["is_synthetic"]
 
 
 @pytest.mark.parametrize("completeness", ["METADATA_ONLY", "SUMMARY_ONLY"])
 def test_title_or_summary_is_not_treated_as_a_read_body(fixture_data, completeness):
-    result = EvidenceExtractor().extract(**arguments(fixture_data, completeness=completeness))
+    result = EvidenceExtractor(protocol_version=2).extract(**arguments(fixture_data, completeness=completeness))
     assert result.bundle["claims"] == [] and result.blocks == () and result.mode == "NO_BODY"
 
 
 def test_secret_input_is_not_sent_or_returned_as_evidence(fixture_data):
-    result = EvidenceExtractor().extract(**arguments(
+    result = EvidenceExtractor(protocol_version=2).extract(**arguments(
         fixture_data, body="xsec_token=SECRET_XSEC_T05", source_title="SECRET_XSEC_T05"
     ))
     assert result.mode == "POLICY_BLOCKED" and not result.provider_called
@@ -168,7 +168,7 @@ def test_provider_exception_falls_back_without_logging_private_exception(fixture
         is_mock = False
         def structured(self, *args):
             raise TimeoutError("SECRET_COOKIE_T05")
-    result = EvidenceExtractor(FailingProvider(), clock=clock).extract(**arguments(fixture_data))
+    result = EvidenceExtractor(FailingProvider(), clock=clock, protocol_version=2).extract(**arguments(fixture_data))
     assert result.mode == "LOCAL_EXTRACTIVE" and result.provider_called
     captured = capsys.readouterr()
     assert "SECRET_COOKIE_T05" not in captured.out + captured.err + repr(result)
@@ -176,7 +176,7 @@ def test_provider_exception_falls_back_without_logging_private_exception(fixture
 
 def test_q04_metadata_has_grounded_blocks_but_no_body_or_model_basis(fixture_data, clock):
     provider = MockLLMProvider({"extract_evidence": {"claims": [row(extraction_basis="IGNORE_PRIVATE_MODEL_BASIS")]}})
-    result = EvidenceExtractor(provider, clock=clock).extract(**arguments(fixture_data))
+    result = EvidenceExtractor(provider, clock=clock, protocol_version=2).extract(**arguments(fixture_data))
     claim = result.bundle["claims"][0]
     assessment = result.bundle["claim_metadata"][claim["claim_id"]]
     assert assessment["source_block_ids"] == [0] and assessment["body_origin"] == "STATE"
@@ -196,7 +196,7 @@ def test_q05_user_constraints_or_unquoted_conditions_cannot_become_source_facts(
     provider = MockLLMProvider({"extract_evidence": {"claims": [row(
         source_block_ids=[0, 1], applicable_conditions=[condition],
     )]}})
-    result = EvidenceExtractor(provider, clock=clock).extract(**arguments(fixture_data))
+    result = EvidenceExtractor(provider, clock=clock, protocol_version=2).extract(**arguments(fixture_data))
     assert not result.bundle["claims"] and result.rejected_claims == 1
 
 
@@ -205,7 +205,7 @@ def test_q05_source_literal_conditions_are_preserved_without_user_query_mapping(
     provider = MockLLMProvider({"extract_evidence": {"claims": [row(
         source_block_ids=[0, 1], applicable_conditions=[condition],
     )]}})
-    result = EvidenceExtractor(provider, clock=clock).extract(**arguments(fixture_data, completeness="FULL_TEXT"))
+    result = EvidenceExtractor(provider, clock=clock, protocol_version=2).extract(**arguments(fixture_data, completeness="FULL_TEXT"))
     claim = result.bundle["claims"][0]
     meta = result.bundle["claim_metadata"][claim["claim_id"]]
     assert meta["applicable_conditions"] == ["作者这次停留两天"]
@@ -215,13 +215,13 @@ def test_q05_source_literal_conditions_are_preserved_without_user_query_mapping(
 
 def test_q04_unrelated_block_padding_is_not_a_grounded_reference(fixture_data, clock):
     provider = MockLLMProvider({"extract_evidence": {"claims": [row(source_block_ids=[0, 2])]}})
-    result = EvidenceExtractor(provider, clock=clock).extract(**arguments(fixture_data))
+    result = EvidenceExtractor(provider, clock=clock, protocol_version=2).extract(**arguments(fixture_data))
     assert not result.bundle["claims"] and result.rejected_claims == 1
 
 
 def test_q07_disagreement_downgrades_high_proposal_and_retains_gap(fixture_data, clock):
     provider = MockLLMProvider({"extract_evidence": {"claims": [row()]}})
-    result = EvidenceExtractor(provider, clock=clock).extract(**arguments(
+    result = EvidenceExtractor(provider, clock=clock, protocol_version=2).extract(**arguments(
         fixture_data, dom_body="住宿价格八十元", completeness="FULL_TEXT",
     ))
     claim = result.bundle["claims"][0]
@@ -235,7 +235,7 @@ def test_q08_duplicates_are_within_source_only_and_opposition_is_retained(fixtur
     provider = MockLLMProvider({"extract_evidence": {"claims": [
         row(topic="DURATION", quote=q, claim=q, source_block_ids=[i]) for i, q in enumerate(quotes)
     ]}})
-    extractor = EvidenceExtractor(provider, clock=clock)
+    extractor = EvidenceExtractor(provider, clock=clock, protocol_version=2)
     one = extractor.extract(**arguments(fixture_data, body="\n".join(quotes)))
     two = extractor.extract(**arguments(fixture_data, body="\n".join(quotes), source_id="xhs:other-source"))
     assert len(one.bundle["claims"]) == len(two.bundle["claims"]) == 2
@@ -245,7 +245,7 @@ def test_q08_duplicates_are_within_source_only_and_opposition_is_retained(fixtur
 
 def test_dom_only_secret_never_reaches_provider_or_result(fixture_data, clock):
     provider = MockLLMProvider({"extract_evidence": {"claims": [row()]}})
-    result = EvidenceExtractor(provider, clock=clock).extract(**arguments(
+    result = EvidenceExtractor(provider, clock=clock, protocol_version=2).extract(**arguments(
         fixture_data, body=None, dom_body="xsec_token=SECRET_XSEC_T06",
     ))
     assert not result.provider_called and result.mode == "POLICY_BLOCKED"
@@ -254,13 +254,13 @@ def test_dom_only_secret_never_reaches_provider_or_result(fixture_data, clock):
 
 
 def test_dom_only_image_reference_adds_image_gap_without_invented_claims(fixture_data):
-    result = EvidenceExtractor().extract(**arguments(fixture_data, body=None, dom_body="路线见图2"))
+    result = EvidenceExtractor(protocol_version=2).extract(**arguments(fixture_data, body=None, dom_body="路线见图2"))
     assert "IMAGE_INFORMATION_REQUIRED" in result.gaps and "IMAGE_NOT_ANALYZED" in result.gaps
     assert not result.bundle["claims"] and result.canonical.origin == "DOM"
 
 
 def test_travel_date_is_only_a_verified_literal_source_field_at_day_precision(fixture_data):
-    result = EvidenceExtractor().extract(**arguments(
+    result = EvidenceExtractor(protocol_version=2).extract(**arguments(
         fixture_data, body="旅行日期：2025-10-02\n路线甲沿河出发。",
     ))
     assert result.bundle["travel_occurred_at"] == "2025-10-02T00:00:00+00:00"
@@ -273,5 +273,5 @@ def test_travel_date_is_only_a_verified_literal_source_field_at_day_precision(fi
     "旅行日期：2025-10-02\n旅行日期：2026-10-02", "发布日期：2025-10-02",
 ])
 def test_ambiguous_invalid_or_non_travel_dates_remain_unknown(fixture_data, body):
-    result = EvidenceExtractor().extract(**arguments(fixture_data, body=body))
+    result = EvidenceExtractor(protocol_version=2).extract(**arguments(fixture_data, body=body))
     assert result.bundle["travel_occurred_at"] is None and "TRAVEL_TIME_UNKNOWN" in result.gaps

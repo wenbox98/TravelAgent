@@ -133,7 +133,7 @@ try:
                                    clock().isoformat(), source_type="SYNTHETIC"), policy, "合成青谷")
         kwargs = dict(run_id=run, revision=0, content_id=content, account_scope="owner", policy=policy,
                       batch_id="original-batch", max_attempts=4)
-        runner = ExtractionRecovery(store, EvidenceExtractor(Failed(), clock=clock))
+        runner = ExtractionRecovery(store, EvidenceExtractor(Failed(), clock=clock, protocol_version=2))
         runner.execute(**kwargs)
         old = runner.execute(**kwargs, retry_fix_commit="b" * 40)
         old_rows = [tuple(r) for r in db.connection.execute("SELECT * FROM extraction_attempts ORDER BY attempt_number")]
@@ -169,7 +169,7 @@ try:
         assert authorize_extra(store, base_attempt_id=old["attempt_id"], fix_commit="a" * 40,
                                provider=provider, deadline=deadline)["status"] == "CONSUMED"
         try:
-            runner = ExtractionRecovery(store, EvidenceExtractor(Failed(), clock=clock))
+            runner = ExtractionRecovery(store, EvidenceExtractor(Failed(), clock=clock, protocol_version=2))
             runner.execute(**kwargs, retry_fix_commit="c" * 40)
             raise AssertionError("OLD_RETRY_MUST_REMAIN_EXHAUSTED")
         except ValueError:

@@ -44,7 +44,7 @@ class PreviewService:
             accepted, metadata = [], {}
             for claim in b["claims"]:
                 meta = b.get("claim_metadata", {}).get(claim["claim_id"], {})
-                if claim["claim_id"] not in claims or meta.get("context_review_status") != "WORK_REVIEWED" or not is_grounded(b, claim):
+                if claim["claim_id"] not in claims or meta.get("context_review_status") not in {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED"} or not is_grounded(b, claim):
                     continue
                 review = self.db.connection.execute(
                     "SELECT c.context_status,c.claim_id FROM extraction_candidates c "
@@ -53,6 +53,13 @@ class PreviewService:
                     (meta.get("audit_attempt_id"), meta.get("audit_candidate_index"), self.scope, source_id)).fetchone()
                 if review is None or review["context_status"] != "ACCEPTED" or review["claim_id"] != claim["claim_id"]:
                     continue
+                if meta.get('context_review_status') == 'MODEL_CONTEXT_REVIEWED':
+                    model = self.db.connection.execute("SELECT results_json FROM context_review_runs WHERE review_id=? "
+                        "AND attempt_id=? AND account_scope=? AND mode='RUNTIME' AND status='COMPLETED'",
+                        (meta.get('context_review_id'),meta.get('audit_attempt_id'),self.scope)).fetchone()
+                    if model is None or not any(i['candidate_index']==meta.get('audit_candidate_index') and
+                        i['program']['action']=='ACCEPT' for i in json.loads(model[0])):
+                        continue
                 singleton = EvidenceBundle(b.to_dict() | {"claims": [claim], "claim_metadata": {claim["claim_id"]: meta}})
                 if audit_grounding(singleton, cached)["unsupported"]:
                     continue
@@ -157,6 +164,8 @@ class PreviewService:
                 "preview": preview, "gaps": gaps(state["preferences"], proposed or current),
                 "questions": [] if state["clarification"] else questions(state["preferences"]),
                 "clarification": state["clarification"], "stale": stale,
+                "interest_needs_confirmation":state.get('interest_needs_confirmation',False),
+                "previous_interest":state.get('previous_interest'),
                 "cache_message": None if data["options"] else EMPTY,
                 "feasibility": "UNVERIFIED", "business_calls": {"connect": 0, "search": 0, "detail": 0, "xhs_browser": 0, "model": 0}}
 
@@ -184,6 +193,8 @@ class PreviewService:
                     if state["preview_option_id"] != mutation.option_id:
                         raise ValueError("PREVIEW_REQUIRED")
                     state["confirmed_option_id"], state["preview_option_id"] = mutation.option_id, None
+                    state['interest_needs_confirmation']=False
+                    state['previous_interest']=None
                 else:
                     state["preview_option_id"] = mutation.option_id
             elif action == "cancel":

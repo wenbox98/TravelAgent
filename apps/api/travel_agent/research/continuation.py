@@ -31,7 +31,7 @@ class ContinuationBudget:
                                    "WHERE continuation_id=?", (CONTINUATION,)).fetchone()
             if existing is not None and tuple(existing) != values:
                 raise ValueError("CONTINUATION_IMMUTABLE")
-            con.execute("INSERT OR IGNORE INTO research_continuations VALUES(?,?,?,?,?,NULL,NULL)",
+            con.execute("INSERT OR IGNORE INTO research_continuations(continuation_id,account_scope,predecessor,config_json,created_at,started_at,finished_at) VALUES(?,?,?,?,?,NULL,NULL)",
                         (CONTINUATION, *values, self.store.db.stamp()))
 
     def start(self) -> None:

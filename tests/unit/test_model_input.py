@@ -35,7 +35,7 @@ def test_model_cannot_cite_a_block_that_was_not_sent(clock):
             return {"claims": [{"topic": "OTHER", "kind": "AUTHOR_OPINION", "claim": text,
                                 "quote": text, "source_block_ids": [1], "confidence": "LOW",
                                 "applicable_conditions": [], "extraction_basis": "猜测"}]}
-    result = EvidenceExtractor(Fake(), clock=clock).extract(
+    result = EvidenceExtractor(Fake(), clock=clock, protocol_version=2).extract(
         source_id="xhs:synthetic", source_title=None, body="合成路线经过虚构湖泊。\n微信：synthetic_contact 合成路线需要五天。",
         completeness="PARTIAL_TEXT", fetched_at=clock().isoformat(), policy=private_policy("owner", now=clock()))
     assert result.mode == "LLM" and result.rejected_claims == 1 and not result.bundle["claims"]

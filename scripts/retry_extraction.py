@@ -77,7 +77,8 @@ def main():
                     from travel_agent.research.recovery import ExtractionRecovery
                     store = EvidenceStore(db)
                     ContinuationBudget(store).check_worker(args.attempt_id, provider)
-                    ExtractionRecovery(store, EvidenceExtractor(provider)).run_reserved(args.attempt_id,
+                    version = db.connection.execute('SELECT extraction_version FROM extraction_attempts WHERE attempt_id=?', (args.attempt_id,)).fetchone()[0]
+                    ExtractionRecovery(store, EvidenceExtractor(provider,protocol_version=version)).run_reserved(args.attempt_id,
                         research_gaps=tuple(filter(None, args.research_gaps.split(","))))
                     return 0
                 if not args.fix_commit:

@@ -178,7 +178,7 @@ def build_claim(row: dict[str, Any], grounded: GroundingResult, canonical: Canon
 class EvidenceExtractor:
     def __init__(
         self, provider: LLMProvider | None = None, *, clock: Callable[[], datetime] | None = None,
-        protocol_version: int = 2,
+        protocol_version: int = 3,
     ) -> None:
         self.provider = provider
         self.clock = clock or (lambda: datetime.now(timezone.utc))

@@ -18,10 +18,18 @@ from .references import catalog, materialize, validate_reference, REFERENCE_KIND
 
 
 def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: str,
-                      decisions: dict[int, dict[str, Any]]) -> dict[str, Any]:
+                      decisions: dict[int, dict[str, Any]], model_review_id: str | None = None) -> dict[str, Any]:
     """Accept only locator-valid, explicitly reviewed rows; transaction includes lineage."""
     con = store.db.connection
     with store.db.transaction():
+        if model_review_id is not None:
+            review = con.execute("SELECT * FROM context_review_runs WHERE review_id=? AND attempt_id=? AND account_scope=? "
+                "AND mode='RUNTIME' AND status='COMPLETED'", (model_review_id,attempt_id,account_scope)).fetchone()
+            if review is None:
+                raise ValueError('MODEL_REVIEW_LINEAGE_REQUIRED')
+            approved = {i['candidate_index']:i['program'] for i in json.loads(review['results_json'])}
+            if any(approved.get(i) != d for i,d in decisions.items()):
+                raise ValueError('MODEL_REVIEW_DECISION_MISMATCH')
         attempt = con.execute("SELECT a.*,b.account_scope,r.research_id,q.current_revision,q.request_json "
             "FROM extraction_attempts a JOIN extraction_batches b USING(batch_id) JOIN research_runs r USING(run_id) "
             "JOIN research_questions q USING(research_id) WHERE attempt_id=?", (attempt_id,)).fetchone()
@@ -76,7 +84,7 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                 raise ValueError("REJECTED_LOCATOR_CANNOT_BE_APPROVED")
             claim_id = None
             if action == "ACCEPT":
-                if reason != "WORK_CONTEXT_VERIFIED" or decision.get("dimension_checks") != {k: True for k in REVIEW_DIMENSIONS}:
+                if reason != ("MODEL_CONTEXT_SUPPORTED" if model_review_id else "WORK_CONTEXT_VERIFIED") or decision.get("dimension_checks") != {k: True for k in REVIEW_DIMENSIONS}:
                     raise ValueError("CONTEXT_REVIEW_INCOMPLETE")
                 candidate = deepcopy(json.loads(row["candidate_json"]))
                 reference = candidate.get("reference_selection")
@@ -132,8 +140,10 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                 if not checked.passed or context_hazard(candidate, view.blocks):
                     raise ValueError("REVIEW_CONTEXT_NOT_GROUNDED")
                 claim, metadata = build_claim(candidate, checked, view, content["source_id"], attempt["extraction_mode"])
-                metadata.update(context_review_status="WORK_REVIEWED", grounding_rule_version=2,
+                metadata.update(context_review_status="MODEL_CONTEXT_REVIEWED" if model_review_id else "WORK_REVIEWED", grounding_rule_version=2,
                                 audit_attempt_id=attempt_id, audit_candidate_index=index)
+                if model_review_id:
+                    metadata['context_review_id'] = model_review_id
                 if decision.get("reference_scope"):
                     metadata["reference_scope"] = decision["reference_scope"]
                 if decision.get("duration_scope"):

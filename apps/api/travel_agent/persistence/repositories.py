@@ -85,7 +85,32 @@ class EvidenceRepository:
                 and policy["reviewed_at"] is not None and datetime.fromisoformat(policy["reviewed_at"]) <= now
                 and (policy["expires_at"] is None or datetime.fromisoformat(policy["expires_at"]) > now))
 
+    def model_review_valid(self, assessment, source_id, scope, *, require_candidate=True):
+        if assessment.get('context_review_status') != 'MODEL_CONTEXT_REVIEWED':
+            return True
+        if self.db.version < 12:
+            return False
+        row = self.db.connection.execute("SELECT r.results_json,c.context_status,c.claim_id,c.candidate_json FROM context_review_runs r "
+            "JOIN extraction_candidates c ON c.attempt_id=r.attempt_id JOIN extraction_attempts a ON a.attempt_id=r.attempt_id "
+            "JOIN source_contents s ON s.content_id=a.content_id WHERE r.review_id=? AND r.attempt_id=? AND r.account_scope=? "
+            "AND s.source_id=? AND s.account_scope=? AND r.status='COMPLETED' AND r.mode='RUNTIME' AND c.candidate_index=?",
+            (assessment.get('context_review_id'),assessment.get('audit_attempt_id'),scope,source_id,scope,assessment.get('audit_candidate_index'))).fetchone()
+        if row is None or (require_candidate and row['context_status']!='ACCEPTED'):
+            return False
+        approved = next((r['program'] for r in json.loads(row['results_json']) if r['candidate_index']==assessment.get('audit_candidate_index')),None)
+        ref = assessment.get('reference_selection',{})
+        original = json.loads(row['candidate_json']).get('reference_selection',{})
+        return bool(approved and approved['action']=='ACCEPT' and ref.get('statement')==original.get('statement')
+            and assessment.get('reference_scope')==approved.get('reference_scope')
+            and {s['span_id'] for s in ref.get('conditions',[])}==set(approved.get('context_span_ids',[])))
+
+    def require_model_review(self, evidence, scope):
+        for assessment in evidence.get('claim_metadata',{}).values():
+            if not self.model_review_valid(assessment,evidence['source_id'],scope,require_candidate=False):
+                raise ValueError('MODEL_REVIEW_LINEAGE_REQUIRED')
+
     def save(self, evidence: EvidenceBundle, policy: SourcePolicy, *, account_scope):
+        self.require_model_review(evidence,account_scope)
         if (not self.permitted(policy) or policy["policy_id"] != evidence["policy_id"]
             or not scope_allowed(policy, account_scope)):
             raise PermissionError("来源策略不允许保存证据")
@@ -118,6 +143,9 @@ class EvidenceRepository:
             return None
         claims = []
         for claim in self.db.connection.execute("SELECT * FROM claims WHERE source_id=? AND deleted_at IS NULL ORDER BY rowid", (source_id,)):
+            metadata = json.loads(row['claim_metadata_json'] or '{}') if 'claim_metadata_json' in row.keys() else {}
+            if not self.model_review_valid(metadata.get(claim['claim_id'],{}),source_id,account_scope):
+                continue
             claims.append({k: claim[k] for k in ("claim_id", "source_id", "topic", "text", "kind", "locator", "support", "valid_from", "valid_until", "confidence")})
         data = {"source_id": source_id, "source_type": row["source_type"], "source_title": row["title"], "destination": row["destination"], "applicable_conditions": json.loads(row["applicable_conditions_json"]), "missing_fields": json.loads(row["missing_fields_json"]), "completeness": row["completeness"], "fetched_at": row["fetched_at"], "source_published_at": row["published_at"], "travel_occurred_at": row["travel_occurred_at"], "policy_id": row["policy_id"], "claims": claims, "is_synthetic": bool(row["is_synthetic"])}
         if "claim_metadata_json" in row.keys() and row["claim_metadata_json"] is not None:

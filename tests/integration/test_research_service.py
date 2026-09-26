@@ -149,7 +149,7 @@ def test_r04_repeated_source_is_detailed_once(environment, clock):
     reader = FakeReader(candidates=(candidate, candidate, Candidate(
         candidate.source_id, "川西另一个标题", "normal", True
     )))
-    report = run(ResearchService(store, reader, EvidenceExtractor(clock=clock), policy))
+    report = run(ResearchService(store, reader, EvidenceExtractor(clock=clock, protocol_version=2), policy))
     assert len(reader.details) == 1 and report.operations == {"search": 1, "detail": 1}
     assert report.stop_reason == "BUDGET_EXHAUSTED"
 
@@ -167,7 +167,7 @@ def test_r09_sufficient_first_detail_stops_before_second(environment):
 def test_r10_r11_budget_caps_apply_to_actual_reader_invocations(environment, clock, budget, expected):
     store, policy = environment
     reader = FakeReader()
-    report = run(ResearchService(store, reader, EvidenceExtractor(clock=clock), policy), budget=budget)
+    report = run(ResearchService(store, reader, EvidenceExtractor(clock=clock, protocol_version=2), policy), budget=budget)
     assert report.stop_reason == "BUDGET_EXHAUSTED"
     assert report.operations == {"search": 1, "detail": expected}
     assert len(reader.searches) == 1 and len(reader.details) == expected
@@ -242,7 +242,7 @@ def test_failed_fallback_is_not_repeated_again(environment):
 def test_r19_r22_report_keeps_unknown_network_separate_and_lists_real_gaps(environment, clock):
     store, policy = environment
     reader = FakeReader(candidates=(Candidate("xhs:synthetic-a", "川西路线甲攻略", "normal", True),))
-    report = run(ResearchService(store, reader, EvidenceExtractor(clock=clock), policy))
+    report = run(ResearchService(store, reader, EvidenceExtractor(clock=clock, protocol_version=2), policy))
     summary = report.safe_summary()
     assert summary["operations"] == {"search": 1, "detail": 1}
     assert summary.get("actual_request_events") is None
@@ -283,7 +283,7 @@ def test_model_permission_is_rechecked_after_search_before_sending_titles(enviro
 def test_cached_report_preserves_material_uncertainty_without_re_extraction(environment, clock):
     store, policy = environment
     reader = FakeReader()
-    service = ResearchService(store, reader, EvidenceExtractor(clock=clock), policy)
+    service = ResearchService(store, reader, EvidenceExtractor(clock=clock, protocol_version=2), policy)
     first = run(service)
     before = (reader.connects, len(reader.searches), len(reader.details))
     cached = run(service, budget=ResearchBudget(0, 0))

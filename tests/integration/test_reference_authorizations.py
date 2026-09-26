@@ -31,7 +31,7 @@ def prepare_grants(path,clock):
             sid=f'xhs:reference-{index}'
             store.reserve_operation(run,0,'DETAIL',sid,2)
             content=store.save_source(run,0,DetailMaterial(sid,'合成标题五天四晚',BODY,'PARTIAL_TEXT',db.stamp()),kw['policy'],'合成青谷')
-            result=ExtractionRecovery(store,EvidenceExtractor(Provider([]),clock=clock)).execute(run_id=run,revision=0,
+            result=ExtractionRecovery(store,EvidenceExtractor(Provider([]),clock=clock, protocol_version=2)).execute(run_id=run,revision=0,
                 content_id=content,account_scope='owner',policy=kw['policy'],batch_id=CONTINUATION,max_attempts=2)
             assert result['status']=='NO_ACCEPTED_EVIDENCE'
         budget.finish()

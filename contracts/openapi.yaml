@@ -788,6 +788,129 @@ paths:
           application/json:
             schema:
               $ref: ./domain.schema.json#/$defs/PreviewMutation
+  /api/v1/preview/workbench:
+    get:
+      operationId: readWorkbench
+      summary: P02 本机有限研究；GET 零外部调用，POST 受许可、门槛、额度和同源检查约束
+      parameters: []
+      security:
+      - PreviewSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/WorkbenchIndex
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/preview/jobs:
+    post:
+      operationId: createBoundedResearch
+      summary: P02 本机有限研究；GET 零外部调用，POST 受许可、门槛、额度和同源检查约束
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/JobView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/JobCreate
+  /api/v1/preview/jobs/{job_id}:
+    get:
+      operationId: readBoundedResearch
+      summary: P02 本机有限研究；GET 零外部调用，POST 受许可、门槛、额度和同源检查约束
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/JobView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+    post:
+      operationId: changeBoundedResearch
+      summary: P02 本机有限研究；GET 零外部调用，POST 受许可、门槛、额度和同源检查约束
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: ./domain.schema.json#/$defs/JobView
+                - $ref: ./domain.schema.json#/$defs/PreviewView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/JobAction
 components:
   securitySchemes:
     LocalSession:

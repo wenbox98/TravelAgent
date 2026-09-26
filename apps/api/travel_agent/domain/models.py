@@ -55,7 +55,7 @@ def _claim_assessments(bundle):
         association = assessment.get("route_association")
         if association:
             index = association["object_block_id"]
-            if (assessment.get("context_review_status") != "WORK_REVIEWED"
+            if (assessment.get("context_review_status") not in {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED"}
                 or association["source_id"] != bundle["source_id"]
                 or index not in assessment["source_block_ids"]
                 or association["object_quote"] not in assessment["applicable_conditions"]):
@@ -67,7 +67,9 @@ def _claim_assessments(bundle):
             if (anchor_prefix != matched[1] or high - low != len(association["object_quote"])
                 or not block_low <= low < high <= block_high):
                 raise ValueError("路线对象定位不在引用块内")
-        if assessment.get("reference_scope") and (assessment.get("context_review_status") != "WORK_REVIEWED"
+        if assessment.get("context_review_status") == "MODEL_CONTEXT_REVIEWED" and not assessment.get("context_review_id"):
+            raise ValueError("模型审核缺少独立审核记录")
+        if assessment.get("reference_scope") and (assessment.get("context_review_status") not in {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED"}
             or not assessment["applicable_conditions"] or claim["topic"] in {"PRICE", "OPENING", "RESERVATION"}):
             raise ValueError("当次经历缺少审核条件或涉及动态规则")
         private = json.dumps(assessment, ensure_ascii=False)

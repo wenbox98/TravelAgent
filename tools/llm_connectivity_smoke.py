@@ -91,7 +91,7 @@ def run_check(provider: llm.OpenAICompatibleProvider) -> dict[str, Any]:
 
     started = monotonic()
     with patch.object(llm, "build_opener", audited_builder):
-        result = EvidenceExtractor(observed).extract(
+        result = EvidenceExtractor(observed, protocol_version=2).extract(
             source_id="synthetic:t061-connectivity", source_title="完全合成的模型测试",
             body=BODY, completeness="PARTIAL_TEXT", fetched_at=now,
             source_published_at=now, policy=policy, source_type="SYNTHETIC",

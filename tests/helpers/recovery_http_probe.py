@@ -62,7 +62,7 @@ try:
         before = json.dumps(contents, sort_keys=True, ensure_ascii=False)
         provider = OpenAICompatibleProvider(f"http://127.0.0.1:{server.server_port}", "synthetic-model",
                                             SecretStr("synthetic-key"), response_format="json_object")
-        result = retry_saved(store, EvidenceExtractor(provider), attempt_id=sys.argv[2], fix_commit="a" * 40)
+        result = retry_saved(store, EvidenceExtractor(provider, protocol_version=2), attempt_id=sys.argv[2], fix_commit="a" * 40)
         from travel_agent.research.candidate_review import review_candidates
         from travel_agent.research.grounding import REVIEW_DIMENSIONS
         reviewed = review_candidates(store, attempt_id=result["attempt_id"], account_scope="owner", decisions={

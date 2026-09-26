@@ -355,6 +355,7 @@ class EvidenceStore:
             if run is None:
                 return False
             source_id, scope = _identifier(bundle["source_id"]), run["account_scope"]
+            self.repository.require_model_review(bundle,scope)
             if (policy["policy_id"] != bundle["policy_id"] or not self._allowed(policy)
                 or not scope_allowed(policy, scope)):
                 raise PermissionError("来源策略不允许本次证据存储方式")

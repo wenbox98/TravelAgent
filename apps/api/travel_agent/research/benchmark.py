@@ -90,7 +90,7 @@ class QualityBenchmark:
             "applicable_conditions": [], "extraction_basis": "合成正文逐字引用",
         } for index, block in enumerate(note["blocks"])]
         result = EvidenceExtractor(MockLLMProvider({"extract_evidence": {"claims": outputs}}),
-                                   clock=lambda: self.now).extract(
+                                   clock=lambda: self.now, protocol_version=2).extract(
             source_id=note["source_id"], source_title=note["title"], body=text, dom_body=dom,
             completeness="PARTIAL_TEXT", fetched_at=self.now.isoformat(),
             source_published_at=note.get("published_at"), source_type="SYNTHETIC",
@@ -230,7 +230,7 @@ class QualityBenchmark:
                         store.save_evidence(run, 0, bundle, self.policy, {})
                     store.finish(run, 0, [], self.report(evidence).safe_summary())
                 reader = NoAccessReader()
-                service = ResearchService(store, reader, EvidenceExtractor(), self.policy)
+                service = ResearchService(store, reader, EvidenceExtractor(protocol_version=2), self.policy)
                 request = replace(self.request, days=5, no_self_drive=True) if scenario == "combined_constraints" else self.request
                 report = service.run(request, research_id="benchmark", revision=int(scenario == "combined_constraints"),
                                      account_scope="synthetic", budget=ResearchBudget(1, 2) if scenario == "cache_hit" else ResearchBudget(0, 0))

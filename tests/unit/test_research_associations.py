@@ -26,7 +26,7 @@ def output(topic, quote, block=0, **changes):
 
 def extract(fixture_data, source_id, body, rows):
     provider = MockLLMProvider({"extract_evidence": {"claims": rows}})
-    result = EvidenceExtractor(provider, clock=lambda: NOW).extract(
+    result = EvidenceExtractor(provider, clock=lambda: NOW, protocol_version=2).extract(
         source_id=source_id, source_title="合成材料", body=body,
         completeness="PARTIAL_TEXT", fetched_at=NOW.isoformat(),
         policy=SourcePolicy(fixture_data("policies.json")["policies"][0]),

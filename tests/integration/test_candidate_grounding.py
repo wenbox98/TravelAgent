@@ -52,7 +52,7 @@ def prepare(db, clock, rows, body=BODY):
     content_id = store.save_source(run, 0, DetailMaterial("xhs:synthetic-t063", "自编样本", body,
         "PARTIAL_TEXT", clock().isoformat()), policy, "合成青谷")
     provider = Provider(rows)
-    runner = ExtractionRecovery(store, EvidenceExtractor(provider, clock=clock))
+    runner = ExtractionRecovery(store, EvidenceExtractor(provider, clock=clock, protocol_version=2))
     kwargs = dict(run_id=run, revision=0, content_id=content_id, account_scope="owner", policy=policy,
                   batch_id="fixed-t063", max_attempts=2)
     return store, runner, provider, kwargs
@@ -176,7 +176,7 @@ def test_sensitive_response_blocks_whole_batch_and_never_retains_raw(clock):
 def test_version_new_run_and_new_batch_do_not_reset_retry_budget(clock, monkeypatch):
     with Database(Path(":memory:"), clock=clock) as db:
         store, _, _, kwargs = prepare(db, clock, [])
-        failing = ExtractionRecovery(store, EvidenceExtractor(Timeout(), clock=clock))
+        failing = ExtractionRecovery(store, EvidenceExtractor(Timeout(), clock=clock, protocol_version=2))
         first = failing.execute(**kwargs)
         monkeypatch.setattr("travel_agent.research.recovery.EXTRACTION_VERSION", 3)
         second = failing.execute(**kwargs, retry_fix_commit="a" * 40)
@@ -219,7 +219,7 @@ def test_v6_failed_history_survives_migration_and_retry_is_number_two(clock, tmp
         old = db.connection.execute("SELECT * FROM extraction_attempts WHERE attempt_id='original'").fetchone()
         assert old["status"] == "FAILED" and json.loads(old["diagnostic_json"]) == original
         assert old["content_hash"] == store.contents.load("xhs:synthetic-t063", "owner")[0]["content_hash"]
-        retry = ExtractionRecovery(store, EvidenceExtractor(Provider([candidate(BODY.splitlines()[0])]), clock=clock))
+        retry = ExtractionRecovery(store, EvidenceExtractor(Provider([candidate(BODY.splitlines()[0])]), clock=clock, protocol_version=2))
         result = retry.execute(**kwargs, retry_fix_commit="a" * 40)
         assert result["status"] == "PENDING_REVIEW"
         assert db.connection.execute("SELECT attempt_number,extraction_version FROM extraction_attempts WHERE attempt_id=?",

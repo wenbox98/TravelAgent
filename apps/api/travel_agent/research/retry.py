@@ -151,7 +151,8 @@ def supervise_extra(database: Path, *, base_attempt_id: str, fix_commit: str,
 
 
 def supervise_reserved(database: Path, attempt: str, *, provider: OpenAICompatibleProvider,
-                       deadline: float, command: list[str], finish_report: bool = True) -> dict[str, Any]:
+                       deadline: float, command: list[str], finish_report: bool = True,
+                       context_review: bool = False) -> dict[str, Any]:
     """Shared supervision for a durably reserved request, including normal new sources."""
     if not 0 < deadline <= 180:
         raise ValueError("INVALID_TOTAL_DEADLINE")
@@ -176,15 +177,20 @@ def supervise_reserved(database: Path, attempt: str, *, provider: OpenAICompatib
     with Database(database) as db:
         store = EvidenceStore(db)
         with db.transaction() as con:
-            row = con.execute("SELECT * FROM extraction_attempts WHERE attempt_id=?", (attempt,)).fetchone()
+            table, key = ('context_review_runs', 'review_id') if context_review else ('extraction_attempts','attempt_id')
+            row = con.execute(f"SELECT * FROM {table} WHERE {key}=?", (attempt,)).fetchone()
             if row["status"] in {"PENDING", "RUNNING"}:
                 safe = json.loads(row["diagnostic_json"]) if row["diagnostic_json"] else Diagnostic(timeout_seconds=provider.timeout).safe_dict()
                 safe.update(stage="TRANSPORT" if timed_out else "INTERNAL",
                             category="TOTAL_DEADLINE" if timed_out else "UNEXPECTED_ERROR")
-                con.execute("UPDATE extraction_attempts SET status=?,diagnostic_json=?,finished_at=? WHERE attempt_id=?",
+                con.execute(f"UPDATE {table} SET status=?,diagnostic_json=?,finished_at=? WHERE {key}=?",
                     ("INTERRUPTED" if timed_out or process is not None else "FAILED", json.dumps(safe), db.stamp(), attempt))
-        result = (report_saved_attempt(store, attempt) if finish_report else
-                  ExtractionRecovery(store, EvidenceExtractor()).outcome(attempt))
+        if context_review:
+            from .context_review import review_summary
+            result = review_summary(store,attempt)
+        else:
+            result = (report_saved_attempt(store, attempt) if finish_report else
+                      ExtractionRecovery(store, EvidenceExtractor()).outcome(attempt))
     if interrupted is not None and not isinstance(interrupted, Exception):
         raise interrupted
     return result | {"total_deadline_seconds": deadline, "outer_elapsed_seconds": elapsed,
@@ -226,6 +232,8 @@ def retry_saved(store: EvidenceStore, extractor: EvidenceExtractor, *, attempt_i
     request = ResearchRequest(**json.loads(row["request_json"]))
     run = store.begin(row["research_id"], row["revision"], request.to_dict(), row["account_scope"])
     store.register_policy(run, row["revision"], policy)
+    # Explicit recovery uses the saved version, never reinterpret historical v2 as v3.
+    extractor = EvidenceExtractor(extractor.provider,clock=extractor.clock,protocol_version=row['extraction_version'])
     outcome = ExtractionRecovery(store, extractor).execute(
         run_id=run, revision=row["revision"], content_id=row["content_id"],
         account_scope=row["account_scope"], policy=policy, batch_id=row["batch_id"],
