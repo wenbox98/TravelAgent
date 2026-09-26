@@ -367,6 +367,7 @@ def test_explanations_whitelist_readonly_and_adoption(tmp_path, clock):
     ) as c:
         assert c.get("/api/v1/preview/reviews").status_code == 401
         c.get("/bootstrap?ticket=test-ticket")
+        assert 'ta_preview_8877' in c.cookies and 'ta_preview' not in c.cookies
         index = c.get("/api/v1/preview").json()
         before = index["session"]
         for _ in range(2):

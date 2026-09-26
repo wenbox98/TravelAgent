@@ -674,6 +674,7 @@ paths:
       parameters: []
       security:
       - PreviewSession: []
+      - PreviewReplaySession: []
       responses:
         '200':
           description: 本机已审核缓存和用户选择
@@ -704,6 +705,7 @@ paths:
           type: string
       security:
       - PreviewSession: []
+      - PreviewReplaySession: []
       responses:
         '200':
           description: 本机已审核缓存和用户选择
@@ -735,6 +737,7 @@ paths:
           type: string
       security:
       - PreviewSession: []
+      - PreviewReplaySession: []
       responses:
         '200':
           description: 本机已审核缓存和用户选择
@@ -769,6 +772,7 @@ paths:
           type: string
       security:
       - PreviewSession: []
+      - PreviewReplaySession: []
       responses:
         '200':
           description: 本机已审核缓存和用户选择
@@ -914,10 +918,10 @@ paths:
   /api/v1/preview/reviews:
     get:
       operationId: readReviewExplanations
-      summary: P01 已实现：同源鉴权的缓存选择预览，零业务外部请求
+      summary: P02.1 本地审核说明/显式采用；不执行回放、不派发任何外部调用
       parameters: []
       security:
-      - PreviewSession: []
+      - PreviewReplaySession: []
       responses:
         '200':
           description: 本机已审核缓存和用户选择
@@ -934,7 +938,7 @@ paths:
   /api/v1/preview/review-update:
     post:
       operationId: adoptLocalRevalidation
-      summary: P01 已实现：同源鉴权的缓存选择预览，零业务外部请求
+      summary: P02.1 本地审核说明/显式采用；不执行回放、不派发任何外部调用
       parameters:
       - name: X-CSRF-Token
         in: header
@@ -947,7 +951,7 @@ paths:
         schema:
           type: string
       security:
-      - PreviewSession: []
+      - PreviewReplaySession: []
       responses:
         '200':
           description: 本机已审核缓存和用户选择
@@ -979,3 +983,10 @@ components:
       name: ta_preview
       description: P01 loopback-only HttpOnly SameSite=Strict session; bootstrap ticket
         is one-use and expires in 5 minutes.
+    PreviewReplaySession:
+      type: apiKey
+      in: cookie
+      name: ta_preview_8767
+      description: 'P02.1 isolated HttpOnly SameSite=Strict cookie: ta_preview_<configured
+        port>; 8767 by default. Cookies do not isolate by port, so its name must differ
+        from P01/P02.'

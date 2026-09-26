@@ -43,6 +43,8 @@ def error(code: str, status: int) -> JSONResponse:
 
 def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
     origin = f"http://127.0.0.1:{port}"
+    # Cookies ignore ports. An isolated preview must not replace the P01/P02 cookie.
+    cookie_name = f"ta_preview_{port}" if config.local_replay else "ta_preview"
     cookie = hmac.digest(config.auth_key, b"preview-session", "sha256").hex()
     csrf = hmac.digest(config.auth_key, b"preview-csrf", "sha256").hex()
     expires, used = time.monotonic() + 300, False
@@ -50,7 +52,7 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
     @app.middleware("http")
     async def authentication(request: Request, call_next: Any) -> Any:
         if request.url.path.startswith("/api/v1/preview"):
-            if not secrets.compare_digest(request.cookies.get("ta_preview", ""), cookie):
+            if not secrets.compare_digest(request.cookies.get(cookie_name, ""), cookie):
                 return error("AUTH_REQUIRED", 401)
             if request.method not in {"GET", "HEAD"}:
                 if (request.headers.get("origin") != origin or
@@ -70,7 +72,7 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
             return error("AUTH_REQUIRED", 401)
         used = True
         response = RedirectResponse("/", status_code=303)
-        response.set_cookie("ta_preview", cookie, httponly=True, samesite="strict", secure=False, path="/")
+        response.set_cookie(cookie_name, cookie, httponly=True, samesite="strict", secure=False, path="/")
         return response
 
     @app.exception_handler(RequestValidationError)

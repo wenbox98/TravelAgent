@@ -20,3 +20,7 @@
 新判定标记 LOCAL_REVALIDATION，关联原模型审核、输入摘要、来源快照、候选、规则版本、代码 SHA；不新增模型调用，也不改为 Work 人工审核。EVALUATION 只保存对照；运行时只新增旧程序待审且全部复核通过的证据。发布为新的研究快照，用户显式采用之前保持原选择与证据集合。
 
 隔离数据库与静态目录；不安装外部任务执行器；操作只允许 loopback。只读展开和刷新不产生判定。模型审核和本地校验均不等于外部事实已核实。
+
+SQLite v13 在原模型审核行追加 `review_version` / `rule_version`（历史默认 1），新增 `review_revalidations` 与 `revalidation_claims`。同一原审核、规则版本和输入摘要有唯一约束；整个本地回放使用事务，EVALUATION 的仓储试验必定回滚。新 Evidence 标记 LOCAL_REVALIDATION，读取时继续核对原审核和本地判定链。旧候选行、旧时间戳不更新。
+
+`GET /api/v1/preview/reviews` 仅投影原因、匿名来源、最多120字短引用和处理建议；`POST /api/v1/preview/review-update` 仅显式采用已完成的运行时更新。回放只能由本地 CLI 显式执行。P02.1 使用 `ta_preview_<port>` 会话名（默认 `ta_preview_8767`），避免浏览器 Cookie 不按端口隔离而覆盖旧服务的 `ta_preview`。两者保持 HttpOnly、SameSite、一次性入口与 CSRF 校验。

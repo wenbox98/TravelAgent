@@ -56,11 +56,18 @@ def main():
             value["requestBody"] = {"required": True, "content": {"application/json": {"schema": {"$ref": f"./domain.schema.json#/$defs/{body}"}}}}
         if 'BoundedResearch' in operation or operation=='readWorkbench':
             value['summary']='P02 本机有限研究；GET 零外部调用，POST 受许可、门槛、额度和同源检查约束'
+        if operation in {'readReviewExplanations','adoptLocalRevalidation'}:
+            value['summary']='P02.1 本地审核说明/显式采用；不执行回放、不派发任何外部调用'
+            value['security']=[{'PreviewReplaySession':[]}]
+        elif operation in {'getCachedPreview','createCachedPreview','readCachedPreview','changeCachedPreview'}:
+            value['security']=[{'PreviewSession':[]},{'PreviewReplaySession':[]}]
         if operation=='changeBoundedResearch':
             value['responses']['200']['content']['application/json']['schema']={'oneOf':[
                 {'$ref':'./domain.schema.json#/$defs/JobView'},{'$ref':'./domain.schema.json#/$defs/PreviewView'}]}
         api["paths"].setdefault(route, {})[verb] = value
     api["components"]["securitySchemes"]["PreviewSession"] = {"type": "apiKey", "in": "cookie", "name": "ta_preview", "description": "P01 loopback-only HttpOnly SameSite=Strict session; bootstrap ticket is one-use and expires in 5 minutes."}
+    api['components']['securitySchemes']['PreviewReplaySession'] = {'type':'apiKey','in':'cookie','name':'ta_preview_8767',
+        'description':'P02.1 isolated HttpOnly SameSite=Strict cookie: ta_preview_<configured port>; 8767 by default. Cookies do not isolate by port, so its name must differ from P01/P02.'}
     marker = " P01 /api/v1/preview routes are implemented; other business routes remain design contracts. SQLite v11 adds independent preview choices/receipts."
     if marker not in api["info"]["description"]:
         api["info"]["description"] += marker
