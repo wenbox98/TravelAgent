@@ -675,6 +675,7 @@ paths:
       security:
       - PreviewSession: []
       - PreviewReplaySession: []
+      - PreviewMapSession: []
       responses:
         '200':
           description: 本机已审核缓存和用户选择
@@ -706,6 +707,7 @@ paths:
       security:
       - PreviewSession: []
       - PreviewReplaySession: []
+      - PreviewMapSession: []
       responses:
         '200':
           description: 本机已审核缓存和用户选择
@@ -738,6 +740,7 @@ paths:
       security:
       - PreviewSession: []
       - PreviewReplaySession: []
+      - PreviewMapSession: []
       responses:
         '200':
           description: 本机已审核缓存和用户选择
@@ -773,6 +776,7 @@ paths:
       security:
       - PreviewSession: []
       - PreviewReplaySession: []
+      - PreviewMapSession: []
       responses:
         '200':
           description: 本机已审核缓存和用户选择
@@ -971,6 +975,67 @@ paths:
           application/json:
             schema:
               $ref: ./domain.schema.json#/$defs/ReplayAdopt
+  /api/v1/preview/routes/{session_id}:
+    get:
+      operationId: readRoutePreview
+      summary: P03 高德分段参考；GET/保存条件零外部请求，地图动作需显式确认并先占耐久额度；结果只在内存
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/MapView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/preview/routes:
+    post:
+      operationId: changeRoutePreview
+      summary: P03 高德分段参考；GET/保存条件零外部请求，地图动作需显式确认并先占耐久额度；结果只在内存
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/MapView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/MapAction
 components:
   securitySchemes:
     LocalSession:
@@ -990,3 +1055,9 @@ components:
       description: 'P02.1 isolated HttpOnly SameSite=Strict cookie: ta_preview_<configured
         port>; 8767 by default. Cookies do not isolate by port, so its name must differ
         from P01/P02.'
+    PreviewMapSession:
+      type: apiKey
+      in: cookie
+      name: ta_preview_8768
+      description: P03 isolated loopback session; ta_preview_<configured port>, default
+        8768.

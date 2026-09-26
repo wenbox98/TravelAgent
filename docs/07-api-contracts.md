@@ -1,5 +1,9 @@
 # 07｜API、事件、错误和数据契约
 
+## P03 已实现子集
+
+GET `/api/v1/preview/routes/{session_id}` 只读；POST `/api/v1/preview/routes` 按 MapAction 区分本地输入/确认和显式地图查询，输出 MapView。只有 resolve/route 消耗固定 MAP_PLACE/MAP_ROUTE 额度；无Key不派发。SQLite v14扩展原操作账本并仅存用户条件，地图返回值 EPHEMERAL。Cookie随8768端口命名隔离；完整字段、单位、幂等与重启语义见 [P03契约](architecture/p03-amap-route-check.md)。原设计API不因此全部实现。
+
 ## P01 已实现子集
 
 `/api/v1/preview` 与其会话 GET/POST 已接通本机已审核缓存和用户选择，使用独立 Preview DTO、单次 bootstrap、本地 cookie、CSRF、幂等及 revision。SQLite v11 仅新增预览状态与回执。其他原业务 API 仍为设计契约。备份及恢复见 [P01 契约](architecture/p01-cached-preview.md)，历史 G1 结论不变。

@@ -4333,6 +4333,11 @@
           "default": false,
           "title": "Replay Available",
           "type": "boolean"
+        },
+        "route_check_available": {
+          "default": false,
+          "title": "Route Check Available",
+          "type": "boolean"
         }
       },
       "required": [
@@ -5122,6 +5127,1122 @@
           }
         }
       }
+    },
+    "PlaceInput": {
+      "additionalProperties": false,
+      "properties": {
+        "place_id": {
+          "pattern": "^[a-z0-9_-]{1,80}$",
+          "title": "Place Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "region": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Region",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "provenance": {
+          "default": "USER_INPUT",
+          "enum": [
+            "EVIDENCE_FRAGMENT",
+            "USER_INPUT"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "object_type": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "AREA",
+            "TOWN",
+            "STATION",
+            "SCENIC",
+            "ENTRANCE",
+            "PARKING",
+            "VISITOR_CENTER"
+          ],
+          "title": "Object Type",
+          "type": "string"
+        },
+        "private_address": {
+          "default": false,
+          "title": "Private Address",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "place_id",
+        "name"
+      ],
+      "title": "PlaceInput",
+      "type": "object"
+    },
+    "TripInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "depart_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Depart At"
+        },
+        "return_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Return By"
+        },
+        "origin": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Origin",
+          "type": "string"
+        },
+        "destination": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Destination",
+          "type": "string"
+        },
+        "same_return": {
+          "default": false,
+          "title": "Same Return",
+          "type": "boolean"
+        },
+        "endpoints_private": {
+          "default": false,
+          "title": "Endpoints Private",
+          "type": "boolean"
+        },
+        "charter": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "COMPARE",
+            "NO"
+          ],
+          "title": "Charter",
+          "type": "string"
+        },
+        "mode": {
+          "default": "TRANSIT",
+          "enum": [
+            "TRANSIT",
+            "DRIVING",
+            "WALKING"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "activity_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activity Start"
+        },
+        "activity_end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activity End"
+        },
+        "stay_minutes": {
+          "anyOf": [
+            {
+              "maximum": 43200,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stay Minutes"
+        },
+        "rest_minutes": {
+          "anyOf": [
+            {
+              "maximum": 43200,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rest Minutes"
+        },
+        "buffer_minutes": {
+          "anyOf": [
+            {
+              "maximum": 43200,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Buffer Minutes"
+        },
+        "transfer_minutes": {
+          "anyOf": [
+            {
+              "maximum": 43200,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transfer Minutes"
+        },
+        "places": {
+          "items": {
+            "$ref": "#/$defs/PlaceInput"
+          },
+          "maxItems": 12,
+          "title": "Places",
+          "type": "array"
+        }
+      },
+      "title": "TripInputs",
+      "type": "object"
+    },
+    "MapAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "save",
+            "cancel",
+            "adopt",
+            "resolve",
+            "confirm_place",
+            "route"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "session_id": {
+          "maxLength": 100,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 0,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "expected_preview_revision": {
+          "minimum": 0,
+          "title": "Expected Preview Revision",
+          "type": "integer"
+        },
+        "inputs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TripInputs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "place_id": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Place Id"
+        },
+        "candidate_id": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Id"
+        },
+        "relation": {
+          "anyOf": [
+            {
+              "enum": [
+                "SAME_OBJECT",
+                "REGIONAL_REFERENCE",
+                "ACCESS_POINT"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relation"
+        },
+        "leg_id": {
+          "anyOf": [
+            {
+              "maxLength": 170,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Leg Id"
+        },
+        "send_confirmed": {
+          "default": false,
+          "title": "Send Confirmed",
+          "type": "boolean"
+        },
+        "private_send_confirmed": {
+          "default": false,
+          "title": "Private Send Confirmed",
+          "type": "boolean"
+        },
+        "leg_depart_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Leg Depart At"
+        }
+      },
+      "required": [
+        "action",
+        "session_id",
+        "expected_revision",
+        "expected_preview_revision"
+      ],
+      "title": "MapAction",
+      "type": "object"
+    },
+    "MapCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "pname": {
+          "title": "Pname",
+          "type": "string"
+        },
+        "cityname": {
+          "title": "Cityname",
+          "type": "string"
+        },
+        "adname": {
+          "title": "Adname",
+          "type": "string"
+        },
+        "citycode": {
+          "title": "Citycode",
+          "type": "string"
+        },
+        "adcode": {
+          "title": "Adcode",
+          "type": "string"
+        },
+        "location": {
+          "title": "Location",
+          "type": "string"
+        },
+        "coordinate_system": {
+          "const": "GCJ02",
+          "title": "Coordinate System",
+          "type": "string"
+        },
+        "object_type": {
+          "title": "Object Type",
+          "type": "string"
+        },
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "name",
+        "type",
+        "address",
+        "pname",
+        "cityname",
+        "adname",
+        "citycode",
+        "adcode",
+        "location",
+        "coordinate_system",
+        "object_type",
+        "uri"
+      ],
+      "title": "MapCandidate",
+      "type": "object"
+    },
+    "MapConfirmed": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "pname": {
+          "title": "Pname",
+          "type": "string"
+        },
+        "cityname": {
+          "title": "Cityname",
+          "type": "string"
+        },
+        "adname": {
+          "title": "Adname",
+          "type": "string"
+        },
+        "citycode": {
+          "title": "Citycode",
+          "type": "string"
+        },
+        "adcode": {
+          "title": "Adcode",
+          "type": "string"
+        },
+        "location": {
+          "title": "Location",
+          "type": "string"
+        },
+        "coordinate_system": {
+          "const": "GCJ02",
+          "title": "Coordinate System",
+          "type": "string"
+        },
+        "object_type": {
+          "title": "Object Type",
+          "type": "string"
+        },
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        },
+        "relation": {
+          "enum": [
+            "SAME_OBJECT",
+            "REGIONAL_REFERENCE",
+            "ACCESS_POINT"
+          ],
+          "title": "Relation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "name",
+        "type",
+        "address",
+        "pname",
+        "cityname",
+        "adname",
+        "citycode",
+        "adcode",
+        "location",
+        "coordinate_system",
+        "object_type",
+        "uri",
+        "relation"
+      ],
+      "title": "MapConfirmed",
+      "type": "object"
+    },
+    "MapCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "map_place": {
+          "minimum": 0,
+          "title": "Map Place",
+          "type": "integer"
+        },
+        "map_route": {
+          "minimum": 0,
+          "title": "Map Route",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "map_place",
+        "map_route"
+      ],
+      "title": "MapCounts",
+      "type": "object"
+    },
+    "MapLeg": {
+      "additionalProperties": false,
+      "properties": {
+        "leg_id": {
+          "title": "Leg Id",
+          "type": "string"
+        },
+        "from_id": {
+          "title": "From Id",
+          "type": "string"
+        },
+        "to_id": {
+          "title": "To Id",
+          "type": "string"
+        },
+        "from_name": {
+          "title": "From Name",
+          "type": "string"
+        },
+        "to_name": {
+          "title": "To Name",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "TRANSIT",
+            "DRIVING",
+            "WALKING"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "endpoint_confidence": {
+          "title": "Endpoint Confidence",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "OUTBOUND",
+            "RETURN",
+            "BETWEEN_SOURCE_PLACES"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "duration_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Duration Seconds"
+        },
+        "distance_meters": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Distance Meters"
+        },
+        "queried_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Queried At"
+        },
+        "date_applicability": {
+          "title": "Date Applicability",
+          "type": "string"
+        },
+        "requested_depart_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Requested Depart At"
+        },
+        "availability": {
+          "const": "UNKNOWN",
+          "title": "Availability",
+          "type": "string"
+        },
+        "basis": {
+          "title": "Basis",
+          "type": "string"
+        },
+        "gaps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gaps",
+          "type": "array"
+        },
+        "result_endpoint_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Result Endpoint Names",
+          "type": "array"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        }
+      },
+      "required": [
+        "leg_id",
+        "from_id",
+        "to_id",
+        "from_name",
+        "to_name",
+        "mode",
+        "endpoint_confidence",
+        "kind",
+        "status",
+        "stale",
+        "duration_seconds",
+        "distance_meters",
+        "queried_at",
+        "date_applicability",
+        "requested_depart_at",
+        "availability",
+        "basis",
+        "gaps",
+        "result_endpoint_names",
+        "error_code"
+      ],
+      "title": "MapLeg",
+      "type": "object"
+    },
+    "MapPlace": {
+      "additionalProperties": false,
+      "properties": {
+        "place_id": {
+          "pattern": "^[a-z0-9_-]{1,80}$",
+          "title": "Place Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "region": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Region",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "provenance": {
+          "default": "USER_INPUT",
+          "enum": [
+            "EVIDENCE_FRAGMENT",
+            "USER_INPUT"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "object_type": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "AREA",
+            "TOWN",
+            "STATION",
+            "SCENIC",
+            "ENTRANCE",
+            "PARKING",
+            "VISITOR_CENTER"
+          ],
+          "title": "Object Type",
+          "type": "string"
+        },
+        "private_address": {
+          "default": false,
+          "title": "Private Address",
+          "type": "boolean"
+        },
+        "raw_name": {
+          "title": "Raw Name",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/MapCandidate"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "confirmed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MapConfirmed"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "enum": [
+            "USER_INPUT",
+            "REVIEWED_SOURCE_FRAGMENT"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "place_id",
+        "name",
+        "raw_name",
+        "status",
+        "candidates",
+        "confirmed",
+        "source"
+      ],
+      "title": "MapPlace",
+      "type": "object"
+    },
+    "MapQuota": {
+      "additionalProperties": false,
+      "properties": {
+        "used": {
+          "$ref": "#/$defs/MapCounts"
+        },
+        "remaining": {
+          "$ref": "#/$defs/MapCounts"
+        },
+        "total_used": {
+          "maximum": 16,
+          "minimum": 0,
+          "title": "Total Used",
+          "type": "integer"
+        },
+        "total_limit": {
+          "const": 16,
+          "title": "Total Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "used",
+        "remaining",
+        "total_used",
+        "total_limit"
+      ],
+      "title": "MapQuota",
+      "type": "object"
+    },
+    "NoResearchCalls": {
+      "additionalProperties": false,
+      "properties": {
+        "xhs_connect": {
+          "const": 0,
+          "title": "Xhs Connect",
+          "type": "integer"
+        },
+        "xhs_search": {
+          "const": 0,
+          "title": "Xhs Search",
+          "type": "integer"
+        },
+        "xhs_detail": {
+          "const": 0,
+          "title": "Xhs Detail",
+          "type": "integer"
+        },
+        "xhs_browser": {
+          "const": 0,
+          "title": "Xhs Browser",
+          "type": "integer"
+        },
+        "model": {
+          "const": 0,
+          "title": "Model",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "xhs_connect",
+        "xhs_search",
+        "xhs_detail",
+        "xhs_browser",
+        "model"
+      ],
+      "title": "NoResearchCalls",
+      "type": "object"
+    },
+    "TimeCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "completeness": {
+          "enum": [
+            "COMPLETE",
+            "PARTIAL"
+          ],
+          "title": "Completeness",
+          "type": "string"
+        },
+        "scenario": {
+          "enum": [
+            "UNKNOWN",
+            "FITS_UNDER_STATED_ASSUMPTIONS",
+            "EXCEEDS_UNDER_STATED_ASSUMPTIONS"
+          ],
+          "title": "Scenario",
+          "type": "string"
+        },
+        "executable": {
+          "const": "UNVERIFIED",
+          "title": "Executable",
+          "type": "string"
+        },
+        "known_movement_minutes": {
+          "title": "Known Movement Minutes",
+          "type": "number"
+        },
+        "known_components_minutes": {
+          "title": "Known Components Minutes",
+          "type": "number"
+        },
+        "available_minutes": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Available Minutes"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "unknown_legs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unknown Legs",
+          "type": "array"
+        },
+        "missing_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Inputs",
+          "type": "array"
+        },
+        "checked_scope": {
+          "enum": [
+            "LOCAL_DAY_SEGMENT",
+            "WHOLE_SELECTED_OBJECT"
+          ],
+          "title": "Checked Scope",
+          "type": "string"
+        },
+        "meaning": {
+          "title": "Meaning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "completeness",
+        "scenario",
+        "executable",
+        "known_movement_minutes",
+        "known_components_minutes",
+        "available_minutes",
+        "assumptions",
+        "unknown_legs",
+        "missing_inputs",
+        "checked_scope",
+        "meaning"
+      ],
+      "title": "TimeCheck",
+      "type": "object"
+    },
+    "MapView": {
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "preview_revision": {
+          "title": "Preview Revision",
+          "type": "integer"
+        },
+        "interest": {
+          "title": "Interest",
+          "type": "string"
+        },
+        "evidence_count": {
+          "title": "Evidence Count",
+          "type": "integer"
+        },
+        "inherited": {
+          "$ref": "#/$defs/PreviewSavedPreferences"
+        },
+        "source_schedule": {
+          "$ref": "#/$defs/PreviewSchedule"
+        },
+        "source_route_fragments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Route Fragments",
+          "type": "array"
+        },
+        "source_reference_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Reference Kinds",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/TripInputs"
+        },
+        "adopted_inputs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TripInputs"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "has_changes": {
+          "title": "Has Changes",
+          "type": "boolean"
+        },
+        "places": {
+          "items": {
+            "$ref": "#/$defs/MapPlace"
+          },
+          "title": "Places",
+          "type": "array"
+        },
+        "legs": {
+          "items": {
+            "$ref": "#/$defs/MapLeg"
+          },
+          "title": "Legs",
+          "type": "array"
+        },
+        "time_check": {
+          "$ref": "#/$defs/TimeCheck"
+        },
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "configuration_status": {
+          "enum": [
+            "CONFIGURED_NOT_VERIFIED",
+            "AMAP_LIVE_BLOCKED_NOT_CONFIGURED"
+          ],
+          "title": "Configuration Status",
+          "type": "string"
+        },
+        "budget": {
+          "$ref": "#/$defs/MapQuota"
+        },
+        "map_storage": {
+          "const": "EPHEMERAL_MEMORY_ONLY",
+          "title": "Map Storage",
+          "type": "string"
+        },
+        "map_result_state": {
+          "enum": [
+            "STALE",
+            "CURRENT_PROCESS",
+            "EXPIRED_OR_NOT_QUERIED"
+          ],
+          "title": "Map Result State",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "last_action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Action"
+        },
+        "business_calls": {
+          "$ref": "#/$defs/NoResearchCalls"
+        }
+      },
+      "required": [
+        "session_id",
+        "revision",
+        "preview_revision",
+        "interest",
+        "evidence_count",
+        "inherited",
+        "source_schedule",
+        "source_route_fragments",
+        "source_reference_kinds",
+        "inputs",
+        "adopted_inputs",
+        "has_changes",
+        "places",
+        "legs",
+        "time_check",
+        "configured",
+        "configuration_status",
+        "budget",
+        "map_storage",
+        "map_result_state",
+        "message",
+        "last_action",
+        "business_calls"
+      ],
+      "title": "MapView",
+      "type": "object"
     }
   }
 }

@@ -28,6 +28,7 @@ class PreviewConfig:
     live_ready: bool = False
     local_replay: bool = False
     static_dir: Path | None = None
+    route_check: bool = False
 
 
 def error(code: str, status: int) -> JSONResponse:
@@ -37,6 +38,18 @@ def error(code: str, status: int) -> JSONResponse:
                 'LIVE_RESEARCH_UNAVAILABLE':'本轮许可、门槛或额度不允许新研究；已有资料仍可浏览。',
                 'DESTINATION_REQUIRED':'请先确认要研究的目的区域。','DESTINATION_CONFLICT':'已有研究的目的区域与输入不一致，请保留原研究或新建本地需求。',
                 'NEW_MATERIAL_UNAVAILABLE':'本任务没有可采用的新合格材料；原选择保留。','JOB_UNAVAILABLE':'当前范围没有此研究任务。'}
+    messages.update({
+        'MAP_SCOPE_UNAVAILABLE': '本轮地图范围绑定原兴趣；请保留原方向，不能通过换工作区重置额度。',
+        'MAP_INTEREST_REQUIRED': '请先确认已有资料中的兴趣方向。',
+        'MAP_GRANT_BINDING_CHANGED': '当前兴趣或工作区不属于本轮地图许可；原数据与额度保留。',
+        'MAP_CANDIDATE_UNAVAILABLE': '地图候选已过期或已变化，请读取当前页面。',
+        'MAP_OBJECT_TYPE_MISMATCH': '该候选不是指定的车站、入口、停车场或游客中心；请保留接驳缺口。',
+        'MAP_REGIONAL_REFERENCE_REQUIRED': '此候选为区域中心，只能显式确认为区域参考。',
+        'MAP_SEND_CONFIRMATION_REQUIRED': '请勾选本次向高德发送必要地点信息。',
+        'MAP_PRIVATE_ADDRESS_CONFIRMATION_REQUIRED': '精确私址需另行勾选发送确认，建议先用公共地标。',
+        'MAP_CONFIRM_PLACES_FIRST': '请先逐一确认该段起终点的地图对象。',
+        'MAP_CHARTER_UNDECIDED': '不自驾时，只有愿意比较包车才查询驾车道路参考；它不证明有车可订。',
+        'CITYCODE_REQUIRED': '公交所需城市编码缺失或格式不符；不使用行政区编码替代。'})
     return JSONResponse({"error": {"code": code, "message": messages.get(code, "本次操作未提交，请检查当前选择或重新打开研究。"),
                         "request_id": secrets.token_hex(8), "retryable": False, "details": {}}}, status_code=status)
 
@@ -44,7 +57,7 @@ def error(code: str, status: int) -> JSONResponse:
 def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
     origin = f"http://127.0.0.1:{port}"
     # Cookies ignore ports. An isolated preview must not replace the P01/P02 cookie.
-    cookie_name = f"ta_preview_{port}" if config.local_replay else "ta_preview"
+    cookie_name = f"ta_preview_{port}" if config.local_replay or config.route_check else "ta_preview"
     cookie = hmac.digest(config.auth_key, b"preview-session", "sha256").hex()
     csrf = hmac.digest(config.auth_key, b"preview-csrf", "sha256").hex()
     expires, used = time.monotonic() + 300, False
@@ -91,7 +104,7 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
     async def database_error(request: Request, exc: Exception) -> JSONResponse:
         return error("CACHE_UNAVAILABLE", 503)
 
-    if config.local_replay and (config.continuation or config.live_ready):
+    if (config.local_replay or config.route_check) and (config.continuation or config.live_ready):
         raise ValueError('LOCAL_REPLAY_CANNOT_ENABLE_EXTERNAL_WORK')
     if config.local_replay:
         from .replay_api import install_replay
@@ -99,6 +112,9 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
     if config.continuation:
         from .workbench_api import install_workbench
         install_workbench(app,config)
+    if config.route_check:
+        from travel_agent.planning.api import install_routes
+        install_routes(app, config)
 
     def present(view: dict[str, Any]) -> dict[str, Any]:
         if config.continuation and not view['options']:
@@ -110,8 +126,12 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
         with Database(config.database) as db, db.transaction():
             service = PreviewService(db, config.account_scope, config.mode)
             latest=service.latest()
+            if config.route_check:
+                import json
+                grant = db.connection.execute("SELECT config_json FROM research_continuations WHERE continuation_id='p03-amap-route-check'").fetchone()
+                latest = service.get(json.loads(grant[0])['session_id']) if grant else latest
             return {"mode": config.mode, "csrf_token": csrf, "researches": service.researches(), "session": present(latest) if latest else None,
-                    'workbench_available':config.continuation is not None, 'replay_available':config.local_replay}
+                    'workbench_available':config.continuation is not None, 'replay_available':config.local_replay, 'route_check_available':config.route_check}
 
     @app.post("/api/v1/preview/sessions", response_model=PreviewView)
     def create(body: PreviewCreate, request: Request) -> dict[str, Any]:

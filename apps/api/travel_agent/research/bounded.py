@@ -105,19 +105,26 @@ class BoundedBudget:
             raise ValueError("BOUNDED_PROVIDER_CHANGED")
 
     def reserve(self, kind: str, fingerprint: str) -> None:
-        with self.store.db.transaction() as con:
+        with self.store.db.transaction():
             state = self.state()
             if kind not in LIMITS or state["finished_at"] or not state["started_at"]:
                 raise ValueError("BOUNDED_NOT_ACTIVE")
             if kind != "MODEL" and state["gate"]["status"] != "PASS":
                 raise ValueError("EVALUATION_GATE_NOT_PASS")
+            self.reserve_count(kind, fingerprint, state["limits"])
+
+    def reserve_count(self, kind: str, fingerprint: str, limits: dict[str, int]) -> None:
+        """Shared atomic counter for an already checked grant, including P03 maps."""
+        if kind not in limits:
+            raise ValueError("BOUNDED_NOT_ACTIVE")
+        with self.store.db.transaction() as con:
             count = con.execute(
                 "SELECT count(*) FROM continuation_operations WHERE continuation_id=? AND kind=?",
                 (self.identifier, kind),
             ).fetchone()[0]
             digest = sha256(fingerprint.encode()).hexdigest()
             if (
-                count >= state["limits"][kind]
+                count >= limits[kind]
                 or con.execute(
                     "SELECT 1 FROM continuation_operations "
                     "WHERE continuation_id=? AND kind=? AND fingerprint=?",

@@ -1,5 +1,7 @@
 # T08｜高德与可用报价适配
 
+P03 实现官方 v5 地点/驾车/公交/步行小接口和独立8+8额度，地图返回值只在内存。真实接口状态由 [P03报告](../../reports/P03-amap-route-check.md) 单列；不包含报价、供应商或完整G3验收。见 [字段映射](../architecture/p03-amap-route-check.md)。
+
 ## 工程问题与本次目标
 高德地点/入口/路线按真实文档映射，核实坐标系和许可；报价Provider先Protocol/UNSUPPORTED，凭真实接口资料与key实现，不猜接口。
 

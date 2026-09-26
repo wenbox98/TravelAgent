@@ -7,11 +7,12 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api"))
 from travel_agent.preview.models import PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt  # noqa: E402
+from travel_agent.planning.models import MapAction, MapView  # noqa: E402
 
 
 def definitions():
     result = {}
-    for model in (PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt):
+    for model in (PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView):
         schema = model.model_json_schema()
         result.update(schema.pop("$defs", {}))
         result[model.__name__] = schema
@@ -31,6 +32,8 @@ def main():
     path = ROOT / "contracts/openapi.yaml"
     api = yaml.safe_load(path.read_text(encoding="utf-8"))
     routes = [
+        ('/api/v1/preview/routes/{session_id}', 'get', 'readRoutePreview', None, 'MapView'),
+        ('/api/v1/preview/routes', 'post', 'changeRoutePreview', 'MapAction', 'MapView'),
         ("/api/v1/preview/reviews", "get", "readReviewExplanations", None, "ReplayIndex"),
         ("/api/v1/preview/review-update", "post", "adoptLocalRevalidation", "ReplayAdopt", "PreviewView"),
         ("/api/v1/preview", "get", "getCachedPreview", None, "PreviewIndex"),
@@ -61,11 +64,19 @@ def main():
             value['security']=[{'PreviewReplaySession':[]}]
         elif operation in {'getCachedPreview','createCachedPreview','readCachedPreview','changeCachedPreview'}:
             value['security']=[{'PreviewSession':[]},{'PreviewReplaySession':[]}]
+        if operation in {'readRoutePreview','changeRoutePreview'}:
+            value['summary']='P03 高德分段参考；GET/保存条件零外部请求，地图动作需显式确认并先占耐久额度；结果只在内存'
+            value['security']=[{'PreviewMapSession':[]}]
         if operation=='changeBoundedResearch':
             value['responses']['200']['content']['application/json']['schema']={'oneOf':[
                 {'$ref':'./domain.schema.json#/$defs/JobView'},{'$ref':'./domain.schema.json#/$defs/PreviewView'}]}
         api["paths"].setdefault(route, {})[verb] = value
     api["components"]["securitySchemes"]["PreviewSession"] = {"type": "apiKey", "in": "cookie", "name": "ta_preview", "description": "P01 loopback-only HttpOnly SameSite=Strict session; bootstrap ticket is one-use and expires in 5 minutes."}
+    api['components']['securitySchemes']['PreviewMapSession'] = {'type':'apiKey','in':'cookie','name':'ta_preview_8768','description':'P03 isolated loopback session; ta_preview_<configured port>, default 8768.'}
+    for route in ['/api/v1/preview','/api/v1/preview/sessions','/api/v1/preview/sessions/{session_id}']:
+        for value in api['paths'][route].values():
+            if 'security' in value and {'PreviewMapSession':[]} not in value['security']:
+                value['security'].append({'PreviewMapSession':[]})
     api['components']['securitySchemes']['PreviewReplaySession'] = {'type':'apiKey','in':'cookie','name':'ta_preview_8767',
         'description':'P02.1 isolated HttpOnly SameSite=Strict cookie: ta_preview_<configured port>; 8767 by default. Cookies do not isolate by port, so its name must differ from P01/P02.'}
     marker = " P01 /api/v1/preview routes are implemented; other business routes remain design contracts. SQLite v11 adds independent preview choices/receipts."

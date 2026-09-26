@@ -6,7 +6,7 @@
   "packageManager": "pnpm@11.24.0",
   "scripts": {
     "build": "vue-tsc --noEmit && vite build",
-    "test": "node tests/review-panel.mjs"
+    "test": "node tests/review-panel.mjs && node tests/route-panel.mjs"
   },
   "dependencies": {
     "vue": "3.5.43"

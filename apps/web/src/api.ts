@@ -23,7 +23,7 @@ export type View = {
   interest_needs_confirmation: boolean; previous_interest: string | null
 }
 export type Research = {research_id: string; research_revision: number; label: string; evidence_count: number}
-export type Index = {mode: string; csrf_token: string; researches: Research[]; session: View | null; workbench_available: boolean; replay_available: boolean}
+export type Index = {mode: string; csrf_token: string; researches: Research[]; session: View | null; workbench_available: boolean; replay_available: boolean; route_check_available: boolean}
 export type Job = {job_id: string; session_id: string; status: string; request_revision: number; cancel_requested: boolean; new_evidence_count: number; reviewed: number; pending: number; rejected: number; reason: string | null; can_adopt: boolean}
 export type Workbench = {enabled: boolean; configured: boolean; budget: {used: Record<string, number>; remaining: Record<string, number>; gate: string; closed: boolean}; jobs: Job[]; data_use: string}
 let csrf = ''

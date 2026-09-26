@@ -170,6 +170,7 @@ class PreviewIndex(StrictModel):
     session: PreviewView | None
     workbench_available: bool = False
     replay_available: bool = False
+    route_check_available: bool = False
 
 
 class ReplayItem(StrictModel):
