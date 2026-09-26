@@ -18,10 +18,21 @@ from .references import catalog, materialize, validate_reference, REFERENCE_KIND
 
 
 def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: str,
-                      decisions: dict[int, dict[str, Any]], model_review_id: str | None = None) -> dict[str, Any]:
+                      decisions: dict[int, dict[str, Any]], model_review_id: str | None = None,
+                      revalidation_id: str | None = None) -> dict[str, Any]:
     """Accept only locator-valid, explicitly reviewed rows; transaction includes lineage."""
     con = store.db.connection
     with store.db.transaction():
+        local = None
+        if revalidation_id:
+            from .review_replay import verify_record
+            local = verify_record(store, revalidation_id, account_scope)
+            if local['status'] != 'VALIDATING' or model_review_id:
+                raise ValueError('LOCAL_REVALIDATION_STATE_DENIED')
+            parent = con.execute('SELECT attempt_id FROM context_review_runs WHERE review_id=?', (local['review_id'],)).fetchone()
+            approved = {i['candidate_index']: i for i in json.loads(local['results_json'])}
+            if parent[0] != attempt_id or any(not approved.get(i, {}).get('eligible') or approved[i]['program'] != d for i, d in decisions.items()):
+                raise ValueError('LOCAL_REVALIDATION_DECISION_MISMATCH')
         if model_review_id is not None:
             review = con.execute("SELECT * FROM context_review_runs WHERE review_id=? AND attempt_id=? AND account_scope=? "
                 "AND mode='RUNTIME' AND status='COMPLETED'", (model_review_id,attempt_id,account_scope)).fetchone()
@@ -38,7 +49,7 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
             or attempt["status"] not in {"PENDING_REVIEW", "PARTIAL_SUCCESS", "SUCCEEDED", "NO_ACCEPTED_EVIDENCE"}):
             raise ValueError("REVIEW_SCOPE_REVISION_OR_STATE_DENIED")
         source_row = con.execute("SELECT source_id FROM source_contents WHERE content_id=?", (attempt["content_id"],)).fetchone()
-        content = next((c for c in store.contents.load(source_row[0], account_scope)
+        content = next((c for c in store.contents.load(source_row[0], account_scope, purge=False)
                         if c["content_id"] == attempt["content_id"]), None)
         if (content is None or content["content_hash"] != attempt["content_hash"]
             or content["normalization_version"] != attempt["normalization_version"]):
@@ -56,8 +67,9 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                                or decisions.get(r["candidate_index"], {}).get("action") == "REJECT"
                                for c in json.loads(r["candidate_json"])["applicable_conditions"]}
         request = ResearchRequest(**json.loads(attempt["request_json"]))
-        run = store.begin(attempt["research_id"], attempt["revision"], request.to_dict(), account_scope)
-        store.register_policy(run, attempt["revision"], policy)
+        run_revision = 0 if local else attempt["revision"]
+        run = store.begin("research-" + revalidation_id if revalidation_id else attempt["research_id"], run_revision, request.to_dict(), account_scope)
+        store.register_policy(run, run_revision, policy)
         con.execute("INSERT OR IGNORE INTO research_run_contents VALUES(?,?)", (run, content["content_id"]))
         for row in rows:
             index = row["candidate_index"]
@@ -67,7 +79,7 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
             if set(decision) - {"action", "reason_code", "dimension_checks", "context_conditions", "dependency_resolution",
                                 "route_association", "reference_scope", "context_span_ids", "duration_scope"}:
                 raise ValueError("UNKNOWN_REVIEW_FIELD")
-            if row["review_json"]:
+            if row["review_json"] and not local:
                 if json.loads(row["review_json"]) != decision:
                     raise ValueError("REVIEW_ALREADY_FINAL")
                 continue
@@ -80,11 +92,11 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                 raise ValueError("INVALID_REJECTION_REASON")
             if decision.get("dependency_resolution") not in {None, "INDEPENDENT"}:
                 raise ValueError("INVALID_DEPENDENCY_RESOLUTION")
-            if row["context_status"] != "PENDING":
+            if row["context_status"] != "PENDING" and not (local and local['mode'] == 'EVALUATION'):
                 raise ValueError("REJECTED_LOCATOR_CANNOT_BE_APPROVED")
             claim_id = None
             if action == "ACCEPT":
-                if reason != ("MODEL_CONTEXT_SUPPORTED" if model_review_id else "WORK_CONTEXT_VERIFIED") or decision.get("dimension_checks") != {k: True for k in REVIEW_DIMENSIONS}:
+                if reason != ("MODEL_CONTEXT_SUPPORTED" if model_review_id or local else "WORK_CONTEXT_VERIFIED") or decision.get("dimension_checks") != {k: True for k in REVIEW_DIMENSIONS}:
                     raise ValueError("CONTEXT_REVIEW_INCOMPLETE")
                 candidate = deepcopy(json.loads(row["candidate_json"]))
                 reference = candidate.get("reference_selection")
@@ -144,6 +156,9 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                                 audit_attempt_id=attempt_id, audit_candidate_index=index)
                 if model_review_id:
                     metadata['context_review_id'] = model_review_id
+                if local:
+                    metadata.update(context_review_status='LOCAL_REVALIDATION', context_review_id=local['review_id'],
+                                    local_revalidation_id=revalidation_id)
                 if decision.get("reference_scope"):
                     metadata["reference_scope"] = decision["reference_scope"]
                 if decision.get("duration_scope"):
@@ -176,9 +191,13 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                 bundle = EvidenceBundle(data)
                 if audit_grounding(bundle, (content,))["unsupported"]:
                     raise ValueError("REVIEW_LINEAGE_INVALID")
-                store.save_evidence(run, attempt["revision"], bundle, policy,
+                if local:
+                    con.execute('INSERT INTO revalidation_claims VALUES(?,?,?)', (revalidation_id, index, claim['claim_id']))
+                store.save_evidence(run, run_revision, bundle, policy,
                                     {"identity_match": True}, merge_reviewed=True)
                 claim_id = claim["claim_id"]
+            if local:
+                continue
             con.execute("UPDATE extraction_candidates SET context_status=?,context_reason=?,review_json=?,claim_id=? "
                         "WHERE attempt_id=? AND candidate_index=?", ("ACCEPTED" if action == "ACCEPT" else "REJECTED",
                         reason, json.dumps(decision, ensure_ascii=False), claim_id, attempt_id, index))
@@ -192,6 +211,10 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
             if any(m["route_association"]["object_locator"] not in route_objects
                    for m in assessments.values() if m.get("route_association")):
                 raise ValueError("ROUTE_ASSOCIATION_WITHOUT_ACCEPTED_ROUTE")
+        if local:
+            # The replay publisher creates a separate report. Never mutate old attempt/candidate state.
+            con.execute("UPDATE research_runs SET status='FINISHED',finished_at=? WHERE run_id=?", (store.db.stamp(), run))
+            return {'local_revalidation_id': revalidation_id}
         recovery = ExtractionRecovery(store, EvidenceExtractor())
         outcome = recovery.outcome(attempt_id)
         counts = outcome["counts"]

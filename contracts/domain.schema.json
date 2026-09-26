@@ -849,7 +849,8 @@
             "PENDING",
             "WORK_REVIEWED",
             "MODEL_CONTEXT_REVIEWED",
-            "PENDING_REVIEW"
+            "PENDING_REVIEW",
+            "LOCAL_REVALIDATION"
           ]
         },
         "grounding_rule_version": {
@@ -921,6 +922,10 @@
         "context_review_id": {
           "type": "string",
           "pattern": "^review-[a-f0-9]{32}$"
+        },
+        "local_revalidation_id": {
+          "type": "string",
+          "pattern": "^revalidation-[a-f0-9]{32}$"
         }
       }
     },
@@ -3715,7 +3720,8 @@
         "review_status": {
           "enum": [
             "WORK_REVIEWED",
-            "MODEL_CONTEXT_REVIEWED"
+            "MODEL_CONTEXT_REVIEWED",
+            "LOCAL_REVALIDATION"
           ],
           "title": "Review Status",
           "type": "string"
@@ -4322,6 +4328,11 @@
           "default": false,
           "title": "Workbench Available",
           "type": "boolean"
+        },
+        "replay_available": {
+          "default": false,
+          "title": "Replay Available",
+          "type": "boolean"
         }
       },
       "required": [
@@ -4593,6 +4604,374 @@
       "type": "object"
     },
     "ModelContextReviewResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviews"
+      ],
+      "properties": {
+        "reviews": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "candidate_index",
+              "decision",
+              "reason_code",
+              "dimension_checks",
+              "context_span_ids",
+              "reference_scope",
+              "duration_scope",
+              "object_span_id",
+              "object_scope",
+              "dependency_resolution",
+              "explanation",
+              "candidate_topic"
+            ],
+            "properties": {
+              "candidate_index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 11
+              },
+              "decision": {
+                "enum": [
+                  "REFERENCE",
+                  "REJECT",
+                  "NEEDS_REVIEW"
+                ]
+              },
+              "reason_code": {
+                "enum": [
+                  "CONTEXT_CONDITION_OMITTED",
+                  "CONTEXT_NEGATION_OMITTED",
+                  "CONTEXT_REVIEW_REQUIRED",
+                  "CONTEXT_SUBJECT_OMITTED",
+                  "CONTEXT_SUPPORTED",
+                  "CONTEXT_TIME_UNCERTAIN",
+                  "CONTEXT_TRANSPORT_MISMATCH",
+                  "CONTEXT_UNCERTAIN",
+                  "DEPENDENCY_UNRESOLVED",
+                  "DURATION_SCOPE_MISMATCH",
+                  "INSUFFICIENT_CONTEXT",
+                  "INVALID_REFERENCE",
+                  "MODEL_CONTEXT_SUPPORTED",
+                  "NOT_TRAVEL_EVIDENCE",
+                  "ROLE_MISMATCH",
+                  "UNVERIFIED_IMPORTANT_FACT"
+                ]
+              },
+              "dimension_checks": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "hypothesis",
+                  "images",
+                  "negation",
+                  "scope",
+                  "source_kind",
+                  "subject",
+                  "time",
+                  "transport"
+                ],
+                "properties": {
+                  "hypothesis": {
+                    "type": "boolean"
+                  },
+                  "images": {
+                    "type": "boolean"
+                  },
+                  "negation": {
+                    "type": "boolean"
+                  },
+                  "scope": {
+                    "type": "boolean"
+                  },
+                  "source_kind": {
+                    "type": "boolean"
+                  },
+                  "subject": {
+                    "type": "boolean"
+                  },
+                  "time": {
+                    "type": "boolean"
+                  },
+                  "transport": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "context_span_ids": {
+                "type": "array",
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "maxLength": 100
+                }
+              },
+              "reference_scope": {
+                "enum": [
+                  "AUTHOR_RECORDED_TRIP",
+                  "AUTHOR_PROPOSED_PLAN",
+                  "GUIDE_SUGGESTION",
+                  "UNKNOWN"
+                ]
+              },
+              "duration_scope": {
+                "enum": [
+                  "NONE",
+                  "WHOLE_TRIP",
+                  "DAY_SEGMENT"
+                ]
+              },
+              "object_span_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 100
+              },
+              "object_scope": {
+                "enum": [
+                  "WHOLE_TRIP",
+                  "SEGMENT"
+                ]
+              },
+              "dependency_resolution": {
+                "enum": [
+                  "INDEPENDENT",
+                  "UNRESOLVED"
+                ]
+              },
+              "explanation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "candidate_topic": {
+                "enum": [
+                  "ROUTE",
+                  "EXPERIENCE",
+                  "DURATION",
+                  "TRANSPORT",
+                  "SEASON",
+                  "TRADEOFF",
+                  "PRICE",
+                  "OPENING",
+                  "RESERVATION",
+                  "OTHER"
+                ]
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "candidate_topic": {
+                      "not": {
+                        "const": "DURATION"
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "duration_scope": {
+                      "const": "NONE"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "ReplayItem": {
+      "additionalProperties": false,
+      "properties": {
+        "source_label": {
+          "title": "Source Label",
+          "type": "string"
+        },
+        "candidate_index": {
+          "title": "Candidate Index",
+          "type": "integer"
+        },
+        "topic": {
+          "title": "Topic",
+          "type": "string"
+        },
+        "origin": {
+          "title": "Origin",
+          "type": "string"
+        },
+        "rule_version": {
+          "title": "Rule Version",
+          "type": "integer"
+        },
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "next_action": {
+          "title": "Next Action",
+          "type": "string"
+        },
+        "quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Quote"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Locator"
+        },
+        "conversion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Conversion"
+        }
+      },
+      "required": [
+        "source_label",
+        "candidate_index",
+        "topic",
+        "origin",
+        "rule_version",
+        "action",
+        "reason_code",
+        "category",
+        "explanation",
+        "next_action",
+        "quote",
+        "locator",
+        "conversion"
+      ],
+      "title": "ReplayItem",
+      "type": "object"
+    },
+    "ReplayUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "revalidation_id": {
+          "title": "Revalidation Id",
+          "type": "string"
+        },
+        "research_id": {
+          "title": "Research Id",
+          "type": "string"
+        },
+        "evidence_count": {
+          "title": "Evidence Count",
+          "type": "integer"
+        },
+        "added": {
+          "title": "Added",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revalidation_id",
+        "research_id",
+        "evidence_count",
+        "added"
+      ],
+      "title": "ReplayUpdate",
+      "type": "object"
+    },
+    "ReplayIndex": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ReplayItem"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "updates": {
+          "items": {
+            "$ref": "#/$defs/ReplayUpdate"
+          },
+          "title": "Updates",
+          "type": "array"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "items",
+        "updates",
+        "message"
+      ],
+      "title": "ReplayIndex",
+      "type": "object"
+    },
+    "ReplayAdopt": {
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "maxLength": 100,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "revalidation_id": {
+          "maxLength": 100,
+          "title": "Revalidation Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 0,
+          "title": "Expected Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "session_id",
+        "revalidation_id",
+        "expected_revision"
+      ],
+      "title": "ReplayAdopt",
+      "type": "object"
+    },
+    "ModelContextReviewResponseV1": {
       "type": "object",
       "additionalProperties": false,
       "required": [

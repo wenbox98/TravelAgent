@@ -44,14 +44,14 @@ class PreviewService:
             accepted, metadata = [], {}
             for claim in b["claims"]:
                 meta = b.get("claim_metadata", {}).get(claim["claim_id"], {})
-                if claim["claim_id"] not in claims or meta.get("context_review_status") not in {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED"} or not is_grounded(b, claim):
+                if claim["claim_id"] not in claims or meta.get("context_review_status") not in {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED", "LOCAL_REVALIDATION"} or not is_grounded(b, claim):
                     continue
                 review = self.db.connection.execute(
                     "SELECT c.context_status,c.claim_id FROM extraction_candidates c "
                     "JOIN extraction_attempts a USING(attempt_id) JOIN source_contents s USING(content_id) "
                     "WHERE c.attempt_id=? AND c.candidate_index=? AND s.account_scope=? AND s.source_id=?",
                     (meta.get("audit_attempt_id"), meta.get("audit_candidate_index"), self.scope, source_id)).fetchone()
-                if review is None or review["context_status"] != "ACCEPTED" or review["claim_id"] != claim["claim_id"]:
+                if meta.get("context_review_status") != "LOCAL_REVALIDATION" and (review is None or review["context_status"] != "ACCEPTED" or review["claim_id"] != claim["claim_id"]):
                     continue
                 if meta.get('context_review_status') == 'MODEL_CONTEXT_REVIEWED':
                     model = self.db.connection.execute("SELECT results_json FROM context_review_runs WHERE review_id=? "
@@ -214,3 +214,47 @@ class PreviewService:
             self.db.connection.execute("UPDATE preview_sessions SET state_json=?,revision=revision+1,updated_at=? WHERE session_id=?", (encode(state), self.db.stamp(), session_id))
             self._remember(key, receipt, session_id)
             return self.get(session_id)
+
+    def adopt_research(self, session_id: str, research_id: str, revision: int) -> dict[str, Any]:
+        """Called by authorized adoption handlers inside their transaction."""
+        row, state, old, _ = self._load(session_id)
+        if row["revision"] != revision:
+            raise ValueError("STALE_REVISION")
+        # Snapshot the CURRENT choice, not the choice captured when the job was dispatched.
+        current = next(
+            (o for o in old["options"] if o["option_id"] == state["confirmed_option_id"]), None
+        )
+        q, ev = self._cache(research_id)
+        from .projection import project
+
+        new = project(ev, scope=self.scope, research_id=research_id, now=self.db.clock())
+        matching = next(
+            (
+                o
+                for o in new["options"]
+                if current
+                and set(o["route_evidence_ids"]) == set(current["route_evidence_ids"])
+                and o["evidence"] == current["evidence"]
+            ),
+            None,
+        )
+        if matching:
+            state["confirmed_option_id"] = matching["option_id"]
+        elif state["confirmed_option_id"]:
+            state["previous_interest"] = (
+                current["label"] if current else state.get("previous_interest")
+            )
+            state["interest_needs_confirmation"] = True
+        state["preview_option_id"] = None
+        self.db.connection.execute(
+            "UPDATE preview_sessions SET research_id=?,research_revision=?,evidence_revision=?,state_json=?,revision=revision+1,updated_at=? WHERE session_id=?",
+            (
+                research_id,
+                q["current_revision"],
+                fingerprint([b.to_dict() for b in ev]),
+                json.dumps(state, ensure_ascii=False),
+                self.db.stamp(),
+                session_id,
+            ),
+        )
+        return self.get(session_id)

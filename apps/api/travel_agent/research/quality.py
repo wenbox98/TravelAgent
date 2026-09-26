@@ -46,7 +46,7 @@ def is_grounded(bundle: EvidenceBundle, claim: dict[str, Any]) -> bool:
     """
     meta = metadata_for(bundle, claim)
     return bool(has_locator(claim) and claim.get("support") in {"SUPPORTED", "PARTIAL"}
-                and ("context_review_status" not in meta or meta["context_review_status"] in {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED"})
+                and ("context_review_status" not in meta or meta["context_review_status"] in {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED", "LOCAL_REVALIDATION"})
                 and meta.get("source_block_ids") and meta.get("extraction_basis")
                 and meta.get("extraction_method") in {"LLM", "MOCK", "LOCAL_EXTRACTIVE"})
 

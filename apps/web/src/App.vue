@@ -2,11 +2,13 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import EvidenceList from './components/EvidenceList.vue'
 import ResearchPanel from './components/ResearchPanel.vue'
+import ReviewPanel from './components/ReviewPanel.vue'
 import { readIndex, request, roleLabel, type View, type Research, type Option } from './api'
 const view = ref<View | null>(null)
 const researches = ref<Research[]>([])
 const mode = ref('')
 const workbenchAvailable = ref(false)
+const replayAvailable = ref(false)
 const input = ref('')
 const researchId = ref('')
 const busy = ref(false)
@@ -40,7 +42,7 @@ async function load() {
   await run(async ticket => {
     const result = await readIndex()
     if (ticket !== generation) return
-    researches.value = result.researches; mode.value = result.mode; workbenchAvailable.value = result.workbench_available
+    researches.value = result.researches; mode.value = result.mode; workbenchAvailable.value = result.workbench_available; replayAvailable.value = result.replay_available
     if (result.session) { apply(result.session, ticket); status.value = '已从本机恢复选择和资料。' }
   })
 }
@@ -75,6 +77,7 @@ onMounted(load)
     <p v-if="error" role="alert" class="error">{{ error }} <button class="quiet" :disabled="busy" @click="load">重新读取本机状态</button></p>
     <p role="status" aria-live="polite" class="status">{{ busy ? '正在读取本机状态…' : status }}</p>
     <ResearchPanel v-if="view && workbenchAvailable" :key="view.session_id" :view="view" @adopt="result => apply(result, ++generation)" />
+    <ReviewPanel v-if="view && replayAvailable" :view="view" @adopt="result => apply(result, ++generation)" />
     <div v-if="view" class="workspace">
       <section class="drafts" aria-label="路线草案">
         <div class="section-heading"><div><p class="eyebrow">已审核资料 · 图片未分析</p><h2>有依据的草案与日段</h2></div><span>{{ view.options.length }} 组</span></div>

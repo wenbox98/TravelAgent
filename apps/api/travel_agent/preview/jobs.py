@@ -172,46 +172,7 @@ class JobService:
             if not j["can_adopt"]:
                 raise ValueError("NEW_MATERIAL_UNAVAILABLE")
             r = con.execute("SELECT * FROM preview_jobs WHERE job_id=?", (job,)).fetchone()
-            row, state, old, _ = self.preview._load(j["session_id"])
-            if row["revision"] != revision:
-                raise ValueError("STALE_REVISION")
-            # Snapshot the CURRENT choice, not the choice captured when the job was dispatched.
-            current = next(
-                (o for o in old["options"] if o["option_id"] == state["confirmed_option_id"]), None
-            )
-            q, ev = self.preview._cache(r["research_id"])
-            from .projection import project
-
-            new = project(ev, scope=self.scope, research_id=r["research_id"], now=self.db.clock())
-            matching = next(
-                (
-                    o
-                    for o in new["options"]
-                    if current
-                    and set(o["route_evidence_ids"]) == set(current["route_evidence_ids"])
-                    and o["evidence"] == current["evidence"]
-                ),
-                None,
-            )
-            if matching:
-                state["confirmed_option_id"] = matching["option_id"]
-            elif state["confirmed_option_id"]:
-                state["previous_interest"] = (
-                    current["label"] if current else state.get("previous_interest")
-                )
-                state["interest_needs_confirmation"] = True
-            state["preview_option_id"] = None
-            con.execute(
-                "UPDATE preview_sessions SET research_id=?,research_revision=?,evidence_revision=?,state_json=?,revision=revision+1,updated_at=? WHERE session_id=?",
-                (
-                    r["research_id"],
-                    q["current_revision"],
-                    fingerprint([b.to_dict() for b in ev]),
-                    json.dumps(state, ensure_ascii=False),
-                    self.db.stamp(),
-                    j["session_id"],
-                ),
-            )
+            self.preview.adopt_research(j["session_id"], r["research_id"], revision)
             self.preview._remember(key, receipt, j["session_id"])
             return self.preview.get(j["session_id"])
 

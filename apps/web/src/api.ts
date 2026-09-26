@@ -23,7 +23,7 @@ export type View = {
   interest_needs_confirmation: boolean; previous_interest: string | null
 }
 export type Research = {research_id: string; research_revision: number; label: string; evidence_count: number}
-export type Index = {mode: string; csrf_token: string; researches: Research[]; session: View | null; workbench_available: boolean}
+export type Index = {mode: string; csrf_token: string; researches: Research[]; session: View | null; workbench_available: boolean; replay_available: boolean}
 export type Job = {job_id: string; session_id: string; status: string; request_revision: number; cancel_requested: boolean; new_evidence_count: number; reviewed: number; pending: number; rejected: number; reason: string | null; can_adopt: boolean}
 export type Workbench = {enabled: boolean; configured: boolean; budget: {used: Record<string, number>; remaining: Record<string, number>; gate: string; closed: boolean}; jobs: Job[]; data_use: string}
 let csrf = ''
@@ -40,3 +40,7 @@ export async function request<T>(url: string, body?: unknown, key?: string): Pro
 }
 export const roleLabel = (value: string): string => ({AUTHOR_PROPOSED_PLAN: '作者未出行的计划',
   GUIDE_SUGGESTION: '攻略建议 · 未确认亲历', AUTHOR_RECORDED_TRIP: '作者记载的历史经历', UNKNOWN: '来源性质未知'}[value] || '来源性质未知')
+
+export type ReviewItem = {source_label: string; candidate_index: number; topic: string; origin: string; rule_version: number; action: string; reason_code: string; category: string; explanation: string; next_action: string; quote: string | null; locator: string | null; conversion: string | null}
+export type ReviewUpdate = {revalidation_id: string; research_id: string; evidence_count: number; added: number}
+export type ReviewIndex = {items: ReviewItem[]; updates: ReviewUpdate[]; message: string}

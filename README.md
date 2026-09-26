@@ -9,6 +9,19 @@
 
 ## 当前定位：私人本地研究
 
+P02.1 对齐时间审核契约，并对已存模型提议做版本化本地回放；没有新的模型作答或小红书访问。原提议、历史审核和选择保留，新增资料需显式采用。见 [本地回放设计](docs/architecture/p021-review-replay.md)。P01/P02 的数据库和共享前端构建不被覆盖。
+
+本机隔离页面启动（已有依赖；8767 已运行时直接使用页面）：
+
+```powershell
+Set-Location E:\workSpace\travel-agent-project\travel-agent\apps\web
+npm.cmd run build -- --outDir ../../.local/p021-web
+Set-Location E:\workSpace\travel-agent-project\travel-agent
+.venv\Scripts\python.exe -X utf8 scripts\review_replay.py serve --source-database .local\p02-preview\preview.sqlite3 --workspace .local\p021-preview --account-scope current-private-profile --port 8767 --open
+```
+
+本机地址 `http://127.0.0.1:8767/`。首次建库使用 SQLite 一致性备份；已有副本不会重建或恢复预算。`serve` 不执行回放，只有操作者显式使用 `dry-run` / `replay` 命令才会校验已存提议；没有页面强制批准入口。普通页面浏览、展开理由、取消和采用均零业务外部请求。
+
 P02 增加普通 v3 入口、独立模型上下文审核和页面主动触发的有限研究。新材料与选择保存在同一个私人工作副本，必须显式采用；刷新、查询状态和改条件仍不触发外部请求。模型审核只检查原文支持关系，未核实当前可行性。历史 Work 审核不会改名为模型审核，G1 仍 NOT PASS。真实分项结果、预算与限制见 [P02 验收报告](reports/P02-live-research-workbench.md)，契约见 [P02 设计](docs/architecture/p02-live-workbench.md)。
 
 本机已建立的 P02 工作区可用以下命令恢复（端口占用时直接使用正在运行的页面，不要重复启动）：

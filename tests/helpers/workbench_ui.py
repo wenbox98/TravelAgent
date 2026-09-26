@@ -36,7 +36,7 @@ def exercise(folder):
             item = json.loads(body["messages"][1]["content"])
             task = item["task"]
             requests.append(task)
-            if task == "review_evidence_context_v1":
+            if task == "review_evidence_context_v2":
                 assert "Independently review" in body["messages"][0]["content"]
             output = fake.structured(task, item["input"], {})
             response = json.dumps(
@@ -146,7 +146,7 @@ def exercise(folder):
             assert state()["confirmed_option_id"] == initial["confirmed_option_id"] and not requests
             page.get_by_test_id("start-research").click()
             expect(page.get_by_test_id("adopt-materials")).to_be_visible(timeout=30000)
-            assert requests == ["select_evidence_references_v1", "review_evidence_context_v1"]
+            assert requests == ["select_evidence_references_v1", "review_evidence_context_v2"]
             assert state()["confirmed_option_id"] == initial["confirmed_option_id"]
             page.get_by_test_id("adopt-materials").click()
             expect(page.locator(".option")).to_have_count(3)

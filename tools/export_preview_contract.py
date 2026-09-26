@@ -6,12 +6,12 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api"))
-from travel_agent.preview.models import PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex  # noqa: E402
+from travel_agent.preview.models import PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt  # noqa: E402
 
 
 def definitions():
     result = {}
-    for model in (PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex):
+    for model in (PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt):
         schema = model.model_json_schema()
         result.update(schema.pop("$defs", {}))
         result[model.__name__] = schema
@@ -22,14 +22,17 @@ def main():
     path = ROOT / "contracts/domain.schema.json"
     domain = json.loads(path.read_text(encoding="utf-8"))
     domain["$defs"].update(definitions())
-    from travel_agent.research.context_review import REVIEW_SCHEMA
+    from travel_agent.research.context_review import REVIEW_SCHEMA, REVIEW_SCHEMA_V1
     from travel_agent.research.grounding import CONTEXT_REASONS, REASONS
     domain['$defs']['ModelContextReviewResponse'] = REVIEW_SCHEMA
+    domain['$defs']['ModelContextReviewResponseV1'] = REVIEW_SCHEMA_V1
     domain['$defs']['GroundingCandidateCheck']['properties']['context_reason']['enum'] = sorted(CONTEXT_REASONS | REASONS)
     path.write_text(json.dumps(domain, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     path = ROOT / "contracts/openapi.yaml"
     api = yaml.safe_load(path.read_text(encoding="utf-8"))
     routes = [
+        ("/api/v1/preview/reviews", "get", "readReviewExplanations", None, "ReplayIndex"),
+        ("/api/v1/preview/review-update", "post", "adoptLocalRevalidation", "ReplayAdopt", "PreviewView"),
         ("/api/v1/preview", "get", "getCachedPreview", None, "PreviewIndex"),
         ("/api/v1/preview/sessions", "post", "createCachedPreview", "PreviewCreate", "PreviewView"),
         ("/api/v1/preview/sessions/{session_id}", "get", "readCachedPreview", None, "PreviewView"),

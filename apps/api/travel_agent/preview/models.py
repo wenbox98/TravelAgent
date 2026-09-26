@@ -51,7 +51,7 @@ class PreviewEvidence(StrictModel):
     block_locators: list[str]
     span_ids: list[str]
     completeness: str
-    review_status: Literal["WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED"]
+    review_status: Literal["WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED", "LOCAL_REVALIDATION"]
     travel_time: str | None
     retrieved_at: str
     source_url: str | None
@@ -169,6 +169,42 @@ class PreviewIndex(StrictModel):
     researches: list[PreviewResearch]
     session: PreviewView | None
     workbench_available: bool = False
+    replay_available: bool = False
+
+
+class ReplayItem(StrictModel):
+    source_label: str
+    candidate_index: int
+    topic: str
+    origin: str
+    rule_version: int
+    action: str
+    reason_code: str
+    category: str
+    explanation: str
+    next_action: str
+    quote: str | None
+    locator: str | None
+    conversion: str | None
+
+
+class ReplayUpdate(StrictModel):
+    revalidation_id: str
+    research_id: str
+    evidence_count: int
+    added: int
+
+
+class ReplayIndex(StrictModel):
+    items: list[ReplayItem]
+    updates: list[ReplayUpdate]
+    message: str
+
+
+class ReplayAdopt(StrictModel):
+    session_id: str = Field(max_length=100)
+    revalidation_id: str = Field(max_length=100)
+    expected_revision: int = Field(ge=0)
 
 
 class JobCreate(StrictModel):

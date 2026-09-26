@@ -86,6 +86,8 @@ class EvidenceRepository:
                 and (policy["expires_at"] is None or datetime.fromisoformat(policy["expires_at"]) > now))
 
     def model_review_valid(self, assessment, source_id, scope, *, require_candidate=True):
+        if assessment.get('context_review_status') == 'LOCAL_REVALIDATION':
+            return self.local_review_valid(assessment, source_id, scope)
         if assessment.get('context_review_status') != 'MODEL_CONTEXT_REVIEWED':
             return True
         if self.db.version < 12:
@@ -103,6 +105,33 @@ class EvidenceRepository:
         return bool(approved and approved['action']=='ACCEPT' and ref.get('statement')==original.get('statement')
             and assessment.get('reference_scope')==approved.get('reference_scope')
             and {s['span_id'] for s in ref.get('conditions',[])}==set(approved.get('context_span_ids',[])))
+
+    def local_review_valid(self, assessment, source_id, scope):
+        if self.db.version < 13:
+            return False
+        from travel_agent.research.review_replay import verify_record
+        from travel_agent.research.store import EvidenceStore
+        try:
+            row = verify_record(EvidenceStore(self.db), assessment.get('local_revalidation_id'), scope)
+        except (ValueError, PermissionError):
+            return False
+        # EVALUATION can only exercise the persistence validator inside its rolled-back transaction.
+        if row['mode'] != 'RUNTIME' and row['status'] != 'VALIDATING':
+            return False
+        bound = json.loads(row['binding_json'])
+        index = assessment.get('audit_candidate_index')
+        approved = next((i['program'] for i in json.loads(row['results_json']) if i['candidate_index'] == index), None)
+        mapping = self.db.connection.execute('SELECT claim_id FROM revalidation_claims WHERE revalidation_id=? AND candidate_index=?', (row['revalidation_id'], index)).fetchone()
+        original = self.db.connection.execute('SELECT candidate_json FROM extraction_candidates WHERE attempt_id=? AND candidate_index=?', (bound['attempt_id'], index)).fetchone()
+        ref = assessment.get('reference_selection', {})
+        return bool(mapping and original and approved and approved['action'] == 'ACCEPT'
+            and bound['source_id'] == source_id and bound['account_scope'] == scope
+            and bound['attempt_id'] == assessment.get('audit_attempt_id')
+            and row['review_id'] == assessment.get('context_review_id')
+            and ref.get('statement') == json.loads(original[0])['reference_selection']['statement']
+            and assessment.get('reference_scope') == approved.get('reference_scope')
+            and assessment.get('duration_scope') == approved.get('duration_scope')
+            and {s['span_id'] for s in ref.get('conditions', [])} == set(approved.get('context_span_ids', [])))
 
     def require_model_review(self, evidence, scope):
         for assessment in evidence.get('claim_metadata',{}).values():

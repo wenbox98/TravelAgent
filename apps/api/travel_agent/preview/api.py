@@ -26,6 +26,8 @@ class PreviewConfig:
     ticket: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
     continuation: str | None = None
     live_ready: bool = False
+    local_replay: bool = False
+    static_dir: Path | None = None
 
 
 def error(code: str, status: int) -> JSONResponse:
@@ -87,6 +89,11 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
     async def database_error(request: Request, exc: Exception) -> JSONResponse:
         return error("CACHE_UNAVAILABLE", 503)
 
+    if config.local_replay and (config.continuation or config.live_ready):
+        raise ValueError('LOCAL_REPLAY_CANNOT_ENABLE_EXTERNAL_WORK')
+    if config.local_replay:
+        from .replay_api import install_replay
+        install_replay(app, config)
     if config.continuation:
         from .workbench_api import install_workbench
         install_workbench(app,config)
@@ -102,7 +109,7 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
             service = PreviewService(db, config.account_scope, config.mode)
             latest=service.latest()
             return {"mode": config.mode, "csrf_token": csrf, "researches": service.researches(), "session": present(latest) if latest else None,
-                    'workbench_available':config.continuation is not None}
+                    'workbench_available':config.continuation is not None, 'replay_available':config.local_replay}
 
     @app.post("/api/v1/preview/sessions", response_model=PreviewView)
     def create(body: PreviewCreate, request: Request) -> dict[str, Any]:

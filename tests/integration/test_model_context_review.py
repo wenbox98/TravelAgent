@@ -16,6 +16,7 @@ def proposal(data, index=0, **changes):
     c = data["candidates"][index]
     return dict(
         candidate_index=c["candidate_index"],
+        **({"candidate_topic": c["topic"]} if data["review_version"] != 1 else {}),
         decision="REFERENCE",
         reason_code="CONTEXT_SUPPORTED",
         dimension_checks={k: True for k in REVIEW_DIMENSIONS},
@@ -97,7 +98,7 @@ def test_unknown_output_operations_rejected():
         ("去年自驾去过，今年计划改骑车。", "AUTHOR_RECORDED_TRIP", "TRANSPORT", "NONE", False),
         ("请问雨天能不能走？", "GUIDE_SUGGESTION", "TRANSPORT", "NONE", False),
         ("Day4：合成镜湖散步。", "AUTHOR_PROPOSED_PLAN", "DURATION", "WHOLE_TRIP", False),
-        ("Day4：合成镜湖散步。", "AUTHOR_PROPOSED_PLAN", "DURATION", "DAY_SEGMENT", True),
+        ("Day4：合成镜湖散步。", "AUTHOR_PROPOSED_PLAN", "DURATION", "DAY_SEGMENT", False),
         ("计划在镜湖停留两小时。", "AUTHOR_PROPOSED_PLAN", "DURATION", "DAY_SEGMENT", True),
         ("这条路线绝对不会高反。", "GUIDE_SUGGESTION", "OTHER", "NONE", False),
         ("门票目前一百元。", "GUIDE_SUGGESTION", "PRICE", "NONE", False),

@@ -28,7 +28,7 @@ def create_app(settings: Settings | None = None, *, preview: PreviewConfig | Non
     def health():
         return {"status": "ok"}
 
-    dist = PROJECT_ROOT / "apps/web/dist"
+    dist = preview.static_dir if preview and preview.static_dir else PROJECT_ROOT / "apps/web/dist"
 
     @app.get("/")
     def index():

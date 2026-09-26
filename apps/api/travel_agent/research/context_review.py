@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from travel_agent.domain.source_policy import SENSITIVE_RESEARCH_TEXT
+from travel_agent.domain.models import validator
 from travel_agent.providers.llm import (
     LLMError,
     LLMProvider,
@@ -21,7 +22,9 @@ from .grounding import CONTEXT_REASONS, REVIEW_DIMENSIONS, check_grounding, cont
 from .references import REFERENCE_KINDS, catalog, materialize, payload, validate_reference
 from .store import EvidenceStore
 
-TASK = "review_evidence_context_v1"
+TASK = "review_evidence_context_v2"
+REVIEW_VERSION = 2
+RULE_VERSION = 3
 REASONS = sorted(
     (CONTEXT_REASONS - {"WORK_CONTEXT_VERIFIED", "DEPENDENCY_INDEPENDENT"})
     | {
@@ -55,7 +58,7 @@ PROPERTIES: dict[str, Any] = {
     "dependency_resolution": {"enum": ["INDEPENDENT", "UNRESOLVED"]},
     "explanation": {"type": "string", "minLength": 1, "maxLength": 200},
 }
-REVIEW_SCHEMA = {
+REVIEW_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": ["reviews"],
@@ -72,6 +75,13 @@ REVIEW_SCHEMA = {
         }
     },
 }
+REVIEW_SCHEMA_V1 = deepcopy(REVIEW_SCHEMA)
+PROPERTIES["candidate_topic"] = {"enum": validator("EvidenceClaim").schema["$defs"]["EvidenceClaim"]["properties"]["topic"]["enum"]}
+REVIEW_SCHEMA["properties"]["reviews"]["items"]["required"] = list(PROPERTIES)
+REVIEW_SCHEMA["properties"]["reviews"]["items"]["allOf"] = [{
+    "if": {"properties": {"candidate_topic": {"not": {"const": "DURATION"}}}},
+    "then": {"properties": {"duration_scope": {"const": "NONE"}}},
+}]
 
 # Guardrails target categories, never source IDs, locations or sample ordinals.
 PLAN = re.compile(r"计划|打算|准备|还没出发|尚未出发|还未出发|想.*(?:去|走|自驾)|求建议")
@@ -90,7 +100,8 @@ def _digest(value: Any) -> str:
 
 
 def build_input(
-    store: EvidenceStore, attempt_id: str, scope: str, target: dict[str, Any]
+    store: EvidenceStore, attempt_id: str, scope: str, target: dict[str, Any], *, version: int = REVIEW_VERSION,
+    local_read: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Reconstruct from immutable extraction snapshot, ignoring ALL historic review fields."""
     a = store.db.connection.execute(
@@ -128,7 +139,10 @@ def build_input(
     ):
         raise ValueError("REVIEW_SNAPSHOT_MISMATCH")
     policy = store._latest_policy(content["policy_id"])
-    if policy is None or not policy_allows_model(policy, external=True, now=store.db.clock()):
+    from travel_agent.domain.source_policy import scope_allowed
+    if policy is None or not scope_allowed(policy, scope) or not (
+        store.repository.permitted(policy) if local_read else policy_allows_model(policy, external=True, now=store.db.clock())
+    ):
         raise ValueError("REVIEW_POLICY_DENIED")
     view = canonicalize(
         content["raw_text"], content["dom_text"], completeness=content["content_completeness"]
@@ -175,7 +189,7 @@ def build_input(
         "completeness": content["content_completeness"],
         "context_may_be_missing": source_chars < sum(len(b.text) for b in view.blocks),
         "target_preferences": {k: target[k] for k in ("days", "driving") if k in target},
-        "review_version": 1,
+        "review_version": version,
         "purpose": "CONDITIONAL_REFERENCE_NOT_VERIFIED_FACT",
     }
     if SENSITIVE_RESEARCH_TEXT.search(json.dumps(data, ensure_ascii=False)):
@@ -193,9 +207,11 @@ def check_decision(
     p: dict[str, Any], data: dict[str, Any], context: dict[str, Any]
 ) -> dict[str, Any]:
     """No model label can manufacture exact anchors, dependencies or current facts."""
-    validate_structured({"reviews": [p]}, REVIEW_SCHEMA)
+    validate_structured({"reviews": [p]}, REVIEW_SCHEMA_V1 if data["review_version"] == 1 else REVIEW_SCHEMA)
     i = p["candidate_index"]
     if i not in context["raw"]:
+        raise ValueError("INVALID_REFERENCE")
+    if data["review_version"] != 1 and p["candidate_topic"] != context["raw"][i]["topic"]:
         raise ValueError("INVALID_REFERENCE")
     if SENSITIVE_RESEARCH_TEXT.search(p["explanation"]) or re.search(
         r"https?://|[A-Za-z]:[\\/]", p["explanation"]
@@ -281,6 +297,8 @@ def check_decision(
         ):
             raise ValueError("ROLE_MISMATCH")
     if raw["topic"] == "DURATION":
+        if data["review_version"] != 1 and not re.search(r"[\d一二三四五六七八九十两半]+\s*(?:天|小时|分钟|晚)", DAY.sub("", text)):
+            raise ValueError("DURATION_SCOPE_MISMATCH")
         if p["duration_scope"] == "NONE" or (
             DAY.search(text) and p["duration_scope"] == "WHOLE_TRIP"
         ):
@@ -345,7 +363,7 @@ def reserve_review(
         budget.reserve("MODEL", "review:" + ctx["content"]["source_id"])
         rid = "review-" + uuid4().hex
         con.execute(
-            "INSERT INTO context_review_runs VALUES(?,?,?,?,?,?,?,?,?,NULL,NULL,?,NULL)",
+            "INSERT INTO context_review_runs VALUES(?,?,?,?,?,?,?,?,?,NULL,NULL,?,NULL,2,3)",
             (
                 rid,
                 budget.identifier,
@@ -371,7 +389,7 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
     if isinstance(provider, OpenAICompatibleProvider):
         budget.check_provider(provider)
     data, ctx = build_input(
-        store, r["attempt_id"], r["account_scope"], json.loads(r["target_json"])
+        store, r["attempt_id"], r["account_scope"], json.loads(r["target_json"]), version=r["review_version"]
     )
     budget.check_permit("MODEL", "review:" + ctx["content"]["source_id"])
     if _digest(data) != r["input_hash"]:
@@ -400,7 +418,8 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
     try:
         if r['mode']=='RUNTIME':
             budget.check_job_active(ctx['attempt']['research_id'])
-        output = validate_structured(provider.structured(TASK, data, REVIEW_SCHEMA), REVIEW_SCHEMA)
+        schema = REVIEW_SCHEMA_V1 if r["review_version"] == 1 else REVIEW_SCHEMA
+        output = validate_structured(provider.structured(f"review_evidence_context_v{r['review_version']}", data, schema), schema)
         if isinstance(provider, OpenAICompatibleProvider) and provider.last_diagnostic is not None:
             # Transport checkpoints precede envelope/schema parsing and its final elapsed time.
             checkpoint(provider.last_diagnostic.safe_dict())
@@ -431,7 +450,7 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
         with store.db.transaction():
             # Revalidate current snapshot/revision/policy after a potentially long response.
             fresh, _ = build_input(
-                store, r["attempt_id"], r["account_scope"], json.loads(r["target_json"])
+                store, r["attempt_id"], r["account_scope"], json.loads(r["target_json"]), version=r["review_version"]
             )
             if _digest(fresh) != r["input_hash"]:
                 raise ValueError("REVIEW_INPUT_CHANGED")

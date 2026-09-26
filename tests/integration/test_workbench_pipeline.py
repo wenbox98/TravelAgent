@@ -43,7 +43,7 @@ class Provider:
                     choice(data["spans"], 4, (0, 1), "TRANSPORT"),
                 ]
             }
-        assert task == "review_evidence_context_v1"
+        assert task == "review_evidence_context_v2"
         output = []
         for i, c in enumerate(data["candidates"]):
             p = proposal(data, i)
@@ -263,7 +263,7 @@ def test_normal_api_service_v3_review_adoption_and_restart(tmp_path, clock, monk
         assert reader.calls == ["connect", "search", "detail"]
         assert provider.calls[calls:] == [
             "select_evidence_references_v1",
-            "review_evidence_context_v1",
+            "review_evidence_context_v2",
         ]
         assert job["new_evidence_count"] == 2 and job["can_adopt"], job
         assert (
