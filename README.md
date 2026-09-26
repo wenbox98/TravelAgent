@@ -9,6 +9,16 @@
 
 ## 当前定位：私人本地研究
 
+P01 已接通已审核缓存到 Vue 页面、条件选择、改选预览/取消/确认及重启恢复。它是缓存驱动开发预览，G1 仍 NOT PASS，不能据兴趣确认判断行程可行。见 [P01 使用与验收](reports/P01-cached-overview-preview.md)、[接口与备份](docs/architecture/p01-cached-preview.md)。不自动研究、不调用小红书或模型。
+
+已安装锁定依赖的开发环境中，在 `apps/web` 执行 `pnpm build` 后回仓库根目录启动（路径和 scope 使用自己的已配置缓存）：
+
+```powershell
+.venv\Scripts\python.exe scripts\cached_preview.py --source-database <已有缓存.sqlite3> --workspace .local\cached-preview --account-scope <本地scope> --port 8765 --open
+```
+
+浏览器会打开仅本机的一次性入口并跳到 `http://127.0.0.1:8765/`。终端也显示五分钟有效入口；不要分享该临时入口。Ctrl+C 正常停止，下次原命令恢复工作副本的选择。原库和 profile 保留。明确的 SYNTHETIC_DEMO 模式只显示合成来源，不会在真实缓存缺失时回填合成攻略。
+
 T06.6 将缓存复验改为片段 ID 选择，由程序回填准确文本、定位和条件集合，再经过严格 Work 上下文审核。仅用两篇缓存与两次追加模型请求，24 条定位通过、接纳 19、拒绝 5；旧六条原样保留，共 25 条记录（含一条同源旧观点重叠，不增加独立支持）。非空片段映射恢复和五天不自驾零访问增量通过。**正文现在能展示作者七日草案与攻略五个日段，仍无实测总耗时或非自驾可行性，G1 NOT PASS。** 小红书/浏览器全为 0，见 [T06.6 报告](reports/T06.6-reference-extraction.md)。
 
 T06.5 已完成一批有界补充：1 次搜索、2 篇新详情、2 次模型提取，新增接纳 3 条，加旧 3 条共 6 条。已生成私人可读局部攻略，并通过跨进程非空、零站点/零模型恢复和五天不自驾增量。**G1 仍 NOT PASS：路线和整趟时长候选未通过原定位标准，不能输出完整粗略路线。** 标题筛选、逐条条件展示及正常提取的 120/180 秒截止已修复；实际结果和剩余缺口见 [T06.5 报告](reports/T06.5-coverage-closure.md)。本批额度耗尽，未进入新产品功能。下方保留历史阶段结果。
@@ -183,6 +193,6 @@ python scripts/doctor.py
 python scripts/dev.py --mode mock
 ```
 
-打开 `http://127.0.0.1:8765` 查看合成演示；Ctrl+C 停止。此演示不提供研究聊天或 T03 登录 UI；登录使用上面的独立 sidecar CLI。
+此为历史 T00/T01 健康控制面，Ctrl+C 停止。当前 Vue 缓存预览请使用上方 `cached_preview.py` 入口；旧 dev.py 未配置缓存 API。T03 登录仍为独立 sidecar CLI，本轮不启动。
 
-测试：`python scripts/check.py --suite unit|contract|integration|security`（分别执行，竖线表示选项）；`e2e` 暂无测试时返回 5/SKIPPED。文档检查使用 `.venv\Scripts\python.exe tools/validate_pack.py` 或激活虚拟环境后运行原命令。合成演示资料在 Git 忽略的 `.local/`；T03 真实 profile 位于仓库外系统应用数据目录。真实浏览器默认关闭，所有自动测试离线。
+测试：`python scripts/check.py --suite unit|contract|integration|security|e2e`（分别执行，竖线表示选项）；P01 已加入仅访问 loopback 的 Vue e2e，先构建前端。文档检查使用 `.venv\Scripts\python.exe tools/validate_pack.py`。运行资料在 Git 忽略的 `.local/`；T03 profile 位于仓库外应用数据目录。自动测试不访问真实站点，本机 UI 测试浏览器与 XHS 浏览器分开。
