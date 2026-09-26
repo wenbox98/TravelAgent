@@ -9,6 +9,17 @@
 
 ## 当前定位：私人本地研究
 
+P03 增加已确认兴趣的地点与分段路程核实，保持原资料、G1 NOT PASS和五天/不自驾。地图只在明确点击时调用，缺少Key也能填写条件、预览/取消/采用并恢复。地图返回值只存内存；重启保留输入及额度，地图需显式重查。见 [P03设计](docs/architecture/p03-amap-route-check.md) 和 [验收报告](reports/P03-amap-route-check.md)。独立页面不覆盖8765/8766/8767：
+
+```powershell
+Set-Location E:\workSpace\travel-agent-project\travel-agent\apps\web
+npm.cmd run build -- --outDir ../../.local/p03-web
+Set-Location E:\workSpace\travel-agent-project\travel-agent
+.venv\Scripts\python.exe -X utf8 scripts\route_preview.py --open
+```
+
+地址 `http://127.0.0.1:8768/`。已有服务时直接使用，不重复启动。Key仅通过本机用户环境变量 `AMAP_WEB_SERVICE_KEY` 配置（Web服务类型），新终端启动时继承；不自动读.env。不要把Key填入页面或聊天。当前批次最多8次地点+8次路径，不通过重启/新目录恢复；没有小红书或模型能力。
+
 P02.1 对齐时间审核契约，并对已存模型提议做版本化本地回放；没有新的模型作答或小红书访问。原提议、历史审核和选择保留，新增资料需显式采用。见 [本地回放设计](docs/architecture/p021-review-replay.md)。P01/P02 的数据库和共享前端构建不被覆盖。
 
 本机隔离页面启动（已有依赖；8767 已运行时直接使用页面）：
