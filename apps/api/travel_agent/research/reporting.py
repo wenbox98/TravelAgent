@@ -160,6 +160,7 @@ def render_private_report(view: dict[str, Any], sources: list[dict[str, Any]]) -
         return (f"- {label}：作者写道“{_escape(row['text'])}”。[{refs[row['source_id']]}] "
                 f"对应条件：{_escape(conditions)}。" +
                 (f"旅行日期：{_escape(row['travel_time'])}。" if row.get("travel_time") else "") +
+                ("这条线索的当前适用性未核实。" if row["freshness"]["status"] == "CURRENT_UNVERIFIED" else "") +
                 ("当前仅有部分文字，图片未分析。" if row["content_completeness"] != "FULL_TEXT" else "图片未分析。"))
     if constraints.get("days") or constraints.get("no_self_drive"):
         known = ([f"{constraints['days']}天"] if constraints.get("days") else []) + (["不自驾"] if constraints.get("no_self_drive") else [])

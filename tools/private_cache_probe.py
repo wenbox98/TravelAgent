@@ -51,7 +51,8 @@ def probe(database, account_scope, research_id, output_dir=None):
         evidence = store.lookup(research_id, request.destination, account_scope)
         source_ids = {b["source_id"] for b in evidence} | {row[0] for row in db.connection.execute(
             "SELECT DISTINCT c.source_id FROM source_contents c JOIN research_run_contents r USING(content_id) "
-            "WHERE r.run_id=? AND c.account_scope=?", (previous["run_id"], account_scope))}
+            "WHERE r.run_id IN (SELECT run_id FROM research_runs WHERE research_id=?) AND c.account_scope=?",
+            (research_id, account_scope))}
         if not source_ids:
             return {"status": "FAIL", "reason": "EVIDENCE_NOT_RESTORED"}
         contents = {source: store.contents.load(source, account_scope) for source in sorted(source_ids)}
@@ -75,9 +76,12 @@ def probe(database, account_scope, research_id, output_dir=None):
         if output_dir is not None:
             from travel_agent.research.reporting import render_private_report
             output_dir.mkdir(parents=True, exist_ok=True)
+            sources = [store.repository.get(r[0], account_scope) for r in db.connection.execute(
+                "SELECT source_id FROM sources WHERE account_scope=? ORDER BY rowid", (account_scope,)) if r[0] in source_ids]
+            sources = [b.to_dict() for b in sources if b is not None]
             for name, report in (("first-plan.md", cached), ("five-days-no-driving.md", incremental)):
                 (output_dir / name).write_text(render_private_report(report.material_view(),
-                    [b.to_dict() for b in report.evidence]), encoding="utf-8")
+                    sources), encoding="utf-8")
         after_contents = {source: store.contents.load(source, account_scope) for source in sorted(source_ids)}
         after = {source: [c["content_hash"] for c in rows] for source, rows in after_contents.items()}
         audits = [audit_grounding(b, contents[b["source_id"]]) for b in evidence]

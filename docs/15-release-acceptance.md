@@ -33,6 +33,10 @@ TEXT_FIRST 阻止 224 次图片加载，SEARCH=236、DETAIL=276/285 与历史 17
 
 [T06.4 分层报告](../reports/T06.4-model-response-timeout.md)：859 项离线测试通过。独立追加授权只派发一次模型请求，120 秒实际等待和 180 秒总截止；完整响应、JSON/schema、3 条合格 Evidence 的部分保留及跨进程零访问恢复 PASS。其余 9 条拒绝，未改变严格标准；XHS connect/search/detail=0/0/0。Q2 体验 PARTIAL，路线/时长/交通 UNSUPPORTED，五天/不自驾缺口继续保留。**G0 仅沿用历史 PASS，G1 仍 NOT PASS**，不能把单篇响应完成等同整体研究质量验收。
 
+## T06.5 有界补充与可读局部攻略
+
+[T06.5 报告](../reports/T06.5-coverage-closure.md)：新增 search/detail/model=1/2/2，24 条新候选最终接纳 3、拒绝 21、待审 0；与旧 3 条合计 6 条，跨进程非空恢复及五天/不自驾增量均为零站点、零模型访问。已交付私人可读局部内容，逐条保留条件。路线/整趟时长未通过，体验/交通仍 PARTIAL，**G1 NOT PASS**；保持 G0 历史 PASS 与 T06.4 各子结论，不把可读内容或足额调用当作质量通过。固定续研账本已耗尽，没有扩大本批额度或进入后续产品开发。
+
 ## T03 独立交付门槛（历史规格）
 
 T03-01～T03-18 覆盖普通 launch/profile、状态机、本地 status 100 次零外部操作、connect 幂等/并发、有效/失效会话、验证暂停、generation/晚到回调、清理成功/失败、重启待核实、日志 sentinel 与 NOT_MEASURED。全部 unit/integration/contract/security 离线测试、Ruff、Mypy、契约快照、文档校验、git diff --check 通过后，才完成指定本地提交并汇报；执行证据必须来自真实命令输出。

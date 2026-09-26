@@ -250,6 +250,7 @@ class ResearchService:
                                 diagnostic = "LIVE_LLM_EXTRACTION_FAILED"
                                 return finish("ERROR")
                             # A supervised child commits candidates, not an in-memory ExtractionResult.
+                            diagnostic = None
                             modes.append(outcome["mode"])
                             evidence = self.store.lookup(research_id, request.destination, account_scope)
                             for b in evidence:

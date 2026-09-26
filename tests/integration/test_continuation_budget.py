@@ -102,8 +102,8 @@ def test_normal_source_reservation_uses_120_180_and_no_second_dispatch(tmp_path,
         assert "synthetic-secret" not in json.dumps(result,default=str)
 
 
-@pytest.mark.parametrize("first_empty", [False, True])
-def test_continuation_service_keeps_partial_then_stops_transport_failure(tmp_path,clock,first_empty):
+@pytest.mark.parametrize("first_empty,second_succeeds", [(False,False), (True,False), (True,True)])
+def test_continuation_service_keeps_partial_then_stops_transport_failure(tmp_path,clock,first_empty,second_succeeds):
     class Reader:
         text_first = False
         def __init__(self): self.calls = []
@@ -127,8 +127,8 @@ def test_continuation_service_keeps_partial_then_stops_transport_failure(tmp_pat
             source = db.connection.execute("SELECT source_id FROM source_contents JOIN extraction_attempts USING(content_id) WHERE attempt_id=?",(attempt,)).fetchone()[0]
             budget.reserve("MODEL",source)
             dispatched.append(attempt)
-            fake = (Provider([] if first_empty else [candidate(BODY.splitlines()[0]),candidate("不存在")])
-                    if len(dispatched) == 1 else Timeout())
+            fake = (Provider([] if first_empty and len(dispatched) == 1 else [candidate(BODY.splitlines()[0]),candidate("不存在")])
+                    if len(dispatched) == 1 or second_succeeds else Timeout())
             return ExtractionRecovery(store,EvidenceExtractor(fake,clock=clock)).run_reserved(attempt) | {"result":None}
         def review(out):
             review_candidates(store,attempt_id=out["attempt_id"],account_scope="owner",decisions={0:accept()})
@@ -137,9 +137,9 @@ def test_continuation_service_keeps_partial_then_stops_transport_failure(tmp_pat
             extraction_dispatch=dispatch,after_extraction=review)
         report = service.run(ResearchRequest(destination="合成青谷"),research_id=CONTINUATION,revision=0,
                              account_scope="owner",budget=ResearchBudget(1,2))
-        assert report.diagnostic == "LIVE_LLM_EXTRACTION_FAILED"
+        assert report.diagnostic == (None if second_succeeds else "LIVE_LLM_EXTRACTION_FAILED")
         assert reader.calls == ["connect","search","detail","detail"] and len(dispatched) == 2
-        assert sum(len(b["claims"]) for b in report.evidence) == (0 if first_empty else 1)
+        assert sum(len(b["claims"]) for b in report.evidence) == (0 if first_empty and not second_succeeds else 1)
         assert store.contents.load("xhs:next-1","owner")
         assert [tuple(r) for r in db.connection.execute("SELECT * FROM extraction_attempts WHERE batch_id='fixed-t063'")] == before
         assert budget.summary()["remaining"]["model"] == 0
