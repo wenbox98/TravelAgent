@@ -20,17 +20,20 @@ export type View = {
   confirmed_option_id: string | null; preview: {option_id: string; added: string[]; removed: string[]; retained: string[]; gaps_added: string[]; gaps_removed: string[]; gaps_retained: string[]} | null;
   gaps: string[]; questions: {field: string; title: string; advice: string; choices: string[]}[];
   clarification: string | null; stale: boolean; cache_message: string | null; feasibility: string
+  interest_needs_confirmation: boolean; previous_interest: string | null
 }
 export type Research = {research_id: string; research_revision: number; label: string; evidence_count: number}
-export type Index = {mode: string; csrf_token: string; researches: Research[]; session: View | null}
+export type Index = {mode: string; csrf_token: string; researches: Research[]; session: View | null; workbench_available: boolean}
+export type Job = {job_id: string; session_id: string; status: string; request_revision: number; cancel_requested: boolean; new_evidence_count: number; reviewed: number; pending: number; rejected: number; reason: string | null; can_adopt: boolean}
+export type Workbench = {enabled: boolean; configured: boolean; budget: {used: Record<string, number>; remaining: Record<string, number>; gate: string; closed: boolean}; jobs: Job[]; data_use: string}
 let csrf = ''
 export async function readIndex(): Promise<Index> {
   const result = await request<Index>('/api/v1/preview'); csrf = result.csrf_token; return result
 }
-export async function request<T>(url: string, body?: unknown): Promise<T> {
+export async function request<T>(url: string, body?: unknown, key?: string): Promise<T> {
   const response = await fetch(url, {credentials: 'same-origin', cache: 'no-store',
     ...(body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json',
-      'X-CSRF-Token': csrf, 'Idempotency-Key': crypto.randomUUID()}, body: JSON.stringify(body)})})
+      'X-CSRF-Token': csrf, 'Idempotency-Key': key || crypto.randomUUID()}, body: JSON.stringify(body)})})
   const result = await response.json()
   if (!response.ok) throw new Error(result.error?.message || '本地服务暂不可用，操作未确认。')
   return result as T

@@ -12,7 +12,7 @@ defineProps<{ rows: Evidence[] }>()
     <p>来源：{{ row.source_title }} · 旅行时间：{{ row.travel_time || '未知' }}</p>
     <a v-if="row.source_url" :href="row.source_url" target="_blank" rel="noreferrer noopener">手动查看公开来源（外部页面）</a>
     <details class="lineage"><summary>查看引用定位与审核记录</summary>
-      <p>审核：{{ row.review_status }}（开发 Work 辅助审核，非自动语义审核）</p>
+      <p>审核：{{ row.review_status === 'MODEL_CONTEXT_REVIEWED' ? '模型上下文审核 + 程序引用复核；未核实当前事实和可行性' : '历史开发 Work 辅助审核，非自动语义审核' }}</p>
       <p>证据 {{ row.claim_id }} · 来源 {{ row.source_id }}</p><p>{{ row.locator }}</p>
       <p v-for="span in row.span_ids" :key="span">{{ span }}</p>
       <p v-for="locator in row.block_locators" :key="locator">{{ locator }}</p>
