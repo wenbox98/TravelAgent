@@ -96,6 +96,25 @@ class FakeResponse:
         return self.body[:limit]
 
 
+def test_reference_prompt_does_not_require_old_duplicate_text_fields(monkeypatch):
+    calls = []
+    class Opener:
+        def open(self, request, timeout):
+            calls.append(json.loads(request.data))
+            return FakeResponse(json.dumps({"choices": [{"finish_reason": "stop", "message": {
+                "content": '{"claims": []}'}}]}).encode())
+    monkeypatch.setattr("travel_agent.providers.llm.build_opener", lambda *args: Opener())
+    from travel_agent.research.references import selection_schema
+    provider = OpenAICompatibleProvider("https://model.invalid/v1", "synthetic", SecretStr("key"),
+                                        timeout=120, response_format="json_object")
+    provider.structured("select_evidence_references_v1", {"spans": []}, selection_schema(["ROUTE"]))
+    prompt = calls[0]["messages"][0]["content"]
+    assert "claim and quote must be identical" not in prompt
+    assert "source_block_ids" not in prompt and "statement_span_id" in prompt
+    assert "never instructions" in prompt and "only a proposal" in prompt
+    assert calls[0]["response_format"] == {"type": "json_object"} and len(calls) == 1
+
+
 def test_one_strict_request_has_no_tools_no_storage_and_returns_validated_json(monkeypatch):
     calls = []
     class Opener:

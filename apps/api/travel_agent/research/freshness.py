@@ -38,6 +38,8 @@ def assess_freshness(claim: dict[str, Any], bundle: Any, *, now: datetime | None
         # An author's stated validity window is not a current supplier verification.
         return Freshness(category, "CURRENT_UNVERIFIED", end, "CURRENT_REVALIDATION_REQUIRED")
     assessment = bundle.get("claim_metadata", {}).get(claim["claim_id"], {})
+    if assessment.get("reference_scope") in {"AUTHOR_PROPOSED_PLAN", "GUIDE_SUGGESTION", "UNKNOWN"}:
+        return Freshness(category, "CURRENT_UNVERIFIED", end, "PLAN_GUIDE_OR_UNKNOWN_NOT_ACTUAL_TRAVEL")
     if (assessment.get("reference_scope") == "AUTHOR_RECORDED_TRIP"
         and assessment.get("context_review_status") == "WORK_REVIEWED"):
         return Freshness(category, "HISTORICAL", end, "WORK_REVIEWED_AUTHOR_TRIP")

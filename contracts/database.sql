@@ -2,6 +2,7 @@
 -- No external content may be written until application SourcePolicy checks succeed.
 -- Immutable v1 baseline. Apply migrations/002_poc.sql for the current v1.1 contract.
 -- Runtime applies 003..009; 009 retains fixed continuation budgets independently of cache deletion.
+-- v10 extends the existing supplemental authorization table for two snapshot-bound reference requests.
 PRAGMA foreign_keys = ON;
 CREATE TABLE schema_version(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 INSERT INTO schema_version VALUES(1, '2026-09-22T00:00:00Z');

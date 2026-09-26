@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--grant-extra", action="store_true", help="Record this task's one additional authorization without network")
     parser.add_argument("--extra-authorization", action="store_true", help="Consume T06.4 authorization under a 180-second deadline")
     parser.add_argument("--extra-worker", help=argparse.SUPPRESS)
+    parser.add_argument("--reference-source", choices=["S2", "S3"], help="Use this task's snapshot-bound reference-selection grant")
     parser.add_argument("--continuation-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--research-gaps", default="", help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -38,6 +39,8 @@ def main():
         if (args.live and (args.review_stdin or args.grant_extra)
             or args.review_stdin and args.grant_extra):
             raise ValueError("REVIEW_CANNOT_DISPATCH_MODEL")
+        if args.reference_source and not (args.grant_extra or args.extra_authorization):
+            raise ValueError("REFERENCE_REQUIRES_EXPLICIT_SUPPLEMENTAL_MODE")
         allowed_addresses = set()
         resolve = socket.getaddrinfo
         def model_dns(host, port, *pos, **kw):
@@ -84,10 +87,10 @@ def main():
                         raise ValueError("EXTRA_REQUIRES_120_SECOND_TIMEOUT")
                     if args.grant_extra:
                         result = authorize_extra(EvidenceStore(db), base_attempt_id=args.attempt_id,
-                            fix_commit=args.fix_commit, provider=provider, deadline=180)
+                            fix_commit=args.fix_commit, provider=provider, deadline=180, reference_source=args.reference_source)
                     else:
                         result = supervise_extra(args.database, base_attempt_id=args.attempt_id,
-                            fix_commit=args.fix_commit, provider=provider, deadline=180)
+                            fix_commit=args.fix_commit, provider=provider, deadline=180, reference_source=args.reference_source)
                 else:
                     result = retry_saved(EvidenceStore(db), EvidenceExtractor(provider),
                                          attempt_id=args.attempt_id, fix_commit=args.fix_commit)

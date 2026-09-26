@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from hashlib import sha256
+import json
 import re
 from typing import Any
 
@@ -14,6 +15,7 @@ from travel_agent.providers.diagnostics import Diagnostic
 from .canonical import BodyBlock, CanonicalBody, body_blocks, canonicalize, evidence_key
 from .model_input import outbound_blocks
 from .grounding import GroundingResult, check_grounding
+from .references import catalog, materialize, payload, selection_schema, validate_reference
 
 __all__ = ["BodyBlock", "body_blocks", "EvidenceExtractor", "ExtractionResult", "EXTRACTION_SCHEMA"]
 
@@ -140,10 +142,16 @@ def build_claim(row: dict[str, Any], grounded: GroundingResult, canonical: Canon
     blocks, completeness = canonical.blocks, canonical.completeness
     quote = row["quote"]
     block = blocks[index]
-    start = block.start + block.text.index(quote)
+    reference = row.get("reference_selection")
+    if reference:
+        validate_reference(row, canonical, source_id)
+        block = blocks[reference["statement"]["block_index"]]
+    start = reference["statement"]["start"] if reference else block.start + block.text.index(quote)
     locator = block.locator.rsplit(":chars:", 1)[0] + f":chars:{start}-{start + len(quote)}"
     # Within this source only; changed opinions/negations remain different.
     key = evidence_key(quote) + "|" + "|".join(sorted(evidence_key(c) for c in conditions))
+    if reference:
+        key += "|" + row["topic"] + "|" + locator
     identity = sha256((source_id + "|" + key).encode("utf-8")).hexdigest()
     level = _confidence(mode, canonical, conditions, row["confidence"])
     claim = {
@@ -161,15 +169,22 @@ def build_claim(row: dict[str, Any], grounded: GroundingResult, canonical: Canon
         "truncation_risk": canonical.truncation_risk,
         "block_locators": [blocks[i].locator for i in row["source_block_ids"]],
     }
+    if reference:
+        metadata["reference_selection"] = reference
+        metadata["context_review_status"] = "PENDING"
     return claim, metadata
 
 
 class EvidenceExtractor:
     def __init__(
         self, provider: LLMProvider | None = None, *, clock: Callable[[], datetime] | None = None,
+        protocol_version: int = 2,
     ) -> None:
         self.provider = provider
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        if protocol_version not in {2, 3}:
+            raise ValueError("UNKNOWN_EXTRACTION_PROTOCOL")
+        self.protocol_version = protocol_version
 
     def extract(
         self, *, source_id: str, source_title: str | None, body: str | None,
@@ -180,6 +195,7 @@ class EvidenceExtractor:
         research_gaps: Sequence[str] = (),
         dom_body: str | None = None,
         allow_fallback: bool = True,
+        content_id: str | None = None,
     ) -> ExtractionResult:
         if re.fullmatch(r"[A-Za-z0-9:_-]{1,160}", source_id) is None or _PRIVATE.search(source_id):
             raise ValueError("证据来源标识无效")
@@ -244,15 +260,34 @@ class EvidenceExtractor:
                         raise ValueError("NO_OUTBOUND_BLOCKS")
                     called = True
                     sent_block_ids = {b.block_index for b in model_blocks}
-                    output = provider.structured("extract_evidence", {
+                    model_input = {
                         "is_synthetic": source_type == "SYNTHETIC",
                         "blocks": [{"block_index": b.block_index, "text": b.normalized_text,
                                     "origin": b.origin, "truncation_risk": b.truncation_risk}
                                    for b in model_blocks],
                         "completeness": completeness,
                         "research_gaps": list(research_gaps),
-                    }, EXTRACTION_SCHEMA)
-                    rows = validate_structured(output, EXTRACTION_SCHEMA)["claims"]
+                    }
+                    schema, task = EXTRACTION_SCHEMA, "extract_evidence"
+                    if self.protocol_version == 3:
+                        snapshot_hash = sha256(json.dumps([body, dom_body], ensure_ascii=False).encode()).hexdigest()
+                        directory = catalog(view, source_id, content_id or "ephemeral-" + snapshot_hash, snapshot_hash)
+                        schema, task = selection_schema(_TOPICS), "select_evidence_references_v1"
+                        model_input = {"is_synthetic": source_type == "SYNTHETIC", "spans": payload(directory, view),
+                            "completeness": completeness, "research_gaps": list(research_gaps),
+                            "extraction_version": 3, "prompt_version": "reference-selection-v1"}
+                    output = provider.structured(task, model_input, schema)
+                    rows = validate_structured(output, schema)["claims"]
+                    if self.protocol_version == 3:
+                        selected = []
+                        for row in rows:
+                            try:
+                                selected.append(materialize(row, directory, view))
+                            except ValueError as error:
+                                selected.append({"topic": row["topic"], "claim": "", "quote": "",
+                                    "kind": "AUTHOR_OPINION", "confidence": "LOW", "source_block_ids": [],
+                                    "applicable_conditions": [], "reference_error": str(error)})
+                        rows = selected
                     mode = "MOCK" if getattr(provider, "is_mock", False) else "LLM"
                 except LLMError as error:
                     diagnostic = error.diagnostic

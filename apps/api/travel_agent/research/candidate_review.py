@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 from travel_agent.domain.models import EvidenceBundle
-from .canonical import canonicalize
+from .canonical import canonicalize, evidence_key
 from .content_store import audit_grounding
 from .extractor import EvidenceExtractor, build_claim
 from .grounding import CONTEXT_REASONS, REVIEW_DIMENSIONS, check_grounding, context_hazard
@@ -14,6 +14,7 @@ from .models import ResearchReport, ResearchRequest
 from .planning import SufficiencyEvaluator
 from .recovery import ExtractionRecovery
 from .store import EvidenceStore
+from .references import catalog, materialize, validate_reference, REFERENCE_KINDS
 
 
 def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: str,
@@ -56,7 +57,7 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                 continue
             decision = decisions[index]
             if set(decision) - {"action", "reason_code", "dimension_checks", "context_conditions", "dependency_resolution",
-                                "route_association", "reference_scope"}:
+                                "route_association", "reference_scope", "context_span_ids", "duration_scope"}:
                 raise ValueError("UNKNOWN_REVIEW_FIELD")
             if row["review_json"]:
                 if json.loads(row["review_json"]) != decision:
@@ -78,10 +79,43 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                 if reason != "WORK_CONTEXT_VERIFIED" or decision.get("dimension_checks") != {k: True for k in REVIEW_DIMENSIONS}:
                     raise ValueError("CONTEXT_REVIEW_INCOMPLETE")
                 candidate = deepcopy(json.loads(row["candidate_json"]))
+                reference = candidate.get("reference_selection")
+                directory = None
+                if reference:
+                    if (reference["content_id"] != content["content_id"] or
+                        reference["content_hash"] != content["content_hash"]):
+                        raise ValueError("REVIEW_REFERENCE_SNAPSHOT_MISMATCH")
+                    validate_reference(candidate, view, content["source_id"])
+                    if decision.get("reference_scope") not in REFERENCE_KINDS:
+                        raise ValueError("REFERENCE_KIND_REVIEW_REQUIRED")
+                    if candidate["topic"] == "DURATION" and decision.get("duration_scope") not in {"WHOLE_TRIP", "DAY_SEGMENT"}:
+                        raise ValueError("DURATION_SCOPE_REVIEW_REQUIRED")
+                    if decision.get("context_conditions"):
+                        raise ValueError("REFERENCE_REVIEW_REQUIRES_SPAN_IDS")
+                    directory = catalog(view, content["source_id"], content["content_id"], content["content_hash"])
+                    condition_ids = [s["span_id"] for s in reference["conditions"]]
+                    condition_ids += decision.get("context_span_ids", [])
+                    association = decision.get("route_association")
+                    if association:
+                        if set(association) != {"object_span_id", "scope"}:
+                            raise ValueError("REFERENCE_ASSOCIATION_REQUIRES_SPAN")
+                        condition_ids.append(association["object_span_id"])
+                    condition_ids = list(dict.fromkeys(condition_ids))
+                    if len(condition_ids) > 8:
+                        raise ValueError("REFERENCE_CONDITION_LIMIT")
+                    candidate = materialize({"topic": candidate["topic"],
+                        "statement_span_id": reference["statement"]["span_id"],
+                        "condition_span_ids": condition_ids,
+                        "proposed_reference_kind": reference["proposed_reference_kind"]}, directory, view)
                 if set(candidate["source_block_ids"]) & rejected_conditions and decision.get("dependency_resolution") != "INDEPENDENT":
                     raise ValueError("DEPENDENCY_UNRESOLVED")
                 context_conditions = list(decision.get("context_conditions", []))
                 association = decision.get("route_association")
+                association_span = None
+                if association is not None and directory:
+                    association_span = directory["spans"][association["object_span_id"]]
+                    association = {"object_quote": view.text[association_span["start"]:association_span["end"]],
+                        "object_block_id": association_span["block_index"], "scope": association["scope"]}
                 if association is not None:
                     if set(association) != {"object_quote", "object_block_id", "scope"}:
                         raise ValueError("INVALID_ROUTE_ASSOCIATION")
@@ -102,12 +136,31 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                                 audit_attempt_id=attempt_id, audit_candidate_index=index)
                 if decision.get("reference_scope"):
                     metadata["reference_scope"] = decision["reference_scope"]
+                if decision.get("duration_scope"):
+                    if candidate["topic"] != "DURATION":
+                        raise ValueError("DURATION_SCOPE_TOPIC_MISMATCH")
+                    metadata["duration_scope"] = decision["duration_scope"]
                 if association is not None:
                     block = view.blocks[association["object_block_id"]]
-                    low = block.start + block.text.index(association["object_quote"])
+                    low = association_span["start"] if association_span else block.start + block.text.index(association["object_quote"])
                     metadata["route_association"] = {**association, "source_id": content["source_id"],
                         "object_locator": block.locator.rsplit(":chars:", 1)[0] +
                         f":chars:{low}-{low + len(association['object_quote'])}"}
+                # Exact within-source semantic identity only. Keep an existing object
+                # and its review untouched; the new attempt still retains its own spans.
+                existing = store.repository.get(content["source_id"], account_scope)
+                if reference and existing is not None:
+                    for prior in existing["claims"]:
+                        prior_meta = existing.get("claim_metadata", {}).get(prior["claim_id"], {})
+                        if (prior["topic"] == claim["topic"] and prior["locator"] == claim["locator"]
+                            and evidence_key(prior["text"]) == evidence_key(claim["text"])
+                            and {evidence_key(v) for v in prior_meta.get("applicable_conditions", [])} ==
+                                {evidence_key(v) for v in metadata["applicable_conditions"]}
+                            and prior_meta.get("reference_scope") == metadata.get("reference_scope")
+                            and prior_meta.get("duration_scope") == metadata.get("duration_scope")
+                            and prior_meta.get("route_association") == metadata.get("route_association")):
+                            claim, metadata = prior, prior_meta
+                            break
                 data = source.to_dict() | {"claims": [claim], "claim_metadata": {claim["claim_id"]: metadata},
                     "missing_fields": [g for g in source["missing_fields"] if g not in {"NO_GROUNDED_CLAIMS", "LOCAL_EXTRACTIVE_ONLY"}]}
                 bundle = EvidenceBundle(data)

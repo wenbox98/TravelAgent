@@ -862,8 +862,10 @@
           "maximum": 11
         },
         "reference_scope": {
-          "const": "AUTHOR_RECORDED_TRIP"
+          "enum": ["AUTHOR_RECORDED_TRIP", "AUTHOR_PROPOSED_PLAN", "GUIDE_SUGGESTION", "UNKNOWN"]
         },
+        "duration_scope": {"enum": ["WHOLE_TRIP", "DAY_SEGMENT"]},
+        "reference_selection": {"$ref": "#/$defs/ReferenceSelection"},
         "route_association": {
           "type": "object",
           "additionalProperties": false,
@@ -3194,6 +3196,121 @@
         }
       }
     },
+    "ReferenceSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "span_id",
+        "block_index",
+        "start",
+        "end",
+        "parent_start",
+        "parent_end",
+        "context_required",
+        "locator"
+      ],
+      "properties": {
+        "span_id": {
+          "type": "string",
+          "pattern": "^P[a-f0-9]{20}-[0-9]+-[0-9]+-[0-9]+$"
+        },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parent_start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parent_end": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context_required": {
+          "type": "boolean"
+        },
+        "locator": {
+          "type": "string",
+          "pattern": "^note-body:v2:(?:STATE|DOM|UNKNOWN):[a-f0-9]{64}:chars:[0-9]+-[0-9]+$"
+        }
+      }
+    },
+    "ReferenceSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "content_id",
+        "content_hash",
+        "canonical_hash",
+        "manifest_hash",
+        "normalization_version",
+        "reference_version",
+        "prompt_version",
+        "statement",
+        "conditions",
+        "proposed_reference_kind"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "content_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "canonical_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "manifest_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "normalization_version": {
+          "const": 1
+        },
+        "reference_version": {
+          "const": 1
+        },
+        "prompt_version": {
+          "const": "reference-selection-v1"
+        },
+        "statement": {
+          "$ref": "#/$defs/ReferenceSpan"
+        },
+        "conditions": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/ReferenceSpan"
+          }
+        },
+        "proposed_reference_kind": {
+          "enum": [
+            "AUTHOR_RECORDED_TRIP",
+            "AUTHOR_PROPOSED_PLAN",
+            "GUIDE_SUGGESTION",
+            "UNKNOWN"
+          ]
+        }
+      }
+    },
     "ExtractionAuthorizationConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -3241,6 +3358,9 @@
         "max_http_attempts": {
           "const": 1
         },
+        "extraction_version": {"const": 3},
+        "prompt_version": {"const": "reference-selection-v1"},
+        "reference_version": {"const": 1},
         "purpose": {
           "const": "PRIVATE_TRAVEL_RESEARCH"
         }

@@ -12,7 +12,8 @@ IMAGE_REFERENCE = re.compile(r"(?:见|看|如|参考|详见)图|图[一二三四
 REASONS = frozenset({"LOCATOR_PASS", "CLAIM_QUOTE_MISMATCH", "QUOTE_NOT_IN_CITED_BLOCK",
     "BLOCK_ID_OUT_OF_RANGE", "UNSENT_BLOCK_REFERENCED", "CONDITION_QUOTE_MISMATCH",
     "CONDITION_NOT_IN_CITED_BLOCK", "UNSUPPORTED_EXTRA_BLOCK_REFERENCE", "DUPLICATE_BLOCK_REFERENCE",
-    "IMAGE_INFORMATION_REQUIRED", "SENSITIVE_CONTENT_REJECTED"})
+    "IMAGE_INFORMATION_REQUIRED", "SENSITIVE_CONTENT_REJECTED", "REFERENCE_ID_NOT_SENT",
+    "REFERENCE_BOUNDARY_INVALID", "REFERENCE_BLOCK_LIMIT"})
 CONTEXT_REASONS = frozenset({"CONTEXT_REVIEW_REQUIRED", "WORK_CONTEXT_VERIFIED", "CONTEXT_UNCERTAIN",
     "CONTEXT_NEGATION_OMITTED", "CONTEXT_CONDITION_OMITTED", "CONTEXT_SUBJECT_OMITTED",
     "CONTEXT_TIME_UNCERTAIN", "CONTEXT_TRANSPORT_MISMATCH", "DEPENDENCY_UNRESOLVED",
@@ -39,6 +40,8 @@ def check_grounding(row: dict[str, Any], blocks: tuple[BodyBlock, ...],
     ids, quote = row["source_block_ids"], row["quote"]
     def fail(reason: str) -> GroundingResult:
         return GroundingResult(False, reason, tuple(ids))
+    if row.get("reference_error"):
+        return fail(row["reference_error"])
     texts = [row["claim"], quote] + [c[k] for c in row["applicable_conditions"] for k in ("text", "quote")]
     if any(SENSITIVE_RESEARCH_TEXT.search(t) or re.search(r"(?i)https?://", t) for t in texts):
         return fail("SENSITIVE_CONTENT_REJECTED")
@@ -55,7 +58,7 @@ def check_grounding(row: dict[str, Any], blocks: tuple[BodyBlock, ...],
     supporting = {i for i in ids if quote in blocks[i].text}
     if not supporting:
         return fail("QUOTE_NOT_IN_CITED_BLOCK")
-    first = min(supporting)
+    first = row["reference_selection"]["statement"]["block_index"] if row.get("reference_selection") else min(supporting)
     conditions = []
     for condition in row["applicable_conditions"]:
         index, text = condition["source_block_id"], condition["text"]
@@ -77,7 +80,10 @@ def context_hazard(row: dict[str, Any], blocks: tuple[BodyBlock, ...]) -> str | 
     """Catch one provable clipping error; all other semantics still require Work review."""
     for i in row["source_block_ids"]:
         text = blocks[i].text
-        position = text.find(row["quote"])
+        reference = row.get("reference_selection")
+        if reference and i != reference["statement"]["block_index"]:
+            continue
+        position = reference["statement"]["start"] - blocks[i].start if reference else text.find(row["quote"])
         if position >= 0 and re.search(r"(?:不能|不可|无法|不建议|不适合|不要|没法|并非)$", text[:position]):
             return "CONTEXT_NEGATION_OMITTED"
     return None

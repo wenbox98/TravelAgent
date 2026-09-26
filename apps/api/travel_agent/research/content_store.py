@@ -186,6 +186,20 @@ def audit_grounding(bundle: EvidenceBundle, contents: tuple[dict[str, Any], ...]
                     and all(any(condition in b["text"] for b in cited)
                             for condition in meta["applicable_conditions"])
                 )
+                ref = meta.get("reference_selection")
+                if supported and ref:
+                    from .references import catalog
+                    view = canonicalize(content["raw_text"], content["dom_text"], completeness=content["content_completeness"])
+                    directory = catalog(view, content["source_id"], content["content_id"], content["content_hash"])
+                    selected = [ref["statement"], *ref["conditions"]]
+                    supported = bool(
+                        all(ref[k] == v for k, v in directory["binding"].items())
+                        and ref["manifest_hash"] == directory["manifest_hash"]
+                        and all(directory["spans"].get(s["span_id"]) == s for s in selected)
+                        and ref["statement"]["locator"] == claim["locator"]
+                        and {s["block_index"] for s in selected} == set(meta["source_block_ids"])
+                        and set(meta["applicable_conditions"]) == {
+                            view.text[s["start"]:s["end"]] for s in ref["conditions"]})
             except (KeyError, ValueError, TypeError):
                 supported = False
             if supported:

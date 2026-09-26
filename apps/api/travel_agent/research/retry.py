@@ -24,9 +24,10 @@ from .recovery import EXTRACTION_VERSION, ExtractionRecovery
 from .store import EvidenceStore
 
 EXTRA_AUTHORIZATION = "t064-response-timeout-once"
+REFERENCE_AUTHORIZATIONS = {"S2": "t066-reference-s2-once", "S3": "t066-reference-s3-once"}
 
 
-def _config(provider: OpenAICompatibleProvider, deadline: float) -> dict[str, Any]:
+def _config(provider: OpenAICompatibleProvider, deadline: float, *, reference: bool = False) -> dict[str, Any]:
     if not 0 < deadline <= 180 or safe_model(provider.model) != provider.model:
         raise ValueError("INVALID_EXTRA_CONFIG")
     config = {"host": urlsplit(provider.base_url).hostname,
@@ -34,21 +35,37 @@ def _config(provider: OpenAICompatibleProvider, deadline: float) -> dict[str, An
             "model": provider.model, "response_format": provider.response_format,
             "timeout_seconds": provider.timeout, "total_deadline_seconds": deadline,
             "max_http_attempts": 1, "purpose": "PRIVATE_TRAVEL_RESEARCH"}
+    if reference:
+        config.update(extraction_version=3, prompt_version="reference-selection-v1", reference_version=1)
     validator("ExtractionAuthorizationConfig").validate(config)
     return config
 
 
 def authorize_extra(store: EvidenceStore, *, base_attempt_id: str, fix_commit: str,
-                    provider: OpenAICompatibleProvider, deadline: float) -> dict[str, Any]:
+                    provider: OpenAICompatibleProvider, deadline: float,
+                    reference_source: str | None = None) -> dict[str, Any]:
     """Explicit offline grant for T06.4 only, never automatically called by a live retry."""
     if not re.fullmatch(r"[a-f0-9]{40}", fix_commit):
         raise ValueError("EXTRA_REQUIRES_FIX_COMMIT")
-    config = _config(provider, deadline)
+    if reference_source is not None and reference_source not in REFERENCE_AUTHORIZATIONS:
+        raise ValueError("UNKNOWN_REFERENCE_GRANT")
+    identifier = REFERENCE_AUTHORIZATIONS[reference_source] if reference_source else EXTRA_AUTHORIZATION
+    config = _config(provider, deadline, reference=reference_source is not None)
     with store.db.transaction() as con:
         base = con.execute("SELECT a.*,b.account_scope,c.source_id,s.source_type FROM extraction_attempts a "
             "JOIN extraction_batches b USING(batch_id) JOIN source_contents c USING(content_id) "
             "JOIN sources s ON s.source_id=c.source_id WHERE attempt_id=?", (base_attempt_id,)).fetchone()
-        if (base is None or base["attempt_number"] != 2 or base["status"] != "FAILED"
+        if reference_source:
+            predecessors = con.execute("SELECT attempt_id FROM extraction_attempts WHERE batch_id='t065-coverage-first-plan' "
+                "AND authorization_id IS NULL ORDER BY created_at,attempt_id").fetchall()
+            previous = con.execute("SELECT config_json,finished_at FROM research_continuations "
+                                   "WHERE continuation_id='t065-coverage-first-plan'").fetchone()
+            if (base is None or len(predecessors) != 2 or base_attempt_id != predecessors[int(reference_source[-1]) - 2][0]
+                or previous is None or not previous[1] or json.loads(previous[0]) != _config(provider, deadline)
+                or provider.timeout != 120 or deadline != 180
+                or base["status"] not in {"PARTIAL_SUCCESS", "SUCCEEDED", "NO_ACCEPTED_EVIDENCE"}):
+                raise ValueError("REFERENCE_REQUIRES_ORIGINAL_COMPLETED_SNAPSHOT")
+        elif (base is None or base["attempt_number"] != 2 or base["status"] != "FAILED"
             or json.loads(base["diagnostic_json"])["category"] != "TIMEOUT"):
             raise ValueError("EXTRA_REQUIRES_EXHAUSTED_TIMEOUT")
         if config["host"] != "api.deepseek.com" and not (
@@ -58,27 +75,34 @@ def authorize_extra(store: EvidenceStore, *, base_attempt_id: str, fix_commit: s
         if not any(c["content_id"] == base["content_id"] and c["content_hash"] == base["content_hash"]
                    and c["normalization_version"] == base["normalization_version"] for c in contents):
             raise ValueError("EXTRA_SNAPSHOT_OR_POLICY_DENIED")
-        values = (EXTRA_AUTHORIZATION, base_attempt_id, base["batch_id"], base["source_id"],
+        values = (identifier, base_attempt_id, base["batch_id"], base["source_id"],
                   base["content_id"], base["content_hash"], base["account_scope"], base["normalization_version"],
                   fix_commit, json.dumps(config, sort_keys=True))
-        prior = con.execute("SELECT * FROM extraction_authorizations WHERE authorization_id=?", (EXTRA_AUTHORIZATION,)).fetchone()
+        prior = con.execute("SELECT * FROM extraction_authorizations WHERE authorization_id=?", (identifier,)).fetchone()
         if prior is not None:
             if tuple(prior)[:10] != values:
                 raise ValueError("EXTRA_AUTHORIZATION_IMMUTABLE")
         else:
             con.execute("INSERT INTO extraction_authorizations VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL,NULL)", (*values, store.db.stamp()))
-        return {"authorization_id": EXTRA_AUTHORIZATION, "status": "CONSUMED" if prior is not None and prior["consumed_at"] else "GRANTED",
+        return {"authorization_id": identifier, "status": "CONSUMED" if prior is not None and prior["consumed_at"] else "GRANTED",
                 "config": config, "http_attempts": 0}
 
 
 def reserve_extra(store: EvidenceStore, *, base_attempt_id: str, fix_commit: str,
-                  provider: OpenAICompatibleProvider, deadline: float) -> str:
+                  provider: OpenAICompatibleProvider, deadline: float,
+                  reference_source: str | None = None) -> str:
     """BEGIN IMMEDIATE atomically consumes the grant and creates exactly one attempt."""
     with store.db.transaction() as con:
-        auth = con.execute("SELECT * FROM extraction_authorizations WHERE authorization_id=?", (EXTRA_AUTHORIZATION,)).fetchone()
+        identifier = REFERENCE_AUTHORIZATIONS[reference_source] if reference_source else EXTRA_AUTHORIZATION
+        auth = con.execute("SELECT * FROM extraction_authorizations WHERE authorization_id=?", (identifier,)).fetchone()
         if (auth is None or auth["consumed_at"] or auth["base_attempt_id"] != base_attempt_id
-            or auth["fix_commit"] != fix_commit or json.loads(auth["config_json"]) != _config(provider, deadline)):
+            or auth["fix_commit"] != fix_commit or json.loads(auth["config_json"]) != _config(provider, deadline, reference=reference_source is not None)):
             raise ValueError("EXTRA_AUTHORIZATION_MISSING_CONSUMED_OR_MISMATCHED")
+        if reference_source:
+            previous = con.execute("SELECT a.status FROM extraction_attempts a WHERE a.authorization_id IN (?,?)",
+                                   tuple(REFERENCE_AUTHORIZATIONS.values())).fetchall()
+            if any(r[0] not in {"SUCCEEDED", "PARTIAL_SUCCESS", "NO_ACCEPTED_EVIDENCE"} for r in previous):
+                raise ValueError("PREVIOUS_REFERENCE_ATTEMPT_NOT_REVIEWED_OR_FAILED")
         old = con.execute("SELECT a.*,r.research_id,q.current_revision,q.request_json FROM extraction_attempts a "
             "JOIN research_runs r USING(run_id) JOIN research_questions q USING(research_id) WHERE attempt_id=?", (base_attempt_id,)).fetchone()
         if old["revision"] != old["current_revision"]:
@@ -94,9 +118,9 @@ def reserve_extra(store: EvidenceStore, *, base_attempt_id: str, fix_commit: str
         attempt = "extract-" + uuid4().hex
         con.execute("INSERT INTO extraction_attempts VALUES(?,?,?,?,?,?,?,3,'PENDING',NULL,?,?,NULL,?,NULL,?)",
             (attempt, auth["batch_id"], run, old["revision"], auth["content_id"], auth["normalization_version"],
-             EXTRACTION_VERSION, fix_commit, store.db.stamp(), auth["content_hash"], EXTRA_AUTHORIZATION))
+             3 if reference_source else EXTRACTION_VERSION, fix_commit, store.db.stamp(), auth["content_hash"], identifier))
         con.execute("INSERT INTO research_run_contents VALUES(?,?)", (run, auth["content_id"]))
-        con.execute("UPDATE extraction_authorizations SET consumed_at=? WHERE authorization_id=?", (store.db.stamp(), EXTRA_AUTHORIZATION))
+        con.execute("UPDATE extraction_authorizations SET consumed_at=? WHERE authorization_id=?", (store.db.stamp(), identifier))
         return attempt
 
 
@@ -106,18 +130,20 @@ def run_extra_worker(store: EvidenceStore, provider: OpenAICompatibleProvider, a
     if auth is None or not auth["consumed_at"]:
         raise ValueError("UNRESERVED_EXTRA_WORKER")
     config = json.loads(auth["config_json"])
-    if config != _config(provider, config["total_deadline_seconds"]):
+    reference = auth["authorization_id"] in REFERENCE_AUTHORIZATIONS.values()
+    if config != _config(provider, config["total_deadline_seconds"], reference=reference):
         raise ValueError("EXTRA_WORKER_CONFIG_MISMATCH")
-    ExtractionRecovery(store, EvidenceExtractor(provider)).run_reserved(attempt_id)
+    ExtractionRecovery(store, EvidenceExtractor(provider, protocol_version=3 if reference else 2)).run_reserved(attempt_id,
+        research_gaps=("ROUTES", "DURATION", "TRANSPORT") if reference else ())
 
 
 def supervise_extra(database: Path, *, base_attempt_id: str, fix_commit: str,
                     provider: OpenAICompatibleProvider, deadline: float = 180,
-                    worker_command: list[str] | None = None) -> dict[str, Any]:
+                    worker_command: list[str] | None = None, reference_source: str | None = None) -> dict[str, Any]:
     """Own one network process. Kill and join before reconciling its actual durable state."""
     with Database(database) as db:
         attempt = reserve_extra(EvidenceStore(db), base_attempt_id=base_attempt_id,
-                                fix_commit=fix_commit, provider=provider, deadline=deadline)
+                                fix_commit=fix_commit, provider=provider, deadline=deadline, reference_source=reference_source)
     command = worker_command or [sys.executable, str(PROJECT_ROOT / "scripts/retry_extraction.py"),
         "--live", "--database", str(database.resolve()), "--attempt-id", base_attempt_id,
         "--extra-worker", attempt]

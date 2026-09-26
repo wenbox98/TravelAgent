@@ -9,6 +9,7 @@ info:
     v5 contracts; v6 adds extraction attempts and safe diagnostics; v7 adds
     private per-candidate grounding/context review and partial-success states.
     v8 adds a single supplemental extraction authorization and transport-phase diagnostics.
+    v10 extends the existing extraction authorizations and adds optional snapshot-bound span lineage and reviewed source roles.
     v9 adds a fixed research continuation ledger; optional ClaimAssessment route associations
     and historical author-trip scope remain private, source-anchored review metadata.
     These are not public HTTP response fields; no raw-content endpoint is added.

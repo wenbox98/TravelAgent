@@ -194,6 +194,7 @@ def evaluate_coverage(evidence: tuple[EvidenceBundle, ...], *, now: datetime | N
                 and meta.get("extraction_method") in {"LLM", "MOCK"}
                 and claim["support"] in {"SUPPORTED", "PARTIAL"}
                 and claim["claim_id"] not in conflicted
+                and not (question == "Q3_DURATION" and meta.get("duration_scope") == "DAY_SEGMENT")
                 and freshness.status in {"USABLE_REFERENCE", "HISTORICAL"}):
                 supported.append((bundle, claim))
         status = "SUPPORTED" if supported else "PARTIAL" if rows else "UNSUPPORTED"

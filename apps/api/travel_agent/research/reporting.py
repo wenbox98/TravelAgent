@@ -42,6 +42,7 @@ def _statement(bundle: EvidenceBundle, claim: dict[str, Any], now: datetime) -> 
             "basis": "EXTRACTED_FROM_SOURCE", "content_completeness": bundle["completeness"],
             "applicable_conditions": meta.get("applicable_conditions", []),
             "route_association": meta.get("route_association"),
+            "reference_scope": meta.get("reference_scope"), "duration_scope": meta.get("duration_scope"),
             "published_at": bundle["source_published_at"], "travel_time": bundle["travel_occurred_at"],
             "retrieved_at": bundle["fetched_at"], "freshness": assess_freshness(claim, bundle, now=now).to_dict()}
 
@@ -92,7 +93,8 @@ def build_directions(evidence: tuple[EvidenceBundle, ...], *, now: datetime | No
                 ("duration_clues", "这个方向尚缺可定位的时长依据"),
                 ("limitations", "这个方向尚缺明确适用条件或限制依据"),
             ) if not item[field]]
-            if item["duration_clues"] and all((s.get("route_association") or {}).get("scope") == "SEGMENT"
+            if item["duration_clues"] and all(s.get("duration_scope") == "DAY_SEGMENT" or
+                                              (s.get("route_association") or {}).get("scope") == "SEGMENT"
                                               for s in item["duration_clues"]):
                 item["unknown"].append("只有局部时长，整趟总天数仍未知")
     return list(groups.values())
@@ -155,9 +157,15 @@ def render_private_report(view: dict[str, Any], sources: list[dict[str, Any]]) -
     def statement(row: dict[str, Any], label: str) -> str:
         conditions = "；".join(row["applicable_conditions"]) or "原文未明确，不能补推"
         association = row.get("route_association")
+        role = {"AUTHOR_PROPOSED_PLAN": "作者尚未出行的计划", "GUIDE_SUGGESTION": "攻略整理或建议（未确认亲历）",
+                "AUTHOR_RECORDED_TRIP": "作者记载的已完成经历", "UNKNOWN": "来源性质未确认"}.get(row.get("reference_scope") or "", "作者材料")
         if label == "作者的时间线索" and association:
-            label = "作者当次整趟时长" if association["scope"] == "WHOLE_TRIP" else "作者局部路段或活动时长（不是总天数）"
-        return (f"- {label}：作者写道“{_escape(row['text'])}”。[{refs[row['source_id']]}] "
+            label = "整趟时间线索" if association["scope"] == "WHOLE_TRIP" else "局部路段或活动时间线索（不是总天数）"
+            if association["scope"] == "WHOLE_TRIP" and row.get("reference_scope") == "AUTHOR_RECORDED_TRIP":
+                label = "作者当次整趟时长"
+        if row.get("duration_scope") == "DAY_SEGMENT":
+            label = "日段或局部时间线索（不是整趟天数，也不证明实际耗时）"
+        return (f"- {label}：{role}写道“{_escape(row['text'])}”。[{refs[row['source_id']]}] "
                 f"对应条件：{_escape(conditions)}。" +
                 (f"旅行日期：{_escape(row['travel_time'])}。" if row.get("travel_time") else "") +
                 ("这条线索的当前适用性未核实。" if row["freshness"]["status"] == "CURRENT_UNVERIFIED" else "") +

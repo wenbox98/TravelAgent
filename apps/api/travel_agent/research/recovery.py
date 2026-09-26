@@ -71,7 +71,7 @@ class ExtractionRecovery:
             attempt_id = "extract-" + uuid4().hex
             con.execute("INSERT INTO extraction_attempts VALUES(?,?,?,?,?,?,?,?,'PENDING',NULL,?,?,NULL,?,NULL,NULL)",
                         (attempt_id, batch_id, run_id, revision, content_id, content["normalization_version"],
-                         EXTRACTION_VERSION, 1 if prior is None else 2, retry_fix_commit, db.stamp(), content["content_hash"]))
+                         self.extractor.protocol_version, 1 if prior is None else 2, retry_fix_commit, db.stamp(), content["content_hash"]))
             con.execute("INSERT OR IGNORE INTO research_run_contents VALUES(?,?)", (run_id, content_id))
         # PENDING and the source transaction are durable before dispatch.
         if dispatch is not None:
@@ -85,6 +85,8 @@ class ExtractionRecovery:
             "JOIN extraction_batches b USING(batch_id) WHERE attempt_id=?", (attempt_id,)).fetchone()
         if attempt is None:
             raise ValueError("MISSING_RESERVED_ATTEMPT")
+        if attempt["extraction_version"] != self.extractor.protocol_version:
+            raise ValueError("RESERVED_PROTOCOL_MISMATCH")
         run_id, revision = attempt["run_id"], attempt["revision"]
         source_row = db.connection.execute("SELECT source_id,policy_id FROM source_contents WHERE content_id=?",
                                            (attempt["content_id"],)).fetchone()
@@ -129,7 +131,8 @@ class ExtractionRecovery:
                 body=content["raw_text"], dom_body=content["dom_text"], completeness=content["content_completeness"],
                 fetched_at=content["retrieved_at"], source_published_at=content["published_at"],
                 source_type=source["source_type"], destination=source["destination"], policy=policy,
-                image_count=content["image_count"], research_gaps=research_gaps, allow_fallback=False)
+                image_count=content["image_count"], research_gaps=research_gaps, allow_fallback=False,
+                content_id=content["content_id"])
             diagnostic = result.diagnostic or Diagnostic(stage="POLICY", category="POLICY_BLOCKED")
             diagnostic.retry_count = int(attempt["attempt_number"] == 2)
             validator("LLMDiagnostic").validate(diagnostic.safe_dict())
