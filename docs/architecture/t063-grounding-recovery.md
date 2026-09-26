@@ -41,3 +41,19 @@ Evidence、完整来源/条件关系、候选接纳状态和 attempt 结果在�
 独立进程禁止网络，验证非空 Evidence ID/hash/引文/条件、源快照和块完全复用。增量“五天、不自驾”仍保留历史材料，同时显式形成时长与交通缺口；保留自驾经历不表示不自驾方案成立。材料视图标明新增条件的适配尚未确立，私人输出提醒原文只是作者经历。
 
 全量测试采用自编材料，覆盖部分成功、整体拒绝、依赖、否定、规范化、v6 迁移、跨进程恢复、原子回滚、过期 revision、账号隔离、缓存删除、安全诊断和原批次额度。本轮真实验证只允许缓存的那一篇、最多一次模型提取；XHS、浏览器及模型连接测试均不执行。实际结果见随后独立提交的 T06.3 报告。
+
+## T06.4：独立单次追加授权及响应总时限
+
+T06.3 的实际 30 秒读取超时没有取得完整候选，不是再次证明 grounding 失败。T06.4 用户另行追加一次 HTTP 派发；旧批次 max_attempts、两次原尝试及原重跑耗尽状态保持不变。
+
+沿用现有 provider，进程级 `LLM_TIMEOUT_SECONDS=120` 优先于 TRAVEL 别名和默认值，子进程显式继承该值。它是 urllib 阻塞操作等待值，不是整次请求总 deadline；见 [Python urllib 文档](https://docs.python.org/3/library/urllib.request.html)。非流式等待可能出现空行，见 [DeepSeek 保活说明](https://api-docs.deepseek.com/quick_start/rate_limit/)；不据此推断某次请求实际保活或排队。
+
+SQLite v8 新增固定 ID `t064-response-timeout-once` 的 extraction_authorizations，关联旧耗尽 TIMEOUT attempt、原 batch/source/content/hash、账号范围、规范化版本、完整修复 SHA、目标主机/端点摘要、原模型/响应格式、120 秒等待及 180 秒总时限。记录不含密钥或原文。明确 `--grant-extra` 才能本地登记，`--live --extra-authorization` 不会自动生成授权。重复登记不重置 consumed_at；更换配置或基准尝试不能覆盖这条授权。
+
+消费授权和新 attempt_number=3 在同一 BEGIN IMMEDIATE 事务中完成，先于创建工作进程与 HTTP 派发。第三次尝试必须关联唯一授权，不新建批次；旧普通尝试计数只查询 authorization_id 为空的行，因此旧计数仍为 2，追加消费另计 1。重复/并发启动不能多派发。仅自编 SYNTHETIC 资料的离线测试允许本机 HTTP；真实 CLI 仍仅允许 api.deepseek.com。
+
+复用 `retry.py` 增加轻量子进程监督，无新网络框架或生产模块。总时限 180 秒从启动拥有的工作进程前计时，覆盖启动、请求、读取、校验及提交；截止时终止并等待该子进程退出，再读取 SQLite。PENDING/RUNNING 记 INTERRUPTED/TOTAL_DEADLINE；已提交 PENDING_REVIEW/PARTIAL_SUCCESS 等结果保留，不能盲写失败。启动前本地错误记为未派发，但授权保守视为已消费；没有响应也不能推断服务端未执行。父进程的可处理异常同样关闭自有子进程；机器或监督进程被强制结束后的恢复仍以耐久记录为准，不自动释放授权。
+
+安全诊断新增 transport_phase（NOT_STARTED/OPENING/BODY_READ/COMPLETE）、实际 timeout、取得响应头和完整正文的相对时点。OPENING 包含连接和等待响应头，不能细分未测的 DNS/TLS 时点。只在阶段确实到达时记录时点；外层截止可读取上一次已提交的安全阶段，不保存半截 JSON/headers。response.read 大小上限仍为 524,289 字节探测、超过 524,288 拒绝；JSON 字符串不改写。最终诊断 elapsed_seconds 为 provider 耗时，outer_elapsed_seconds 单独表示监督范围耗时。
+
+迁移、追加授权和诊断字段同步到 domain/database/OpenAPI。离线缩放时限验证 HTTP200 后延迟、正文停滞、连接/响应头前失败、空白保活总截止、工作进程中断、截止时已提交结果保留、跨进程并发单次消费、配置传递、旧记录/原快照不变以及 sentinel 不落库。T06.3 的候选、审核、证据与 Coverage 规则原样沿用。

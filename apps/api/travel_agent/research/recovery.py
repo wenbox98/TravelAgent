@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from travel_agent.domain.models import SourcePolicy, validator
 from travel_agent.providers.diagnostics import Diagnostic
+from travel_agent.providers.llm import OpenAICompatibleProvider
 from .content_store import audit_grounding
 from .extractor import EvidenceExtractor, ExtractionResult
 from .store import EvidenceStore
@@ -53,29 +54,69 @@ class ExtractionRecovery:
             if batch["account_scope"] != account_scope or batch["max_attempts"] != max_attempts:
                 raise ValueError("BATCH_BUDGET_IMMUTABLE")
             prior = con.execute("SELECT * FROM extraction_attempts WHERE batch_id=? AND content_id=? "
+                                "AND authorization_id IS NULL "
                                 "ORDER BY attempt_number DESC LIMIT 1",
                                 (batch_id, content_id)).fetchone()
             if prior is not None and prior["content_hash"] != content["content_hash"]:
                 raise ValueError("SNAPSHOT_IDENTITY_MISMATCH")
             if prior is not None and prior["status"] in {"SUCCEEDED", "PARTIAL_SUCCESS", "PENDING_REVIEW", "NO_ACCEPTED_EVIDENCE"}:
                 return self.outcome(prior["attempt_id"], cache_hit=True)
-            total = con.execute("SELECT count(*) FROM extraction_attempts WHERE batch_id=?", (batch_id,)).fetchone()[0]
+            total = con.execute("SELECT count(*) FROM extraction_attempts WHERE batch_id=? AND authorization_id IS NULL", (batch_id,)).fetchone()[0]
             retried = con.execute("SELECT count(*) FROM extraction_attempts WHERE batch_id=? AND attempt_number=2",
                                   (batch_id,)).fetchone()[0]
             if total >= max_attempts or prior is not None and (retry_fix_commit is None or retried or prior["attempt_number"] >= 2):
                 raise ValueError("MODEL_ATTEMPT_BUDGET_OR_RETRY_DENIED")
             attempt_id = "extract-" + uuid4().hex
-            con.execute("INSERT INTO extraction_attempts VALUES(?,?,?,?,?,?,?,?,'PENDING',NULL,?,?,NULL,?,NULL)",
+            con.execute("INSERT INTO extraction_attempts VALUES(?,?,?,?,?,?,?,?,'PENDING',NULL,?,?,NULL,?,NULL,NULL)",
                         (attempt_id, batch_id, run_id, revision, content_id, content["normalization_version"],
                          EXTRACTION_VERSION, 1 if prior is None else 2, retry_fix_commit, db.stamp(), content["content_hash"]))
             con.execute("INSERT OR IGNORE INTO research_run_contents VALUES(?,?)", (run_id, content_id))
         # PENDING and the source transaction are durable before dispatch.
+        return self.run_reserved(attempt_id, research_gaps=research_gaps)
+
+    def run_reserved(self, attempt_id: str, *, research_gaps: tuple[str, ...] = ()) -> dict[str, Any]:
+        """Only one process may transition a durable reservation to RUNNING."""
+        db = self.store.db
+        attempt = db.connection.execute("SELECT a.*,b.account_scope FROM extraction_attempts a "
+            "JOIN extraction_batches b USING(batch_id) WHERE attempt_id=?", (attempt_id,)).fetchone()
+        if attempt is None:
+            raise ValueError("MISSING_RESERVED_ATTEMPT")
+        run_id, revision = attempt["run_id"], attempt["revision"]
+        source_row = db.connection.execute("SELECT source_id,policy_id FROM source_contents WHERE content_id=?",
+                                           (attempt["content_id"],)).fetchone()
+        if source_row is None:
+            raise ValueError("RESERVED_SOURCE_MISSING")
+        source_id = source_row["source_id"]
+        content = next((c for c in self.store.contents.load(source_id, attempt["account_scope"])
+                        if c["content_id"] == attempt["content_id"]), None)
+        source = self.store.repository.get(source_id, attempt["account_scope"])
+        policy = self.store._latest_policy(source_row["policy_id"])
+        if (content is None or source is None or policy is None
+            or content["content_hash"] != attempt["content_hash"]
+            or content["normalization_version"] != attempt["normalization_version"]):
+            raise ValueError("RESERVED_SNAPSHOT_OR_POLICY_MISMATCH")
         with db.transaction() as con:
+            current = con.execute("SELECT status FROM extraction_attempts WHERE attempt_id=?", (attempt_id,)).fetchone()
+            if current[0] != "PENDING":
+                raise ValueError("RESERVATION_ALREADY_CLAIMED")
             if not self.store.is_current(run_id, revision):
                 con.execute("UPDATE extraction_attempts SET status='OBSOLETE',finished_at=? WHERE attempt_id=?",
                             (db.stamp(), attempt_id))
-                return {"status": "OBSOLETE", "attempt_id": attempt_id, "result": None}
+                return self.outcome(attempt_id)
             con.execute("UPDATE extraction_attempts SET status='RUNNING' WHERE attempt_id=?", (attempt_id,))
+        provider = self.extractor.provider
+        def checkpoint(safe: dict[str, Any]) -> None:
+            validator("LLMDiagnostic").validate(safe)
+            with db.transaction() as con:
+                updated = con.execute("UPDATE extraction_attempts SET diagnostic_json=? WHERE attempt_id=? AND status='RUNNING'",
+                                      (json.dumps(safe), attempt_id)).rowcount
+                if updated != 1:
+                    raise ValueError("ATTEMPT_NO_LONGER_RUNNING")
+                if attempt["authorization_id"] and safe["http_attempts"]:
+                    con.execute("UPDATE extraction_authorizations SET dispatch_started_at=coalesce(dispatch_started_at,?) "
+                                "WHERE authorization_id=?", (db.stamp(), attempt["authorization_id"]))
+        if isinstance(provider, OpenAICompatibleProvider):
+            provider.diagnostic_observer = checkpoint
         result: ExtractionResult | None = None
         diagnostic = Diagnostic()
         status = "FAILED"
@@ -86,7 +127,7 @@ class ExtractionRecovery:
                 source_type=source["source_type"], destination=source["destination"], policy=policy,
                 image_count=content["image_count"], research_gaps=research_gaps, allow_fallback=False)
             diagnostic = result.diagnostic or Diagnostic(stage="POLICY", category="POLICY_BLOCKED")
-            diagnostic.retry_count = 0 if prior is None else 1
+            diagnostic.retry_count = int(attempt["attempt_number"] == 2)
             validator("LLMDiagnostic").validate(diagnostic.safe_dict())
             valid_response = result.mode in {"LLM", "MOCK"}
             if valid_response and audit_grounding(result.bundle, (content,))["unsupported"]:

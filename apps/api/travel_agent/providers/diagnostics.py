@@ -10,7 +10,8 @@ CATEGORIES = frozenset({"NOT_CONFIGURED", "POLICY_BLOCKED", "TIMEOUT", "TLS_ERRO
     "BAD_REQUEST", "UNAUTHORIZED", "FORBIDDEN", "RATE_LIMITED", "SERVER_ERROR", "HTTP_OTHER",
     "INVALID_ENVELOPE", "OVERSIZED_RESPONSE", "MISSING_CONTENT", "EMPTY_CONTENT", "TRUNCATED",
     "REFUSED", "ABORTED", "UNEXPECTED_FINISH", "INVALID_JSON", "SCHEMA_INVALID",
-    "UNGROUNDED", "NO_CLAIMS", "SOURCE_SAVE_FAILED", "UNEXPECTED_ERROR", "SUCCESS"})
+    "UNGROUNDED", "NO_CLAIMS", "SOURCE_SAVE_FAILED", "UNEXPECTED_ERROR", "SUCCESS", "TOTAL_DEADLINE"})
+TRANSPORT_PHASES = frozenset({"NOT_STARTED", "OPENING", "BODY_READ", "COMPLETE"})
 FINISH_REASONS = frozenset({"stop", "length", "content_filter", "tool_calls",
                            "insufficient_system_resource", "aborted"})
 VALIDATORS = frozenset({"type", "required", "additionalProperties", "enum", "const", "minLength",
@@ -72,6 +73,10 @@ class Diagnostic:
     reviewed_claims: int | None = None
     rejected_claims: int | None = None
     accepted_claims: int | None = None
+    transport_phase: str = "NOT_STARTED"
+    timeout_seconds: float | None = None
+    headers_elapsed_seconds: float | None = None
+    body_complete_elapsed_seconds: float | None = None
 
     def safe_dict(self) -> dict[str, Any]:
         result = asdict(self)
@@ -81,4 +86,5 @@ class Diagnostic:
         result["response_model"] = safe_model(self.response_model)
         result["request_id"] = safe_request_id(self.request_id)
         result["finish_reason"] = self.finish_reason if self.finish_reason in FINISH_REASONS else None
+        result["transport_phase"] = self.transport_phase if self.transport_phase in TRANSPORT_PHASES else "NOT_STARTED"
         return result

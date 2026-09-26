@@ -1,6 +1,6 @@
 """Small structured-output boundary; no tools, retries, prompt logs or ambient proxies."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 import json
 import os
@@ -75,6 +75,7 @@ class OpenAICompatibleProvider:
     is_external: bool = field(default=True, init=False)
     is_mock: bool = field(default=False, init=False)
     last_diagnostic: Diagnostic | None = field(default=None, init=False, repr=False)
+    diagnostic_observer: Callable[[dict[str, Any]], None] | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         try:
@@ -124,8 +125,12 @@ class OpenAICompatibleProvider:
         self, task: str, payload: dict[str, Any], schema: dict[str, Any],
     ) -> dict[str, Any]:
         started = monotonic()
-        diagnostic = Diagnostic(requested_model=safe_model(self.model, self.api_key.get_secret_value()))
+        diagnostic = Diagnostic(requested_model=safe_model(self.model, self.api_key.get_secret_value()),
+                                timeout_seconds=self.timeout)
         self.last_diagnostic = diagnostic
+        def checkpoint() -> None:
+            if self.diagnostic_observer is not None:
+                self.diagnostic_observer(diagnostic.safe_dict())
         def fail(stage: str, category: str, code: str = "LLM_INVALID_OUTPUT") -> NoReturn:
             diagnostic.stage, diagnostic.category = stage, category
             raise LLMError(code, diagnostic)
@@ -175,14 +180,22 @@ class OpenAICompatibleProvider:
             }, method="POST")
             opener = build_opener(ProxyHandler({}), _NoRedirect())
             diagnostic.http_attempts = 1
+            diagnostic.transport_phase = "OPENING"
+            checkpoint()
             with opener.open(request, timeout=self.timeout) as response:
                 status = getattr(response, "status", None)
                 diagnostic.http_status = status if type(status) is int else None
                 headers = getattr(response, "headers", None)
                 if headers is not None:
                     diagnostic.request_id = safe_request_id(headers.get("x-request-id"), self.api_key.get_secret_value())
+                diagnostic.transport_phase = "BODY_READ"
+                diagnostic.headers_elapsed_seconds = round(monotonic() - started, 4)
+                checkpoint()
                 raw = response.read(524_289)
             diagnostic.response_bytes = len(raw)
+            diagnostic.transport_phase = "COMPLETE"
+            diagnostic.body_complete_elapsed_seconds = round(monotonic() - started, 4)
+            checkpoint()
             if len(raw) > 524_288:
                 fail("ENVELOPE", "OVERSIZED_RESPONSE")
             try:

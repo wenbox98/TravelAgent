@@ -38,7 +38,7 @@ def test_upgrade_v2_preserves_existing_evidence_and_restart_cache(tmp_path, cloc
         EvidenceRepository(db).save(bundle, policy, account_scope="local")
     with Database(path, clock=clock) as db:
         store = EvidenceStore(db)
-        assert db.version == 7
+        assert db.version == 8
         assert [item.to_dict() for item in store.lookup(
             "new-question", bundle["destination"], "local",
         )] == [bundle.to_dict()]
@@ -50,7 +50,7 @@ def test_upgrade_v2_preserves_existing_evidence_and_restart_cache(tmp_path, cloc
         assert [item.to_dict() for item in store.lookup("research", None, "local")] == [bundle.to_dict()]
         assert store.lookup("research", "另一地区", "local") == ()
         assert store.lookup("research", None, "other") == ()
-        assert db.connection.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 7
+        assert db.connection.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 8
 
 
 def test_duplicate_source_reuses_without_overwrite_or_duplicate_claims(clock, fixture_data):

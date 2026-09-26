@@ -2707,7 +2707,8 @@
             "UNAUTHORIZED",
             "UNEXPECTED_ERROR",
             "UNEXPECTED_FINISH",
-            "UNGROUNDED"
+            "UNGROUNDED",
+            "TOTAL_DEADLINE"
           ]
         },
         "http_status": {
@@ -2872,6 +2873,36 @@
             "null"
           ],
           "minimum": 0
+        },
+        "transport_phase": {
+          "type": "string",
+          "enum": [
+            "NOT_STARTED",
+            "OPENING",
+            "BODY_READ",
+            "COMPLETE"
+          ]
+        },
+        "timeout_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "headers_elapsed_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "body_complete_elapsed_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
         }
       }
     },
@@ -2922,7 +2953,7 @@
         "attempt_number": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 2
+          "maximum": 3
         },
         "status": {
           "enum": [
@@ -2974,8 +3005,46 @@
             "string",
             "null"
           ]
+        },
+        "authorization_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "t064-response-timeout-once",
+            null
+          ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "attempt_number": {
+                "const": 3
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "authorization_id"
+            ],
+            "properties": {
+              "authorization_id": {
+                "const": "t064-response-timeout-once"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "authorization_id": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     },
     "GroundingCandidateCheck": {
       "type": "object",
@@ -3107,6 +3176,58 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 12
+        }
+      }
+    },
+    "ExtractionAuthorizationConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "endpoint_hash",
+        "model",
+        "response_format",
+        "timeout_seconds",
+        "total_deadline_seconds",
+        "max_http_attempts",
+        "purpose"
+      ],
+      "properties": {
+        "host": {
+          "enum": [
+            "api.deepseek.com",
+            "127.0.0.1"
+          ]
+        },
+        "endpoint_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._:/-]{0,100}$"
+        },
+        "response_format": {
+          "enum": [
+            "json_object",
+            "json_schema"
+          ]
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 120
+        },
+        "total_deadline_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 180
+        },
+        "max_http_attempts": {
+          "const": 1
+        },
+        "purpose": {
+          "const": "PRIVATE_TRAVEL_RESEARCH"
         }
       }
     }

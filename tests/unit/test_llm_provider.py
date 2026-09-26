@@ -172,6 +172,19 @@ def test_timeout_is_not_retried_or_logged(monkeypatch, capsys):
     assert "SECRET_API_KEY" not in str(error.value) + captured.out + captured.err + repr(provider)
 
 
+def test_120_second_process_override_reaches_transport_unchanged(monkeypatch):
+    observed = []
+    class Opener:
+        def open(self, request, timeout):
+            observed.append(timeout)
+            return FakeResponse(b'{"choices":[{"finish_reason":"stop","message":{"content":"{\\"ok\\":true}"}}]}')
+    monkeypatch.setattr("travel_agent.providers.llm.build_opener", lambda *args: Opener())
+    provider = OpenAICompatibleProvider.from_env({"LLM_API_KEY":"SECRET_API_KEY", "LLM_MODEL":"synthetic-model",
+        "LLM_BASE_URL":"https://api.deepseek.com", "TRAVEL_LLM_TIMEOUT_SECONDS":"30", "LLM_TIMEOUT_SECONDS":"120"})
+    assert provider.structured("synthetic_task", {}, SCHEMA) == {"ok": True}
+    assert observed == [120] and provider.last_diagnostic.timeout_seconds == 120
+
+
 def test_credential_payload_is_rejected_before_transport(monkeypatch):
     def never(*args):
         raise AssertionError("transport must not be created")

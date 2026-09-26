@@ -1,6 +1,6 @@
 # 文档包校验报告
 
-执行时间（UTC）：2026-09-26T03:12:40+00:00
+执行时间（UTC）：2026-09-26T03:47:50+00:00
 
 **结果：12/12 项文档校验通过；失败 0 项。**
 
@@ -9,7 +9,7 @@
 | 校验 | 结果 | 说明 |
 |---|---|---|
 | JSON_PARSE | PASS | 18 JSON files parsed |
-| DOMAIN_SCHEMA | PASS | 46 Draft 2020-12 definitions; format checks enabled for fixtures |
+| DOMAIN_SCHEMA | PASS | 47 Draft 2020-12 definitions; format checks enabled for fixtures |
 | CONTRACT_REFERENCES | PASS | 79 JSON Schema/OpenAPI reference occurrences resolved offline |
 | FIXTURE_SCHEMA | PASS | 27 positive objects accepted; 5 negative objects rejected |
 | OPENAPI_STRUCTURAL | PASS | 20 operation IDs, local auth, path parameters, write headers and SSE example checked; structural checks, not a full OpenAPI conformance validator |

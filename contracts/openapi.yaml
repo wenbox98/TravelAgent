@@ -8,6 +8,7 @@ info:
     PRIVATE_LOCAL_RESEARCH SourceContent and SourceBodyBlock are internal SQLite
     v5 contracts; v6 adds extraction attempts and safe diagnostics; v7 adds
     private per-candidate grounding/context review and partial-success states.
+    v8 adds a single supplemental extraction authorization and transport-phase diagnostics.
     These are not public HTTP response fields; no raw-content endpoint is added.
 servers:
 - url: http://127.0.0.1:8765

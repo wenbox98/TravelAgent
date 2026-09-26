@@ -12,7 +12,7 @@ enter()
 from travel_agent.persistence.database import Database  # noqa: E402
 from travel_agent.providers.llm import OpenAICompatibleProvider  # noqa: E402
 from travel_agent.research.extractor import EvidenceExtractor  # noqa: E402
-from travel_agent.research.retry import retry_saved  # noqa: E402
+from travel_agent.research.retry import authorize_extra, retry_saved, run_extra_worker, supervise_extra  # noqa: E402
 from travel_agent.research.store import EvidenceStore  # noqa: E402
 from travel_agent.research.candidate_review import review_candidates  # noqa: E402
 
@@ -25,12 +25,16 @@ def main():
     parser.add_argument("--fix-commit")
     parser.add_argument("--review-stdin", action="store_true")
     parser.add_argument("--account-scope")
+    parser.add_argument("--grant-extra", action="store_true", help="Record this task's one additional authorization without network")
+    parser.add_argument("--extra-authorization", action="store_true", help="Consume T06.4 authorization under a 180-second deadline")
+    parser.add_argument("--extra-worker", help=argparse.SUPPRESS)
     args = parser.parse_args()
-    if not args.live and not args.review_stdin:
+    if not args.live and not args.review_stdin and not args.grant_extra:
         print(json.dumps({"status": "NOT_RUN", "http_attempts": 0}))
         return 0
     try:
-        if args.live and args.review_stdin:
+        if (args.live and (args.review_stdin or args.grant_extra)
+            or args.review_stdin and args.grant_extra):
             raise ValueError("REVIEW_CANNOT_DISPATCH_MODEL")
         allowed_addresses = set()
         resolve = socket.getaddrinfo
@@ -58,16 +62,31 @@ def main():
                     account_scope=args.account_scope, decisions={int(k): v for k, v in decisions.items()})
             else:
                 provider = OpenAICompatibleProvider.from_env()
-                if provider is None or urlsplit(provider.base_url).hostname != "api.deepseek.com" or not args.fix_commit:
+                if provider is None or urlsplit(provider.base_url).hostname != "api.deepseek.com":
                     raise ValueError("EXPECTED_CONFIGURED_PROVIDER_AND_FIX")
-                result = retry_saved(EvidenceStore(db), EvidenceExtractor(provider),
-                                     attempt_id=args.attempt_id, fix_commit=args.fix_commit)
+                if args.extra_worker:
+                    run_extra_worker(EvidenceStore(db), provider, args.extra_worker)
+                    return 0
+                if not args.fix_commit:
+                    raise ValueError("EXPECTED_FIX_COMMIT")
+                if args.grant_extra or args.extra_authorization:
+                    if provider.timeout != 120:
+                        raise ValueError("EXTRA_REQUIRES_120_SECOND_TIMEOUT")
+                    if args.grant_extra:
+                        result = authorize_extra(EvidenceStore(db), base_attempt_id=args.attempt_id,
+                            fix_commit=args.fix_commit, provider=provider, deadline=180)
+                    else:
+                        result = supervise_extra(args.database, base_attempt_id=args.attempt_id,
+                            fix_commit=args.fix_commit, provider=provider, deadline=180)
+                else:
+                    result = retry_saved(EvidenceStore(db), EvidenceExtractor(provider),
+                                         attempt_id=args.attempt_id, fix_commit=args.fix_commit)
             result.update(browser_modules_absent=not any(m.startswith(("xhs_sidecar", "playwright")) for m in sys.modules),
                           network_guard="DEEPSEEK_ONLY" if args.live else "DENY_ALL")
     except Exception:
         result = {"status": "BLOCKED", "reason": "LOCAL_RECOVERY_PRECONDITION_FAILED"}
     print(json.dumps(result, ensure_ascii=True))
-    return 0 if result["status"] in {"SUCCEEDED", "PARTIAL_SUCCESS", "PENDING_REVIEW"} else 2
+    return 0 if result["status"] in {"SUCCEEDED", "PARTIAL_SUCCESS", "PENDING_REVIEW", "GRANTED"} else 2
 
 
 if __name__ == "__main__":
