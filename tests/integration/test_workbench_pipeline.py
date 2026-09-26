@@ -1,6 +1,7 @@
 """Authored sources only: normal API -> async job -> service -> v3 -> review -> preview."""
 
 import sys
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -120,6 +121,44 @@ def setup(db, provider_config=None):
         "confirm-first",
     )
     return v, provider
+
+
+def test_review_persists_final_provider_diagnostic(tmp_path, clock, monkeypatch):
+    class Response:
+        status = 200
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self, limit):
+            return json.dumps({"model": "synthetic", "choices": [{
+                "finish_reason": "stop", "message": {"content": '{"reviews":[]}'},
+            }]}).encode()[:limit]
+
+    class Opener:
+        def open(self, request, timeout):
+            assert timeout == 120
+            return Response()
+
+    monkeypatch.setattr("travel_agent.providers.llm.build_opener", lambda *args: Opener())
+    with Database(tmp_path / "diagnostic.sqlite3", clock=clock) as db:
+        store = EvidenceStore(db)
+        attempts = [add_source(store, f"diagnostic-{i}", Provider()) for i in range(2)]
+        provider = OpenAICompatibleProvider("http://127.0.0.1", "synthetic", SecretStr("fixture"), 120)
+        budget = BoundedBudget(store, GRANT)
+        budget.grant("owner", "partial", provider, attempts)
+        rid = reserve_review(store, budget, attempts[0], "owner", {}, evaluation=True)
+        result = run_review(store, provider, rid)
+        assert result["status"] == "COMPLETED"
+        diagnostic = result["diagnostic"]
+        assert diagnostic == provider.last_diagnostic.safe_dict()
+        assert diagnostic["category"] == "SUCCESS" and diagnostic["finish_reason"] == "stop"
+        assert diagnostic["elapsed_seconds"] is not None
+        assert diagnostic["http_attempts"] == 1 and diagnostic["response_bytes"] > 0
 
 
 class Reader:

@@ -401,6 +401,9 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
         if r['mode']=='RUNTIME':
             budget.check_job_active(ctx['attempt']['research_id'])
         output = validate_structured(provider.structured(TASK, data, REVIEW_SCHEMA), REVIEW_SCHEMA)
+        if isinstance(provider, OpenAICompatibleProvider) and provider.last_diagnostic is not None:
+            # Transport checkpoints precede envelope/schema parsing and its final elapsed time.
+            checkpoint(provider.last_diagnostic.safe_dict())
         # No raw response or hidden reasoning retained. Store bounded, validated proposals only.
         if SENSITIVE_RESEARCH_TEXT.search(json.dumps(output, ensure_ascii=False)):
             raise ValueError("REVIEW_SENSITIVE_OUTPUT")
