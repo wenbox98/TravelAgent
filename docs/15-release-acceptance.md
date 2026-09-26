@@ -29,6 +29,10 @@ TEXT_FIRST 阻止 224 次图片加载，SEARCH=236、DETAIL=276/285 与历史 17
 
 [T06.3 报告](../reports/T06.3-grounding-recovery.md)：849 项离线测试通过；逐条定位、Work 上下文审核、部分成功及原批次额度已实现。仅一次缓存正文的真实模型复验在 HTTP 200 后读取超时，真实 Evidence=0；原文跨进程恢复 PASS，非空 Evidence 恢复 FAIL。新增 XHS connect/search/detail=0/0/0，无后续模型重试。**G0 保留历史 PASS，G1 仍 FAIL**，不能把定位检查、空输出或合成部分恢复当成真实研究验收。
 
+## T06.4 响应完成与非空 Evidence 恢复
+
+[T06.4 分层报告](../reports/T06.4-model-response-timeout.md)：859 项离线测试通过。独立追加授权只派发一次模型请求，120 秒实际等待和 180 秒总截止；完整响应、JSON/schema、3 条合格 Evidence 的部分保留及跨进程零访问恢复 PASS。其余 9 条拒绝，未改变严格标准；XHS connect/search/detail=0/0/0。Q2 体验 PARTIAL，路线/时长/交通 UNSUPPORTED，五天/不自驾缺口继续保留。**G0 仅沿用历史 PASS，G1 仍 NOT PASS**，不能把单篇响应完成等同整体研究质量验收。
+
 ## T03 独立交付门槛（历史规格）
 
 T03-01～T03-18 覆盖普通 launch/profile、状态机、本地 status 100 次零外部操作、connect 幂等/并发、有效/失效会话、验证暂停、generation/晚到回调、清理成功/失败、重启待核实、日志 sentinel 与 NOT_MEASURED。全部 unit/integration/contract/security 离线测试、Ruff、Mypy、契约快照、文档校验、git diff --check 通过后，才完成指定本地提交并汇报；执行证据必须来自真实命令输出。

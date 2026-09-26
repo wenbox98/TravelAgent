@@ -9,6 +9,8 @@
 
 ## 当前定位：私人本地研究
 
+T06.4 完成单次追加授权与 120 秒等待/180 秒总截止，859 项离线测试通过。唯一缓存正文复验完整返回；12 条候选经严格定位及 Work 上下文审核后，3 条入库、9 条拒绝，非空 Evidence 跨进程零访问恢复 PASS。XHS connect/search/detail=0/0/0。**G1 仍 NOT PASS：只有局部作者体验线索，路线、时长与交通 Coverage 不足。** 原失败记录、原耗尽预算及本次已消费授权全部保留。详见 [T06.4 分层报告](reports/T06.4-model-response-timeout.md)；下方为历史结果。
+
 T06.3 已完成逐条 grounding 诊断、上下文审核候选区与独立合格结果的部分保留，849 项离线测试通过。仅缓存正文的一次模型复验收到 HTTP 200 后读取超时；本次真实 Evidence=0，**G1 仍 FAIL**。XHS connect/search/detail 全部为 0；原缓存、历史失败和已用重跑额度保留，未再次请求。详见 [T06.3 报告](reports/T06.3-grounding-recovery.md) 与 [逐条审核契约](docs/architecture/t063-grounding-recovery.md)。下方 T06.2/T06.1 为历史结果。
 
 T06.2 已完成安全错误分型、正文先保存和仅模型恢复入口。合成真实提取通过；有界真实复验在第一篇 grounding 拒绝后停止，**G1 仍 FAIL**。这次已保存正文并通过独立进程恢复，不再因模型失败丢失原文。详见 [T06.2 报告](reports/T06.2-llm-diagnostics-and-recovery.md) 和 [恢复契约](docs/architecture/t062-extraction-recovery.md)。真实账本不允许自动重跑；后续从本地已保存来源排查，不重新搜索。下方 T06.1 结果和入口是历史记录。
