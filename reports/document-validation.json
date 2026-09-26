@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-09-26T11:55:22+00:00",
+  "generated_at_utc": "2026-09-26T12:54:19+00:00",
   "scope": "L0_DOCUMENT_CONTRACT_SYNTHETIC_ONLY",
   "checks": [
     {
@@ -10,12 +10,12 @@
     {
       "check": "DOMAIN_SCHEMA",
       "status": "PASS",
-      "detail": "71 Draft 2020-12 definitions; format checks enabled for fixtures"
+      "detail": "76 Draft 2020-12 definitions; format checks enabled for fixtures"
     },
     {
       "check": "CONTRACT_REFERENCES",
       "status": "PASS",
-      "detail": "121 JSON Schema/OpenAPI reference occurrences resolved offline"
+      "detail": "128 JSON Schema/OpenAPI reference occurrences resolved offline"
     },
     {
       "check": "FIXTURE_SCHEMA",
@@ -25,12 +25,12 @@
     {
       "check": "OPENAPI_STRUCTURAL",
       "status": "PASS",
-      "detail": "28 operation IDs, local auth, path parameters, write headers and SSE example checked; structural checks, not a full OpenAPI conformance validator"
+      "detail": "30 operation IDs, local auth, path parameters, write headers and SSE example checked; structural checks, not a full OpenAPI conformance validator"
     },
     {
       "check": "MARKDOWN_LINKS",
       "status": "PASS",
-      "detail": "226 relative Markdown link targets exist"
+      "detail": "228 relative Markdown link targets exist"
     },
     {
       "check": "SQL_DRAFT_SMOKE",
@@ -65,10 +65,10 @@
   ],
   "counts": {
     "json_files_checked": 18,
-    "domain_definitions": 71,
+    "domain_definitions": 76,
     "positive_contract_fixtures": 27,
     "negative_contract_fixtures": 5,
-    "http_operations": 28,
+    "http_operations": 30,
     "declared_tables_including_fts": 20,
     "designed_application_test_cases_not_run": 137,
     "codex_task_sheets": 12,
