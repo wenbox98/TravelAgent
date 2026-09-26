@@ -185,10 +185,13 @@ class ResearchReport:
                     groups[group].append({**claim, "basis": "EXTRACTED_FROM_SOURCE",
                                           "completeness": bundle["completeness"]})
         from .quality import claim_clusters, evaluate_coverage, evidence_conflicts
-        from .reporting import build_directions
+        from .reporting import build_directions, unassociated_statements
         return {**self.safe_summary(), "materials": groups,
-                "request_constraints": {"days": self.request.days, "no_self_drive": self.request.no_self_drive},
+                "request_constraints": {"days": self.request.days, "no_self_drive": self.request.no_self_drive,
+                    "transport": self.request.transport, "budget_cny_fen": self.request.budget_cny_fen,
+                    "traveler_count": self.request.traveler_count},
                 "constraint_fit": "NOT_ESTABLISHED",
+                "unassociated_statements": unassociated_statements(self.evidence, now=self._now()),
                 "directions": build_directions(self.evidence, now=self._now()),
                 "coverage": [row.to_dict() for row in evaluate_coverage(self.evidence, now=self._now())],
                 "conflicts": [asdict(row) for row in evidence_conflicts(self.evidence)],

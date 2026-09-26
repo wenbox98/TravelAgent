@@ -166,6 +166,11 @@ class OpenAICompatibleProvider:
                         "requirements as source conditions. Propose only LOW, MEDIUM, or HIGH "
                         "confidence and give a short auditable extraction_basis. Never infer "
                         "dates, images, official status, credentials, or missing conditions."
+                        + (" When research_gaps request routes, duration or transport, prioritize "
+                           "the author's explicit itinerary, whole-trip duration, transport and "
+                           "distinct experiences over generic praise. Keep day/segment durations "
+                           "distinct from whole-trip duration; do not reconstruct an unquoted route."
+                           if task == "extract_evidence" else "")
                         + schema_instruction
                     )},
                     {"role": "user", "content": json.dumps(

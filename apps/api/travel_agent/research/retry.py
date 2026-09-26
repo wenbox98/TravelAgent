@@ -121,6 +121,14 @@ def supervise_extra(database: Path, *, base_attempt_id: str, fix_commit: str,
     command = worker_command or [sys.executable, str(PROJECT_ROOT / "scripts/retry_extraction.py"),
         "--live", "--database", str(database.resolve()), "--attempt-id", base_attempt_id,
         "--extra-worker", attempt]
+    return supervise_reserved(database, attempt, provider=provider, deadline=deadline, command=command)
+
+
+def supervise_reserved(database: Path, attempt: str, *, provider: OpenAICompatibleProvider,
+                       deadline: float, command: list[str], finish_report: bool = True) -> dict[str, Any]:
+    """Shared supervision for a durably reserved request, including normal new sources."""
+    if not 0 < deadline <= 180:
+        raise ValueError("INVALID_TOTAL_DEADLINE")
     # Test workers use this environment only for their synthetic loopback invocation.
     env = dict(os.environ, TRAVEL_RESERVED_ATTEMPT=attempt, LLM_TIMEOUT_SECONDS=str(provider.timeout))
     started = monotonic()
@@ -149,12 +157,28 @@ def supervise_extra(database: Path, *, base_attempt_id: str, fix_commit: str,
                             category="TOTAL_DEADLINE" if timed_out else "UNEXPECTED_ERROR")
                 con.execute("UPDATE extraction_attempts SET status=?,diagnostic_json=?,finished_at=? WHERE attempt_id=?",
                     ("INTERRUPTED" if timed_out or process is not None else "FAILED", json.dumps(safe), db.stamp(), attempt))
-        result = report_saved_attempt(store, attempt)
+        result = (report_saved_attempt(store, attempt) if finish_report else
+                  ExtractionRecovery(store, EvidenceExtractor()).outcome(attempt))
     if interrupted is not None and not isinstance(interrupted, Exception):
         raise interrupted
     return result | {"total_deadline_seconds": deadline, "outer_elapsed_seconds": elapsed,
                      "deadline_reached": timed_out, "owned_worker_exited": process is None or process.poll() is not None,
                      "worker_exit_code": process.returncode if process is not None else None}
+
+
+def supervise_continuation(store: EvidenceStore, attempt: str, gaps: tuple[str, ...],
+                           provider: OpenAICompatibleProvider) -> dict[str, Any]:
+    from .continuation import ContinuationBudget
+    budget = ContinuationBudget(store)
+    source = store.db.connection.execute("SELECT c.source_id FROM extraction_attempts a JOIN source_contents c "
+                                        "USING(content_id) WHERE attempt_id=?", (attempt,)).fetchone()
+    budget.reserve("MODEL", source[0])
+    budget.check_worker(attempt, provider)
+    return supervise_reserved(store.db.path, attempt, provider=provider, deadline=180,
+        finish_report=False,
+        command=[sys.executable, str(PROJECT_ROOT / "scripts/retry_extraction.py"), "--live",
+                 "--database", str(store.db.path.resolve()), "--attempt-id", attempt,
+                 "--continuation-worker", "--research-gaps", ",".join(gaps)])
 
 
 def retry_saved(store: EvidenceStore, extractor: EvidenceExtractor, *, attempt_id: str,

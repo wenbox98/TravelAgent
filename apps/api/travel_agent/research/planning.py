@@ -62,6 +62,11 @@ class QueryPlanner:
         prefix = " ".join(value for value in (request.departure, request.destination, request.time_hint)
                           if value)
         queries: list[SearchQuery] = []
+        gap_ids = {gap.gap_id for gap in gaps}
+        if evidence and {"ROUTES", "DURATION"} <= gap_ids:
+            queries.append(SearchQuery(prefix + " 路线 行程 天数 交通",
+                tuple(g.gap_id for g in gaps if g.gap_id in {"ROUTES", "DURATION", "TRANSPORT"}),
+                "已有局部体验，定向补充行程组合、总天数和交通条件"))
         if not evidence and gaps and not previous:
             queries.append(SearchQuery(prefix + " 攻略", tuple(gap.gap_id for gap in gaps),
                                        "建立路线、体验、时长与交通的初始材料"))
@@ -92,10 +97,13 @@ class CandidateSelector:
         self.last_mode = "DETERMINISTIC"
 
     def select(self, candidates: tuple[Candidate, ...], request: ResearchRequest,
-               gaps: tuple[ResearchGap, ...], seen_sources: set[str]) -> tuple[CandidateChoice, ...]:
+               gaps: tuple[ResearchGap, ...], seen_sources: set[str], *,
+               query_context: str | None = None, grounded_terms: tuple[str, ...] = ()) -> tuple[CandidateChoice, ...]:
         self.last_mode = "DETERMINISTIC"
         selected: list[tuple[int, Candidate]] = []
         seen, titles = set(seen_sources), set()
+        signals: dict[str, str] = {}
+        query_related = bool(request.destination and query_context and request.destination in query_context)
         gap_terms = {"ROUTES": ("路线", "环线", "区域"), "EXPERIENCES": ("体验", "游玩"),
                      "DURATION": ("天", "日"), "TRANSPORT": ("交通", "自驾", "班车"),
                      "DAYS_FIT": (f"{request.days}天",),
@@ -104,13 +112,21 @@ class CandidateSelector:
             title = candidate.title or ""
             normalized = re.sub(r"\W+", "", title).casefold()
             if (candidate.source_id in seen or not candidate.detail_available
-                or candidate.note_type != "normal" or not normalized or normalized in titles
-                or (request.destination and request.destination not in title)):
+                or candidate.note_type != "normal" or not normalized or normalized in titles):
                 continue
+            explicit = any(term and term in title for term in
+                           (request.destination, request.departure, *grounded_terms))
+            travel_signal = bool(re.search(r"路线|环线|行程|自驾|班车|徒步|[一二三四五六七八九十两\d]+[天日]", title))
+            weak = query_related and travel_signal
+            if request.destination and not explicit and not weak:
+                continue
+            signals[candidate.source_id] = ("标题含请求地点或有依据的实体词；归属仍须核对正文" if explicit
+                else "仅查询上下文与行程标题构成弱相关信号，地点归属未证实")
             seen.add(candidate.source_id)
             titles.add(normalized)
             score = sum(term in title for term in ("攻略", "路线", "环线", request.time_hint or "\0"))
             score += sum(term in title for gap in gaps for term in gap_terms.get(gap.gap_id, ()))
+            score += 3 * int(explicit) + 2 * int("行程" in title)
             selected.append((-score, candidate))
         selected.sort(key=lambda item: (item[0], item[1].source_id))
         ordered = [candidate for _, candidate in selected]
@@ -144,5 +160,8 @@ class CandidateSelector:
             ))
             diverse.append(chosen)
             ordered.remove(chosen)
-        return tuple(CandidateChoice(candidate, "依据真实标题、图文类型、缺口及标题多样性排序；未读正文",
-                                     tuple(gap.gap_id for gap in gaps)) for candidate in diverse)
+        return tuple(CandidateChoice(candidate, signals[candidate.source_id] +
+                                     "；依据真实标题、图文类型、缺口及标题多样性排序；未读正文",
+                                     tuple(gap.gap_id for gap in gaps),
+                                     ("source_id", "title", "note_type", "detail_available") +
+                                     (("query_context",) if query_context else ())) for candidate in diverse)

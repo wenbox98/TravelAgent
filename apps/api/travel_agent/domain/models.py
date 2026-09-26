@@ -52,6 +52,24 @@ def _claim_assessments(bundle):
         start, end = int(matched[2]), int(matched[3])
         if end - start != len(claim["text"]) or not any(low <= start < end <= high for low, high in ranges):
             raise ValueError("证据定位不在引用正文块内")
+        association = assessment.get("route_association")
+        if association:
+            index = association["object_block_id"]
+            if (assessment.get("context_review_status") != "WORK_REVIEWED"
+                or association["source_id"] != bundle["source_id"]
+                or index not in assessment["source_block_ids"]
+                or association["object_quote"] not in assessment["applicable_conditions"]):
+                raise ValueError("路线关联缺少同源审核锚点")
+            anchor_prefix, anchor_span = association["object_locator"].rsplit(":chars:", 1)
+            low, high = map(int, anchor_span.split("-"))
+            block_span = locators[assessment["source_block_ids"].index(index)].rsplit(":chars:", 1)[1]
+            block_low, block_high = map(int, block_span.split("-"))
+            if (anchor_prefix != matched[1] or high - low != len(association["object_quote"])
+                or not block_low <= low < high <= block_high):
+                raise ValueError("路线对象定位不在引用块内")
+        if assessment.get("reference_scope") and (assessment.get("context_review_status") != "WORK_REVIEWED"
+            or not assessment["applicable_conditions"] or claim["topic"] in {"PRICE", "OPENING", "RESERVATION"}):
+            raise ValueError("当次经历缺少审核条件或涉及动态规则")
         private = json.dumps(assessment, ensure_ascii=False)
         if re.search(r"(?i)https?://|xsec[_-]?token|access[_-]?token|authorization|cookie\s*[:=]|"
                      r"session\s*[:=]|bearer\s+|[?&]token=|SECRET_(?:COOKIE|XSEC|SESSION|AUTHORIZATION|QR)", private):

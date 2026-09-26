@@ -55,7 +55,8 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
             if index not in decisions:
                 continue
             decision = decisions[index]
-            if set(decision) - {"action", "reason_code", "dimension_checks", "context_conditions", "dependency_resolution"}:
+            if set(decision) - {"action", "reason_code", "dimension_checks", "context_conditions", "dependency_resolution",
+                                "route_association", "reference_scope"}:
                 raise ValueError("UNKNOWN_REVIEW_FIELD")
             if row["review_json"]:
                 if json.loads(row["review_json"]) != decision:
@@ -79,7 +80,14 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                 candidate = deepcopy(json.loads(row["candidate_json"]))
                 if set(candidate["source_block_ids"]) & rejected_conditions and decision.get("dependency_resolution") != "INDEPENDENT":
                     raise ValueError("DEPENDENCY_UNRESOLVED")
-                for condition in decision.get("context_conditions", []):
+                context_conditions = list(decision.get("context_conditions", []))
+                association = decision.get("route_association")
+                if association is not None:
+                    if set(association) != {"object_quote", "object_block_id", "scope"}:
+                        raise ValueError("INVALID_ROUTE_ASSOCIATION")
+                    context_conditions.append({"text": association["object_quote"], "quote": association["object_quote"],
+                                               "source_block_id": association["object_block_id"]})
+                for condition in context_conditions:
                     if set(condition) != {"source_block_id", "text", "quote"}:
                         raise ValueError("INVALID_CONTEXT_ANCHOR")
                     if condition not in candidate["applicable_conditions"]:
@@ -92,6 +100,14 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                 claim, metadata = build_claim(candidate, checked, view, content["source_id"], attempt["extraction_mode"])
                 metadata.update(context_review_status="WORK_REVIEWED", grounding_rule_version=2,
                                 audit_attempt_id=attempt_id, audit_candidate_index=index)
+                if decision.get("reference_scope"):
+                    metadata["reference_scope"] = decision["reference_scope"]
+                if association is not None:
+                    block = view.blocks[association["object_block_id"]]
+                    low = block.start + block.text.index(association["object_quote"])
+                    metadata["route_association"] = {**association, "source_id": content["source_id"],
+                        "object_locator": block.locator.rsplit(":chars:", 1)[0] +
+                        f":chars:{low}-{low + len(association['object_quote'])}"}
                 data = source.to_dict() | {"claims": [claim], "claim_metadata": {claim["claim_id"]: metadata},
                     "missing_fields": [g for g in source["missing_fields"] if g not in {"NO_GROUNDED_CLAIMS", "LOCAL_EXTRACTIVE_ONLY"}]}
                 bundle = EvidenceBundle(data)
@@ -103,6 +119,16 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
             con.execute("UPDATE extraction_candidates SET context_status=?,context_reason=?,review_json=?,claim_id=? "
                         "WHERE attempt_id=? AND candidate_index=?", ("ACCEPTED" if action == "ACCEPT" else "REJECTED",
                         reason, json.dumps(decision, ensure_ascii=False), claim_id, attempt_id, index))
+        # Reject orphan links: an accepted ROUTE must attest the same source/object.
+        reviewed_source = store.repository.get(content["source_id"], account_scope)
+        if reviewed_source is not None:
+            assessments = reviewed_source.get("claim_metadata", {})
+            route_objects = {assessments[c["claim_id"]]["route_association"]["object_locator"]
+                for c in reviewed_source["claims"] if c["topic"] == "ROUTE"
+                and assessments.get(c["claim_id"], {}).get("route_association")}
+            if any(m["route_association"]["object_locator"] not in route_objects
+                   for m in assessments.values() if m.get("route_association")):
+                raise ValueError("ROUTE_ASSOCIATION_WITHOUT_ACCEPTED_ROUTE")
         recovery = ExtractionRecovery(store, EvidenceExtractor())
         outcome = recovery.outcome(attempt_id)
         counts = outcome["counts"]

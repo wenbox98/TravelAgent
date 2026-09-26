@@ -28,6 +28,8 @@ def main():
     parser.add_argument("--grant-extra", action="store_true", help="Record this task's one additional authorization without network")
     parser.add_argument("--extra-authorization", action="store_true", help="Consume T06.4 authorization under a 180-second deadline")
     parser.add_argument("--extra-worker", help=argparse.SUPPRESS)
+    parser.add_argument("--continuation-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--research-gaps", default="", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if not args.live and not args.review_stdin and not args.grant_extra:
         print(json.dumps({"status": "NOT_RUN", "http_attempts": 0}))
@@ -66,6 +68,14 @@ def main():
                     raise ValueError("EXPECTED_CONFIGURED_PROVIDER_AND_FIX")
                 if args.extra_worker:
                     run_extra_worker(EvidenceStore(db), provider, args.extra_worker)
+                    return 0
+                if args.continuation_worker:
+                    from travel_agent.research.continuation import ContinuationBudget
+                    from travel_agent.research.recovery import ExtractionRecovery
+                    store = EvidenceStore(db)
+                    ContinuationBudget(store).check_worker(args.attempt_id, provider)
+                    ExtractionRecovery(store, EvidenceExtractor(provider)).run_reserved(args.attempt_id,
+                        research_gaps=tuple(filter(None, args.research_gaps.split(","))))
                     return 0
                 if not args.fix_commit:
                     raise ValueError("EXPECTED_FIX_COMMIT")

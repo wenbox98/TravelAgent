@@ -3,6 +3,7 @@
 import json
 import re
 from asyncio import CancelledError
+from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
@@ -23,7 +24,8 @@ class ExtractionRecovery:
 
     def execute(self, *, run_id: str, revision: int, content_id: str, account_scope: str,
                 policy: SourcePolicy, batch_id: str, max_attempts: int,
-                research_gaps: tuple[str, ...] = (), retry_fix_commit: str | None = None) -> dict[str, Any]:
+                research_gaps: tuple[str, ...] = (), retry_fix_commit: str | None = None,
+                dispatch: Callable[[str, tuple[str, ...]], dict[str, Any]] | None = None) -> dict[str, Any]:
         db = self.store.db
         if not re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", batch_id) or not 1 <= max_attempts <= 12:
             raise ValueError("INVALID_EXTRACTION_BATCH")
@@ -72,6 +74,8 @@ class ExtractionRecovery:
                          EXTRACTION_VERSION, 1 if prior is None else 2, retry_fix_commit, db.stamp(), content["content_hash"]))
             con.execute("INSERT OR IGNORE INTO research_run_contents VALUES(?,?)", (run_id, content_id))
         # PENDING and the source transaction are durable before dispatch.
+        if dispatch is not None:
+            return dispatch(attempt_id, research_gaps)
         return self.run_reserved(attempt_id, research_gaps=research_gaps)
 
     def run_reserved(self, attempt_id: str, *, research_gaps: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -169,6 +173,7 @@ class ExtractionRecovery:
         diagnostic_counts = diagnostic or {}
         contaminated = bool(diagnostic and diagnostic["category"] == "POLICY_BLOCKED")
         return {"status": row["status"], "cache_hit": cache_hit, "attempt_id": attempt_id,
+                "mode": row["extraction_mode"],
                 "diagnostic": diagnostic,
                 "candidate_checks": checks, "counts": {
                     "generated_candidates": (diagnostic_counts.get("generated_claims") or 0) if contaminated else len(candidates),

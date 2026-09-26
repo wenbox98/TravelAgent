@@ -43,6 +43,7 @@ class ResearchService:
             "NO_GROUNDED_CLAIMS": "尚无能定位到实际正文的结论",
             "UNSUPPORTED_CLAIMS_REJECTED": "不能定位的模型输出已拒绝",
             "MODEL_INPUT_MINIMIZED": "部分正文因联系方式或长度限制未交给模型，相关信息仍待核实",
+            "INSUFFICIENT_TEXT_FOR_EXTRACTION": "当前正文不足以提取所需路线和时间线索，未调用模型",
         }
         return ResearchGap(code, descriptions.get(code, "正文材料仍存在未验证信息"))
 
@@ -52,7 +53,9 @@ class ResearchService:
                  checkpoint: Callable[[dict[str, int]], None] | None = None,
                  temporary_read_allowed: bool = False,
                  model_batch_id: str | None = None, model_max_attempts: int = 4,
-                 after_extraction: Callable[[dict[str, Any]], None] | None = None) -> None:
+                 after_extraction: Callable[[dict[str, Any]], None] | None = None,
+                 continuation: Any = None,
+                 extraction_dispatch: Callable[[str, tuple[str, ...]], dict[str, Any]] | None = None) -> None:
         self.store, self.reader, self.extractor, self.policy = store, reader, extractor, policy
         self.selector = selector or CandidateSelector()
         self.selector.allow_external = self.selector.allow_external and policy_allows_model(
@@ -63,6 +66,7 @@ class ResearchService:
         self.evaluator, self.planner = SufficiencyEvaluator(clock=store.db.clock), QueryPlanner()
         self.model_batch_id, self.model_max_attempts = model_batch_id, model_max_attempts
         self.after_extraction = after_extraction
+        self.continuation, self.extraction_dispatch = continuation, extraction_dispatch
         self.extraction_attempts: list[dict[str, Any]] = []
 
     def run(self, request: ResearchRequest, *, research_id: str, revision: int,
@@ -78,6 +82,9 @@ class ResearchService:
         cached = len(evidence)
         gaps = self.evaluator.gaps(request, evidence)
         attempted = {bundle["source_id"] for bundle in evidence}
+        if self.continuation is not None:
+            attempted.update(row[0] for row in self.store.db.connection.execute(
+                "SELECT source_id FROM sources WHERE account_scope=?", (account_scope,)))
         modes: list[str] = []
         choices: list[CandidateChoice] = []
         candidate_count = query_count = 0
@@ -112,6 +119,8 @@ class ResearchService:
             if not self.store.reserve_operation(run_id, revision, kind, fingerprint, limit):
                 current()
                 raise ResearchStopped("BUDGET_EXHAUSTED")
+            if self.continuation is not None:
+                self.continuation.reserve(kind, fingerprint)
             self.checkpoint(self.store.operations(run_id))
             current()
 
@@ -145,6 +154,8 @@ class ResearchService:
             return finish("SOURCE_UNAVAILABLE")
         try:
             current()
+            if self.continuation is not None:
+                self.continuation.reserve("CONNECT", "ordinary-session")
             self.reader.connect()
             current()
             while gaps:
@@ -168,7 +179,7 @@ class ResearchService:
                 self.selector.allow_external = self.selector.allow_external and policy_allows_model(
                     self.policy, external=True, now=datetime.now(timezone.utc),
                 )
-                selected = self.selector.select(candidates, request, gaps, attempted)
+                selected = self.selector.select(candidates, request, gaps, attempted, query_context=query.text)
                 for choice in selected:
                     if self.store.operations(run_id)["detail"] >= budget.max_feed_details:
                         return finish("BUDGET_EXHAUSTED")
@@ -203,27 +214,51 @@ class ResearchService:
                     try:
                         state_body, dom_body = content.read()
                         if content_id is not None:
+                            if self.continuation is not None:
+                                from .canonical import canonicalize
+                                from .model_input import outbound_blocks
+                                import re
+                                usable = [b.text for b in outbound_blocks(canonicalize(state_body, dom_body).blocks)
+                                          if not b.text.startswith("#")]
+                                if (sum(map(len, usable)) < 40 or not any(re.search(
+                                    r"路线|行程|自驾|班车|徒步|[一二三四五六七八九十两\d]+[天日]|D[1-9]|→", t) for t in usable)):
+                                    from .grounding import IMAGE_REFERENCE
+                                    code = ("IMAGE_INFORMATION_REQUIRED" if IMAGE_REFERENCE.search("\n".join(usable))
+                                            else "INSUFFICIENT_TEXT_FOR_EXTRACTION")
+                                    extra_gaps[code] = self._material_gap(code)
+                                    continue
                             outcome = ExtractionRecovery(self.store, self.extractor).execute(
                                 run_id=run_id, revision=revision, content_id=content_id, account_scope=account_scope,
                                 policy=self.policy, batch_id=self.model_batch_id or research_id,
-                                max_attempts=self.model_max_attempts, research_gaps=tuple(g.gap_id for g in gaps))
+                                max_attempts=self.model_max_attempts, research_gaps=tuple(g.gap_id for g in gaps),
+                                dispatch=self.extraction_dispatch)
                             safe_outcome = {k: v for k, v in outcome.items() if k != "result"}
                             if self.after_extraction is not None and outcome["status"] in {"PENDING_REVIEW", "PARTIAL_SUCCESS", "SUCCEEDED"}:
                                 self.after_extraction(safe_outcome)
-                                safe_outcome = {k: v for k, v in ExtractionRecovery(self.store, self.extractor).outcome(outcome["attempt_id"]).items() if k != "result"}
+                                safe_outcome.update({k: v for k, v in ExtractionRecovery(self.store, self.extractor).outcome(outcome["attempt_id"]).items() if k != "result"})
                             outcome.update(safe_outcome)
                             self.extraction_attempts.append(safe_outcome)
                             if outcome.get("diagnostic") is not None:
                                 extraction_diagnostics.append(outcome["diagnostic"])
                             if outcome["status"] in {"PENDING_REVIEW", "NO_ACCEPTED_EVIDENCE"}:
                                 diagnostic = "CONTEXT_REVIEW_REQUIRED" if outcome["status"] == "PENDING_REVIEW" else "NO_ACCEPTED_EVIDENCE"
+                                if self.continuation is not None and outcome["status"] == "NO_ACCEPTED_EVIDENCE":
+                                    gaps = self.evaluator.gaps(request, evidence)
+                                    continue
                                 return finish("SOURCE_UNAVAILABLE")
                             if outcome["status"] not in {"SUCCEEDED", "PARTIAL_SUCCESS"}:
                                 diagnostic = "LIVE_LLM_EXTRACTION_FAILED"
                                 return finish("ERROR")
-                            extracted = outcome["result"]
-                            if extracted is None:
-                                raise ResearchStopped("ERROR", "UNEXPECTED_CACHED_ATTEMPT")
+                            # A supervised child commits candidates, not an in-memory ExtractionResult.
+                            modes.append(outcome["mode"])
+                            evidence = self.store.lookup(research_id, request.destination, account_scope)
+                            for b in evidence:
+                                for code in b["missing_fields"]:
+                                    extra_gaps[code] = self._material_gap(code)
+                            gaps = self.evaluator.gaps(request, evidence)
+                            if not gaps and "IMAGE_INFORMATION_REQUIRED" not in extra_gaps:
+                                return finish("EVIDENCE_SUFFICIENT")
+                            continue
                         else:
                             extracted = self.extractor.extract(
                             source_id=material.source_id, source_title=material.title,

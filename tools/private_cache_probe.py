@@ -41,7 +41,7 @@ def evidence_digest(evidence):
                              ensure_ascii=False).encode()).hexdigest()
 
 
-def probe(database, account_scope, research_id):
+def probe(database, account_scope, research_id, output_dir=None):
     with Database(database) as db:
         store = EvidenceStore(db)
         previous = store.load_report(research_id, account_scope)
@@ -72,6 +72,12 @@ def probe(database, account_scope, research_id):
         incremental = service.run(replace(request, days=5, no_self_drive=True),
                                   research_id=research_id + "-cache", revision=revision + 1,
                                   account_scope=account_scope, budget=ResearchBudget(0, 0))
+        if output_dir is not None:
+            from travel_agent.research.reporting import render_private_report
+            output_dir.mkdir(parents=True, exist_ok=True)
+            for name, report in (("first-plan.md", cached), ("five-days-no-driving.md", incremental)):
+                (output_dir / name).write_text(render_private_report(report.material_view(),
+                    [b.to_dict() for b in report.evidence]), encoding="utf-8")
         after_contents = {source: store.contents.load(source, account_scope) for source in sorted(source_ids)}
         after = {source: [c["content_hash"] for c in rows] for source, rows in after_contents.items()}
         audits = [audit_grounding(b, contents[b["source_id"]]) for b in evidence]
@@ -105,6 +111,7 @@ def main():
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--account-scope", required=True)
     parser.add_argument("--research-id", required=True)
+    parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args()
     if not args.database.is_file():
         print(json.dumps({"status": "FAIL", "reason": "CACHE_NOT_FOUND"}))
@@ -114,7 +121,7 @@ def main():
             raise PermissionError("CACHE_PROBE_FORBIDS_NETWORK")
     sys.addaudithook(deny)
     try:
-        result = probe(args.database, args.account_scope, args.research_id)
+        result = probe(args.database, args.account_scope, args.research_id, args.output_dir)
     except Exception:
         result = {"status": "FAIL", "reason": "CACHE_RESTORE_ERROR"}
     print(json.dumps(result, ensure_ascii=True))

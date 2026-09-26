@@ -860,6 +860,21 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 11
+        },
+        "reference_scope": {
+          "const": "AUTHOR_RECORDED_TRIP"
+        },
+        "route_association": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source_id", "object_quote", "object_block_id", "object_locator", "scope"],
+          "properties": {
+            "source_id": {"type": "string", "minLength": 1, "maxLength": 160},
+            "object_quote": {"type": "string", "minLength": 1, "maxLength": 120},
+            "object_block_id": {"type": "integer", "minimum": 0, "maximum": 119},
+            "object_locator": {"type": "string", "pattern": "^note-body:(?:v1:|v2:(?:STATE|DOM|UNKNOWN):)[a-f0-9]{64}:chars:[0-9]+-[0-9]+$"},
+            "scope": {"enum": ["WHOLE_TRIP", "SEGMENT"]}
+          }
         }
       }
     },
