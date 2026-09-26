@@ -132,6 +132,9 @@ def render_private_report(view: dict[str, Any], sources: list[dict[str, Any]]) -
     refs = {source["source_id"]: f"S{i}" for i, source in enumerate(sources, 1)}
     lines = ["# 国庆成都出发去川西：第一轮大致攻略", "",
              "以下方向来自本次实际读取的笔记文字，供你先比较；尚未核实国庆出行可行性，不是最终行程。"]
+    constraints = view.get("request_constraints", {})
+    if constraints.get("days") or constraints.get("no_self_drive"):
+        lines += ["", "当前天数和不自驾要求的适配性尚未建立；以下保留的是作者材料，不是新条件下的可行方案。"]
     for number, direction in enumerate(view["directions"], 1):
         lines += ["", f"## 方向 {number}：{_escape(direction['direction'])}"]
         for key, label in (("route_evidence", "路线或区域"), ("experiences", "主要体验"),

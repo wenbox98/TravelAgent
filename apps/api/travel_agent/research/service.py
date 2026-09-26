@@ -102,6 +102,7 @@ class ResearchService:
                 "STALE_REVISION" if obsolete else diagnostic, tuple(choices),
                 assessed_at=self.store.db.stamp(),
                 extraction_diagnostics=tuple(extraction_diagnostics),
+                extraction_results=tuple({"status": r["status"], **r["counts"]} for r in self.extraction_attempts if "counts" in r),
             )
             self.store.finish(run_id, revision, [g.to_dict() for g in report.gaps], report.safe_summary())
             return report
@@ -207,17 +208,22 @@ class ResearchService:
                                 policy=self.policy, batch_id=self.model_batch_id or research_id,
                                 max_attempts=self.model_max_attempts, research_gaps=tuple(g.gap_id for g in gaps))
                             safe_outcome = {k: v for k, v in outcome.items() if k != "result"}
+                            if self.after_extraction is not None and outcome["status"] in {"PENDING_REVIEW", "PARTIAL_SUCCESS", "SUCCEEDED"}:
+                                self.after_extraction(safe_outcome)
+                                safe_outcome = {k: v for k, v in ExtractionRecovery(self.store, self.extractor).outcome(outcome["attempt_id"]).items() if k != "result"}
+                            outcome.update(safe_outcome)
                             self.extraction_attempts.append(safe_outcome)
                             if outcome.get("diagnostic") is not None:
                                 extraction_diagnostics.append(outcome["diagnostic"])
-                            if outcome["status"] != "SUCCEEDED":
+                            if outcome["status"] in {"PENDING_REVIEW", "NO_ACCEPTED_EVIDENCE"}:
+                                diagnostic = "CONTEXT_REVIEW_REQUIRED" if outcome["status"] == "PENDING_REVIEW" else "NO_ACCEPTED_EVIDENCE"
+                                return finish("SOURCE_UNAVAILABLE")
+                            if outcome["status"] not in {"SUCCEEDED", "PARTIAL_SUCCESS"}:
                                 diagnostic = "LIVE_LLM_EXTRACTION_FAILED"
                                 return finish("ERROR")
                             extracted = outcome["result"]
                             if extracted is None:
                                 raise ResearchStopped("ERROR", "UNEXPECTED_CACHED_ATTEMPT")
-                            if self.after_extraction is not None:
-                                self.after_extraction(safe_outcome)
                         else:
                             extracted = self.extractor.extract(
                             source_id=material.source_id, source_title=material.title,

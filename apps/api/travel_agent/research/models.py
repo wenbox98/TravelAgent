@@ -118,6 +118,7 @@ class ResearchReport:
     selection: tuple[CandidateChoice, ...] = field(default=(), repr=False)
     assessed_at: str | None = None
     extraction_diagnostics: tuple[dict[str, Any], ...] = ()
+    extraction_results: tuple[dict[str, Any], ...] = ()
 
     def _now(self) -> datetime:
         return datetime.fromisoformat(self.assessed_at) if self.assessed_at else datetime.now(timezone.utc)
@@ -136,6 +137,9 @@ class ResearchReport:
                     freshness[key] = freshness.get(key, 0) + 1
         located = sum(has_locator(claim) for claim in claims)
         grounded = sum(is_grounded(bundle, claim) for bundle in self.evidence for claim in bundle["claims"])
+        directions = build_directions(self.evidence, now=self._now())
+        published = {s["claim_id"] for d in directions for k in
+                     ("route_evidence", "experiences", "duration_clues", "limitations") for s in d[k]}
         return {
             "revision": self.revision, "stop_reason": self.stop_reason,
             "operations": dict(self.operations), "cache_sources": self.cache_sources,
@@ -147,6 +151,10 @@ class ResearchReport:
             "extraction_modes": list(self.extraction_modes), "obsolete": self.obsolete,
             "diagnostic": self.diagnostic, "is_final_itinerary": False,
             "extraction_diagnostics": list(self.extraction_diagnostics),
+            "extraction_results": list(self.extraction_results),
+            "published_important_claims": len(published),
+            "unsupported_published_claims": sum(not is_grounded(b, c) for b in self.evidence
+                for c in b["claims"] if c["claim_id"] in published) if published else None,
             "claim_basis": "EXTRACTED_FROM_SOURCE", "gaps_basis": "DERIVED",
             "travel_time_unknown": all(bundle["travel_occurred_at"] is None
                                        for bundle in self.evidence),
@@ -179,6 +187,8 @@ class ResearchReport:
         from .quality import claim_clusters, evaluate_coverage, evidence_conflicts
         from .reporting import build_directions
         return {**self.safe_summary(), "materials": groups,
+                "request_constraints": {"days": self.request.days, "no_self_drive": self.request.no_self_drive},
+                "constraint_fit": "NOT_ESTABLISHED",
                 "directions": build_directions(self.evidence, now=self._now()),
                 "coverage": [row.to_dict() for row in evaluate_coverage(self.evidence, now=self._now())],
                 "conflicts": [asdict(row) for row in evidence_conflicts(self.evidence)],

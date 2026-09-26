@@ -3,6 +3,9 @@
 import argparse
 import json
 from pathlib import Path
+import socket
+import sys
+from urllib.parse import urlsplit
 from _bootstrap import enter
 
 enter()
@@ -11,6 +14,7 @@ from travel_agent.providers.llm import OpenAICompatibleProvider  # noqa: E402
 from travel_agent.research.extractor import EvidenceExtractor  # noqa: E402
 from travel_agent.research.retry import retry_saved  # noqa: E402
 from travel_agent.research.store import EvidenceStore  # noqa: E402
+from travel_agent.research.candidate_review import review_candidates  # noqa: E402
 
 
 def main():
@@ -18,24 +22,52 @@ def main():
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--attempt-id", required=True)
-    parser.add_argument("--fix-commit", required=True)
+    parser.add_argument("--fix-commit")
+    parser.add_argument("--review-stdin", action="store_true")
+    parser.add_argument("--account-scope")
     args = parser.parse_args()
-    if not args.live:
+    if not args.live and not args.review_stdin:
         print(json.dumps({"status": "NOT_RUN", "http_attempts": 0}))
         return 0
     try:
+        if args.live and args.review_stdin:
+            raise ValueError("REVIEW_CANNOT_DISPATCH_MODEL")
+        allowed_addresses = set()
+        resolve = socket.getaddrinfo
+        def model_dns(host, port, *pos, **kw):
+            if not args.live or host != "api.deepseek.com" or port != 443:
+                raise PermissionError("RECOVERY_NETWORK_DENIED")
+            result = resolve(host, port, *pos, **kw)
+            allowed_addresses.update(row[4][0] for row in result)
+            return result
+        socket.getaddrinfo = model_dns
+        def network_guard(event, values):
+            if event == "import" and (values[0].startswith("xhs_sidecar") or values[0].startswith("playwright")):
+                raise PermissionError("RECOVERY_BROWSER_DENIED")
+            if event == "socket.connect" and (not args.live or values[1][0] not in allowed_addresses or values[1][1] != 443):
+                raise PermissionError("RECOVERY_NETWORK_DENIED")
+            if event in {"socket.bind", "socket.sendto"}:
+                raise PermissionError("RECOVERY_NETWORK_DENIED")
+        sys.addaudithook(network_guard)
         if not args.database.is_file():
             raise ValueError("MISSING_DATABASE")
-        provider = OpenAICompatibleProvider.from_env()
-        if provider is None:
-            raise ValueError("NOT_CONFIGURED")
         with Database(args.database) as db:
-            result = retry_saved(EvidenceStore(db), EvidenceExtractor(provider),
-                                 attempt_id=args.attempt_id, fix_commit=args.fix_commit)
+            if args.review_stdin:
+                decisions = json.loads(sys.stdin.read(32768))
+                result = review_candidates(EvidenceStore(db), attempt_id=args.attempt_id,
+                    account_scope=args.account_scope, decisions={int(k): v for k, v in decisions.items()})
+            else:
+                provider = OpenAICompatibleProvider.from_env()
+                if provider is None or urlsplit(provider.base_url).hostname != "api.deepseek.com" or not args.fix_commit:
+                    raise ValueError("EXPECTED_CONFIGURED_PROVIDER_AND_FIX")
+                result = retry_saved(EvidenceStore(db), EvidenceExtractor(provider),
+                                     attempt_id=args.attempt_id, fix_commit=args.fix_commit)
+            result.update(browser_modules_absent=not any(m.startswith(("xhs_sidecar", "playwright")) for m in sys.modules),
+                          network_guard="DEEPSEEK_ONLY" if args.live else "DENY_ALL")
     except Exception:
         result = {"status": "BLOCKED", "reason": "LOCAL_RECOVERY_PRECONDITION_FAILED"}
     print(json.dumps(result, ensure_ascii=True))
-    return 0 if result["status"] == "SUCCEEDED" else 2
+    return 0 if result["status"] in {"SUCCEEDED", "PARTIAL_SUCCESS", "PENDING_REVIEW"} else 2
 
 
 if __name__ == "__main__":

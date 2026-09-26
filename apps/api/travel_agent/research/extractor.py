@@ -1,7 +1,7 @@
 """Bounded, quote-grounded evidence using the existing domain contract only."""
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from hashlib import sha256
 import re
@@ -13,6 +13,7 @@ from travel_agent.providers.llm import LLMError, LLMProvider, validate_structure
 from travel_agent.providers.diagnostics import Diagnostic
 from .canonical import BodyBlock, CanonicalBody, body_blocks, canonicalize, evidence_key
 from .model_input import outbound_blocks
+from .grounding import GroundingResult, check_grounding
 
 __all__ = ["BodyBlock", "body_blocks", "EvidenceExtractor", "ExtractionResult", "EXTRACTION_SCHEMA"]
 
@@ -66,6 +67,8 @@ class ExtractionResult:
     rejected_claims: int
     canonical: CanonicalBody | None = None
     diagnostic: Diagnostic | None = None
+    candidate_checks: tuple[dict[str, Any], ...] = ()
+    candidate_rows: tuple[dict[str, Any], ...] = field(default=(), repr=False)
 
     def safe_summary(self) -> dict[str, object]:
         return {"mode": self.mode, "provider_called": self.provider_called,
@@ -73,7 +76,8 @@ class ExtractionResult:
                 "rejected_claims": self.rejected_claims, "gaps": list(self.gaps),
                 "completeness": self.bundle["completeness"],
                 "canonical": self.canonical.safe_summary() if self.canonical else None,
-                "diagnostic": self.diagnostic.safe_dict() if self.diagnostic else None}
+                "diagnostic": self.diagnostic.safe_dict() if self.diagnostic else None,
+                "candidate_checks": list(self.candidate_checks)}
 
 
 def policy_allows_model(policy: SourcePolicy, *, external: bool, now: datetime) -> bool:
@@ -103,25 +107,9 @@ def _fallback(blocks: tuple[BodyBlock, ...]) -> list[dict[str, Any]]:
     return sorted(output, key=lambda row: row["topic"] == "OTHER")[:3]
 
 
-def _grounded(row: dict[str, Any], blocks: tuple[BodyBlock, ...]) -> tuple[int, list[str]] | None:
-    ids, quote = row["source_block_ids"], row["quote"]
-    if (row["claim"] != quote or any(i >= min(len(blocks), 120) for i in ids)
-        or _IMAGE_REFERENCE.search(quote) or _PRIVATE.search(quote)):
-        return None
-    supporting = {i for i in ids if quote in blocks[i].text}
-    if not supporting:
-        return None
-    first = min(supporting)
-    conditions = []
-    for condition in row["applicable_conditions"]:
-        index, text = condition["source_block_id"], condition["text"]
-        if (index not in ids or text != condition["quote"] or text not in blocks[index].text
-            or _PRIVATE.search(text) or _IMAGE_REFERENCE.search(text) or re.search(r"(?i)https?://", text)):
-            return None
-        supporting.add(index)
-        if text not in conditions:
-            conditions.append(text)
-    return (first, conditions) if supporting == set(ids) else None
+def _grounded(row: dict[str, Any], blocks: tuple[BodyBlock, ...],
+              sent_block_ids: set[int] | None = None) -> GroundingResult:
+    return check_grounding(row, blocks, sent_block_ids)
 
 
 def _confidence(mode: str, canonical: CanonicalBody, conditions: list[str], proposed: str) -> str:
@@ -142,6 +130,38 @@ def _travel_date(body: str) -> str | None:
     except ValueError:
         return None
     return observed.isoformat() + "T00:00:00+00:00"
+
+
+def build_claim(row: dict[str, Any], grounded: GroundingResult, canonical: CanonicalBody,
+                source_id: str, mode: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    if not grounded.passed or grounded.first_block is None:
+        raise ValueError("CANDIDATE_NOT_GROUNDED")
+    index, conditions = grounded.first_block, list(grounded.conditions)
+    blocks, completeness = canonical.blocks, canonical.completeness
+    quote = row["quote"]
+    block = blocks[index]
+    start = block.start + block.text.index(quote)
+    locator = block.locator.rsplit(":chars:", 1)[0] + f":chars:{start}-{start + len(quote)}"
+    # Within this source only; changed opinions/negations remain different.
+    key = evidence_key(quote) + "|" + "|".join(sorted(evidence_key(c) for c in conditions))
+    identity = sha256((source_id + "|" + key).encode("utf-8")).hexdigest()
+    level = _confidence(mode, canonical, conditions, row["confidence"])
+    claim = {
+        "claim_id": "claim-" + identity, "source_id": source_id, "topic": row["topic"],
+        "text": quote, "kind": "AUTHOR_OPINION", "locator": locator,
+        "support": "PARTIAL" if completeness != "FULL_TEXT" else "SUPPORTED",
+        "valid_from": None, "valid_until": None,
+        "confidence": {"LOW": 0.25, "MEDIUM": 0.6, "HIGH": 0.8}[level],
+    }
+    metadata = {
+        "source_block_ids": row["source_block_ids"], "body_origin": canonical.origin,
+        "extraction_method": mode, "confidence_level": level,
+        "extraction_basis": "逐字引文和来源条件已核对正文块；等级由定位、完整度与截断风险共同限定。",
+        "applicable_conditions": conditions, "canonical_relation": canonical.relation,
+        "truncation_risk": canonical.truncation_risk,
+        "block_locators": [blocks[i].locator for i in row["source_block_ids"]],
+    }
+    return claim, metadata
 
 
 class EvidenceExtractor:
@@ -249,40 +269,23 @@ class EvidenceExtractor:
         claims: list[dict[str, Any]] = []
         metadata: dict[str, dict[str, Any]] = {}
         seen: set[str] = set()
-        for row in rows:
-            grounded = (None if mode == "LLM" and sent_block_ids is not None
-                        and not set(row["source_block_ids"]) <= sent_block_ids
-                        else _grounded(row, blocks))
-            if grounded is None or canonical is None:
+        candidate_checks: list[dict[str, Any]] = []
+        # A sensitive candidate contaminates this response as a whole; retain no private rows.
+        sensitive_batch = any(_PRIVATE.search(t) or len(outbound_blocks(body_blocks(t))) != len(body_blocks(t)) for row in rows for t in
+            [row["claim"], row["quote"], *[c[k] for c in row["applicable_conditions"] for k in ("text", "quote")]])
+        for ordinal, row in enumerate(rows):
+            grounded = (GroundingResult(False, "SENSITIVE_CONTENT_REJECTED", tuple(row["source_block_ids"]))
+                        if sensitive_batch else _grounded(row, blocks, sent_block_ids if mode == "LLM" else None))
+            candidate_checks.append(grounded.safe_dict(ordinal))
+            if not grounded.passed or canonical is None:
                 rejected += 1
                 continue
-            index, conditions = grounded
-            quote = row["quote"]
-            block = blocks[index]
-            start = block.start + block.text.index(quote)
-            locator = block.locator.rsplit(":chars:", 1)[0] + f":chars:{start}-{start + len(quote)}"
-            # Within this source only; changed opinions/negations remain different.
-            key = evidence_key(quote) + "|" + "|".join(sorted(evidence_key(c) for c in conditions))
-            identity = sha256((source_id + "|" + key).encode("utf-8")).hexdigest()
-            if identity in seen:
+            claim, assessment = build_claim(row, grounded, canonical, source_id, mode)
+            if claim["claim_id"] in seen:
                 continue
-            seen.add(identity)
-            level = _confidence(mode, canonical, conditions, row["confidence"])
-            claims.append({
-                "claim_id": "claim-" + identity, "source_id": source_id, "topic": row["topic"],
-                "text": quote, "kind": "AUTHOR_OPINION", "locator": locator,
-                "support": "PARTIAL" if completeness != "FULL_TEXT" else "SUPPORTED",
-                "valid_from": None, "valid_until": None,
-                "confidence": {"LOW": 0.25, "MEDIUM": 0.6, "HIGH": 0.8}[level],
-            })
-            metadata["claim-" + identity] = {
-                "source_block_ids": row["source_block_ids"], "body_origin": canonical.origin,
-                "extraction_method": mode, "confidence_level": level,
-                "extraction_basis": "逐字引文和来源条件已核对正文块；等级由定位、完整度与截断风险共同限定。",
-                "applicable_conditions": conditions, "canonical_relation": canonical.relation,
-                "truncation_risk": canonical.truncation_risk,
-                "block_locators": [blocks[i].locator for i in row["source_block_ids"]],
-            }
+            seen.add(claim["claim_id"])
+            claims.append(claim)
+            metadata[claim["claim_id"]] = assessment
         if rejected:
             gaps.append("UNSUPPORTED_CLAIMS_REJECTED")
         if not claims:
@@ -305,4 +308,12 @@ class EvidenceExtractor:
             "claim_metadata": metadata,
             "is_synthetic": source_type == "SYNTHETIC",
         })
-        return ExtractionResult(bundle, blocks, tuple(gaps), mode, called, rejected, canonical, diagnostic)
+        if sensitive_batch:
+            diagnostic = diagnostic or Diagnostic()
+            diagnostic.stage, diagnostic.category = "POLICY", "POLICY_BLOCKED"
+            diagnostic.generated_claims = diagnostic.reviewed_claims = diagnostic.rejected_claims = len(rows)
+            diagnostic.accepted_claims = 0
+            mode = "POLICY_BLOCKED"
+        return ExtractionResult(bundle, blocks, tuple(gaps), mode, called, rejected, canonical, diagnostic,
+            tuple(candidate_checks), () if sensitive_batch else tuple({k: v for k, v in row.items()
+                if k != "extraction_basis"} for row in rows))

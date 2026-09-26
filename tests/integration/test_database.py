@@ -14,11 +14,11 @@ def test_migration_restart_and_upgrade(tmp_path, clock, fixture_data):
     with Database(path, clock=clock, target_version=1) as db:
         TripRepository(db).create(Trip(trip_data(fixture_data)))
     with Database(path, clock=clock) as db:
-        assert db.version == 6
+        assert db.version == 7
         assert TripRepository(db).get("trip-test")["intent"]["transport"] is None
     with Database(path, clock=clock) as db:
         assert db.connection.execute("SELECT count(*) FROM trips").fetchone()[0] == 1
-        assert db.connection.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 6
+        assert db.connection.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 7
 
 
 def test_foreign_key_and_transaction_rollback(tmp_path, clock, fixture_data):

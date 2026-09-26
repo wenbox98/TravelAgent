@@ -11,8 +11,9 @@ from travel_agent.providers.diagnostics import Diagnostic
 from .content_store import audit_grounding
 from .extractor import EvidenceExtractor, ExtractionResult
 from .store import EvidenceStore
+from .grounding import context_hazard
 
-EXTRACTION_VERSION = 1
+EXTRACTION_VERSION = 2
 
 
 class ExtractionRecovery:
@@ -44,25 +45,29 @@ class ExtractionRecovery:
                                 "ON q.research_id=r.research_id WHERE r.run_id=?", (run_id,)).fetchone()
             if owner[0] != account_scope:
                 raise PermissionError("SCOPE_MISMATCH")
+            previous_batch = con.execute("SELECT batch_id FROM extraction_attempts WHERE content_id=? LIMIT 1", (content_id,)).fetchone()
+            if previous_batch is not None and previous_batch[0] != batch_id:
+                raise ValueError("CONTENT_BATCH_IMMUTABLE")
             con.execute("INSERT OR IGNORE INTO extraction_batches VALUES(?,?,?)", (batch_id, account_scope, max_attempts))
             batch = con.execute("SELECT * FROM extraction_batches WHERE batch_id=?", (batch_id,)).fetchone()
             if batch["account_scope"] != account_scope or batch["max_attempts"] != max_attempts:
                 raise ValueError("BATCH_BUDGET_IMMUTABLE")
             prior = con.execute("SELECT * FROM extraction_attempts WHERE batch_id=? AND content_id=? "
-                                "AND extraction_version=? ORDER BY attempt_number DESC LIMIT 1",
-                                (batch_id, content_id, EXTRACTION_VERSION)).fetchone()
-            if prior is not None and prior["status"] == "SUCCEEDED":
-                return {"status": "SUCCEEDED", "cache_hit": True, "attempt_id": prior["attempt_id"],
-                        "diagnostic": json.loads(prior["diagnostic_json"]), "result": None}
+                                "ORDER BY attempt_number DESC LIMIT 1",
+                                (batch_id, content_id)).fetchone()
+            if prior is not None and prior["content_hash"] != content["content_hash"]:
+                raise ValueError("SNAPSHOT_IDENTITY_MISMATCH")
+            if prior is not None and prior["status"] in {"SUCCEEDED", "PARTIAL_SUCCESS", "PENDING_REVIEW", "NO_ACCEPTED_EVIDENCE"}:
+                return self.outcome(prior["attempt_id"], cache_hit=True)
             total = con.execute("SELECT count(*) FROM extraction_attempts WHERE batch_id=?", (batch_id,)).fetchone()[0]
             retried = con.execute("SELECT count(*) FROM extraction_attempts WHERE batch_id=? AND attempt_number=2",
                                   (batch_id,)).fetchone()[0]
             if total >= max_attempts or prior is not None and (retry_fix_commit is None or retried or prior["attempt_number"] >= 2):
                 raise ValueError("MODEL_ATTEMPT_BUDGET_OR_RETRY_DENIED")
             attempt_id = "extract-" + uuid4().hex
-            con.execute("INSERT INTO extraction_attempts VALUES(?,?,?,?,?,?,?,?,'PENDING',NULL,?,?,NULL)",
+            con.execute("INSERT INTO extraction_attempts VALUES(?,?,?,?,?,?,?,?,'PENDING',NULL,?,?,NULL,?,NULL)",
                         (attempt_id, batch_id, run_id, revision, content_id, content["normalization_version"],
-                         EXTRACTION_VERSION, 1 if prior is None else 2, retry_fix_commit, db.stamp()))
+                         EXTRACTION_VERSION, 1 if prior is None else 2, retry_fix_commit, db.stamp(), content["content_hash"]))
             con.execute("INSERT OR IGNORE INTO research_run_contents VALUES(?,?)", (run_id, content_id))
         # PENDING and the source transaction are durable before dispatch.
         with db.transaction() as con:
@@ -83,18 +88,25 @@ class ExtractionRecovery:
             diagnostic = result.diagnostic or Diagnostic(stage="POLICY", category="POLICY_BLOCKED")
             diagnostic.retry_count = 0 if prior is None else 1
             validator("LLMDiagnostic").validate(diagnostic.safe_dict())
-            audited = audit_grounding(result.bundle, (content,))
-            success = (result.mode in {"LLM", "MOCK"} and bool(result.bundle["claims"])
-                       and result.rejected_claims == 0 and audited["unsupported"] == 0)
+            valid_response = result.mode in {"LLM", "MOCK"}
+            if valid_response and audit_grounding(result.bundle, (content,))["unsupported"]:
+                raise ValueError("SNAPSHOT_GROUNDING_MISMATCH")
             with db.transaction() as con:
                 if not self.store.is_current(run_id, revision):
                     status = "OBSOLETE"
-                elif success:
-                    self.store.save_evidence(run_id, revision, result.bundle, policy, {"identity_match": True,
-                        "extraction_mode": result.mode, "evidence_count": len(result.bundle["claims"])})
-                    status = "SUCCEEDED"
-                con.execute("UPDATE extraction_attempts SET status=?,diagnostic_json=?,finished_at=? WHERE attempt_id=?",
-                            (status, json.dumps(diagnostic.safe_dict()), db.stamp(), attempt_id))
+                elif valid_response:
+                    for row, check in zip(result.candidate_rows, result.candidate_checks, strict=True):
+                        hazard = context_hazard(row, result.blocks) if check["passed"] else None
+                        rejected = not check["passed"] or hazard is not None
+                        con.execute("INSERT INTO extraction_candidates VALUES(?,?,?,?,?,?,NULL,NULL)",
+                            (attempt_id, check["candidate_index"], json.dumps(row, ensure_ascii=False),
+                             json.dumps(check), "REJECTED" if rejected else "PENDING",
+                             hazard or ("CONTEXT_REVIEW_REQUIRED" if check["passed"] else check["reason_code"])))
+                    pending = con.execute("SELECT count(*) FROM extraction_candidates WHERE attempt_id=? "
+                                          "AND context_status='PENDING'", (attempt_id,)).fetchone()[0]
+                    status = "PENDING_REVIEW" if pending else "NO_ACCEPTED_EVIDENCE"
+                con.execute("UPDATE extraction_attempts SET status=?,diagnostic_json=?,finished_at=?,extraction_mode=? "
+                            "WHERE attempt_id=?", (status, json.dumps(diagnostic.safe_dict()), db.stamp(), result.mode, attempt_id))
         except BaseException as error:
             status = "INTERRUPTED" if isinstance(error, (KeyboardInterrupt, SystemExit, CancelledError)) else "FAILED"
             with db.transaction() as con:
@@ -104,5 +116,23 @@ class ExtractionRecovery:
                 raise
             result = None
             diagnostic = Diagnostic()
-        return {"status": status, "cache_hit": False, "attempt_id": attempt_id,
-                "diagnostic": diagnostic.safe_dict(), "result": result}
+        return self.outcome(attempt_id) | {"result": result}
+
+    def outcome(self, attempt_id: str, *, cache_hit: bool = False) -> dict[str, Any]:
+        row = self.store.db.connection.execute("SELECT * FROM extraction_attempts WHERE attempt_id=?", (attempt_id,)).fetchone()
+        candidates = self.store.db.connection.execute("SELECT * FROM extraction_candidates WHERE attempt_id=? "
+                                                       "ORDER BY candidate_index", (attempt_id,)).fetchall()
+        checks = [{**json.loads(c["locator_json"]), "context_status": c["context_status"],
+                   "context_reason": c["context_reason"]} for c in candidates]
+        diagnostic = json.loads(row["diagnostic_json"]) if row["diagnostic_json"] else None
+        diagnostic_counts = diagnostic or {}
+        contaminated = bool(diagnostic and diagnostic["category"] == "POLICY_BLOCKED")
+        return {"status": row["status"], "cache_hit": cache_hit, "attempt_id": attempt_id,
+                "diagnostic": diagnostic,
+                "candidate_checks": checks, "counts": {
+                    "generated_candidates": (diagnostic_counts.get("generated_claims") or 0) if contaminated else len(candidates),
+                    "locator_passed_candidates": sum(c["passed"] for c in checks),
+                    "rejected_candidates": (diagnostic_counts.get("rejected_claims") or 0) if contaminated else sum(c["context_status"] == "REJECTED" for c in checks),
+                    "context_review_pending": sum(c["context_status"] == "PENDING" for c in checks),
+                    "persisted_evidence": len({c["claim_id"] for c in candidates if c["claim_id"]}),
+                }, "result": None}

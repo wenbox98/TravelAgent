@@ -20,7 +20,7 @@ from travel_agent.research.recovery import ExtractionRecovery
 from travel_agent.research.retry import retry_saved
 from travel_agent.research.service import ResearchService
 from travel_agent.research.store import EvidenceStore
-from test_private_source_content import FixtureProvider, material
+from test_private_source_content import FixtureProvider, material, review_fixture
 
 
 class Timeout(FixtureProvider):
@@ -111,7 +111,7 @@ def test_failed_or_late_extraction_never_saves_claims_and_retains_body(clock, fa
                 runner.execute(**kwargs)
         else:
             result = runner.execute(**kwargs)
-            assert result["status"] == ("FAILED" if fault == "grounding" else "OBSOLETE")
+            assert result["status"] == ("PENDING_REVIEW" if fault == "grounding" else "OBSOLETE")
             if fault == "grounding":
                 assert result["diagnostic"]["category"] == "UNGROUNDED"
         assert store.contents.load("xhs:synthetic-a", "owner")
@@ -134,7 +134,8 @@ def test_service_failure_boundaries_and_safe_report(clock, monkeypatch, fault):
             monkeypatch.setattr(store.contents, "put", lambda *args: (_ for _ in ()).throw(OSError("SECRET_SENTINEL")))
         if fault == "report_save":
             monkeypatch.setattr(store, "finish", lambda *args: (_ for _ in ()).throw(OSError("SECRET_SENTINEL")))
-        service = ResearchService(store, Reader(), EvidenceExtractor(provider, clock=clock), private_policy("owner", now=clock()))
+        service = ResearchService(store, Reader(), EvidenceExtractor(provider, clock=clock), private_policy("owner", now=clock()),
+            after_extraction=lambda outcome: review_fixture(store, outcome))
         def run():
             return service.run(ResearchRequest(destination="synthetic-region"), research_id="service", revision=0,
                                account_scope="owner", budget=ResearchBudget(1, 1))

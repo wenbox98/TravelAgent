@@ -26,6 +26,7 @@ _REQUEST_COUNT = {"days", "budget_cny_fen", "traveler_count"}
 _SUMMARY_COUNT = {
     "revision", "cache_sources", "query_count", "candidate_count", "source_count", "evidence_count",
     "conflict_count", "candidate_direction_count", "unsupported_claims", "grounded_claim_count",
+    "published_important_claims",
 }
 
 
@@ -76,6 +77,14 @@ def _gap(data: dict[str, Any]) -> dict[str, Any]:
 def _summary(data: dict[str, Any]) -> dict[str, Any]:
     # Explicitly omit report materials/claims/body and the separately stored gaps.
     output: dict[str, Any] = {key: _count(data[key]) for key in _SUMMARY_COUNT if key in data}
+    if "unsupported_published_claims" in data:
+        output["unsupported_published_claims"] = None if data["unsupported_published_claims"] is None else _count(data["unsupported_published_claims"])
+    if "extraction_results" in data:
+        if not isinstance(data["extraction_results"], list) or len(data["extraction_results"]) > 12:
+            raise ValueError("INVALID_EXTRACTION_RESULTS")
+        for result in data["extraction_results"]:
+            validator("GroundingCounts").validate(result)
+        output["extraction_results"] = data["extraction_results"]
     if "extraction_diagnostics" in data:
         diagnostics = data["extraction_diagnostics"]
         if not isinstance(diagnostics, list) or len(diagnostics) > 12:
@@ -339,7 +348,7 @@ class EvidenceStore:
             return saved
 
     def save_evidence(self, run_id: str, revision: int, bundle: EvidenceBundle,
-                      policy: SourcePolicy, snapshot: dict[str, Any]) -> bool:
+                      policy: SourcePolicy, snapshot: dict[str, Any], *, merge_reviewed: bool = False) -> bool:
         retained = bundle
         with self.db.transaction() as con:
             run = self._current(run_id, revision)
@@ -375,7 +384,17 @@ class EvidenceStore:
                     stored_bundle = self.repository.get(source_id, scope)
                     if stored_bundle is None or stored[0] != policy["policy_id"]:
                         raise PermissionError("已有来源不能按不同或失效策略覆盖")
-                    if not stored_bundle["claims"] and bundle["claims"]:
+                    if merge_reviewed:
+                        merged = {c["claim_id"]: c for c in stored_bundle["claims"]}
+                        assessments = dict(stored_bundle.get("claim_metadata", {}))
+                        for claim in bundle["claims"]:
+                            if claim["claim_id"] in merged and merged[claim["claim_id"]] != claim:
+                                raise ValueError("REVIEW_EVIDENCE_CONFLICT")
+                            merged[claim["claim_id"]] = claim
+                            assessments.setdefault(claim["claim_id"], bundle["claim_metadata"][claim["claim_id"]])
+                        bundle = EvidenceBundle(bundle.to_dict() | {"claims": list(merged.values()), "claim_metadata": assessments})
+                        retained = bundle
+                    if (not stored_bundle["claims"] or merge_reviewed) and bundle["claims"]:
                         # Complete a source-only record, never overwrite accepted evidence.
                         con.execute("UPDATE sources SET title=?,completeness=?,fetched_at=?,published_at=?,"
                                     "travel_occurred_at=?,destination=?,applicable_conditions_json=?,"
@@ -385,7 +404,7 @@ class EvidenceStore:
                                      encode(bundle["applicable_conditions"]), encode(bundle["missing_fields"]),
                                      encode(bundle.get("claim_metadata", {})), source_id))
                         for claim in bundle["claims"]:
-                            con.execute("INSERT INTO claims(claim_id,source_id,topic,text,kind,locator,support,"
+                            con.execute("INSERT OR IGNORE INTO claims(claim_id,source_id,topic,text,kind,locator,support,"
                                         "valid_from,valid_until,confidence) VALUES(?,?,?,?,?,?,?,?,?,?)",
                                         tuple(claim[k] for k in ("claim_id", "source_id", "topic", "text", "kind",
                                               "locator", "support", "valid_from", "valid_until", "confidence")))

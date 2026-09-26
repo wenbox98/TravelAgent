@@ -6,7 +6,8 @@ info:
     local application. Domain contracts now use NEED_LOGIN and VERIFICATION_REQUIRED;
     evidence includes source metadata, applicability and nullable confidence.
     PRIVATE_LOCAL_RESEARCH SourceContent and SourceBodyBlock are internal SQLite
-    v5 contracts; v6 adds internal extraction attempts and safe diagnostics.
+    v5 contracts; v6 adds extraction attempts and safe diagnostics; v7 adds
+    private per-candidate grounding/context review and partial-success states.
     These are not public HTTP response fields; no raw-content endpoint is added.
 servers:
 - url: http://127.0.0.1:8765

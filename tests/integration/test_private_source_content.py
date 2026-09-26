@@ -39,6 +39,16 @@ class FixtureProvider:
         ]}
 
 
+def review_fixture(store, outcome):
+    """Explicit simulated Work review of self-authored full-block fixtures only."""
+    from travel_agent.research.candidate_review import review_candidates
+    from travel_agent.research.grounding import REVIEW_DIMENSIONS
+    return review_candidates(store, attempt_id=outcome["attempt_id"], account_scope="owner", decisions={
+        c["candidate_index"]: {"action": "ACCEPT", "reason_code": "WORK_CONTEXT_VERIFIED",
+            "dimension_checks": {key: True for key in REVIEW_DIMENSIONS}, "dependency_resolution": "INDEPENDENT"}
+        for c in outcome["candidate_checks"] if c["context_status"] == "PENDING"})
+
+
 def material(clock, name="合成青岭路线", source="xhs:synthetic-a", **changes):
     body = (f"{name}：连接虚构山谷与湖泊。\n{name}：体验湖畔步行。\n"
             f"{name}：作者自驾用了五天。\n{name}：作者需要提前安排包车。\n旅行日期：2026-09-01")
@@ -197,7 +207,8 @@ def test_p04_p05_p14_independent_process_restores_source_content_and_incremental
             def detail(self, candidate, number): return next(n for n in notes if n.source_id == candidate.source_id)
             def disable_text_first(self): raise AssertionError("no fallback")
         request = ResearchRequest(destination="synthetic-region")
-        service = ResearchService(store, Reader(), EvidenceExtractor(FixtureProvider(), clock=clock), policy)
+        service = ResearchService(store, Reader(), EvidenceExtractor(FixtureProvider(), clock=clock), policy,
+                                  after_extraction=lambda outcome: review_fixture(store, outcome))
         first = service.run(request, research_id="private", revision=0, account_scope="owner", budget=ResearchBudget(1, 3))
         assert first.stop_reason == "EVIDENCE_SUFFICIENT", first.safe_summary()
         assert first.operations == {"search": 1, "detail": 2}  # Early stop before detail 3.

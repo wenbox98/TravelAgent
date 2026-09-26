@@ -59,7 +59,17 @@ def test_private_live_harness_charges_once_keeps_ledger_and_closes_without_disco
                                 "extraction_basis": "合成夹具"}]}
     monkeypatch.setattr("travel_agent.research.live.LiveResearchReader", Reader)
     monkeypatch.setattr(private_smoke.OpenAICompatibleProvider, "from_env", lambda: Provider())
-    result = private_smoke.run_live(tmp_path)
+    def review(outcome):
+        from travel_agent.persistence.database import Database
+        from travel_agent.research.store import EvidenceStore
+        from travel_agent.research.candidate_review import review_candidates
+        from travel_agent.research.grounding import REVIEW_DIMENSIONS
+        with Database(tmp_path / ".local/t06.1-private/research.sqlite3") as db:
+            review_candidates(EvidenceStore(db), attempt_id=outcome["attempt_id"], account_scope=private_smoke.SCOPE,
+                decisions={c["candidate_index"]: {"action":"ACCEPT", "reason_code":"WORK_CONTEXT_VERIFIED",
+                    "dimension_checks":{k:True for k in REVIEW_DIMENSIONS}}
+                    for c in outcome["candidate_checks"] if c["context_status"] == "PENDING"})
+    result = private_smoke.run_live(tmp_path, after_extraction=review)
     assert result["status"] == "FIRST_ROUND_RECORDED", result
     assert result["operations"] == {"search": 1, "detail": 3}
     assert len(result["source_contents"]) == 3 and all(r["unsupported"] == 0 for r in result["source_contents"])

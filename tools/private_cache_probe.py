@@ -63,12 +63,14 @@ def probe(database, account_scope, research_id):
         reader = NoAccessReader()
         service = ResearchService(store, reader, EvidenceExtractor(), policy)
         # A separate question avoids rewriting the original question's revision/history.
-        cached = service.run(request, research_id=research_id + "-cache", revision=0,
+        last = db.connection.execute("SELECT current_revision FROM research_questions WHERE research_id=?", (research_id + "-cache",)).fetchone()
+        revision = last[0] + 1 if last is not None else 0
+        cached = service.run(request, research_id=research_id + "-cache", revision=revision,
                              account_scope=account_scope, budget=ResearchBudget(0, 0))
         cached_summary = cached.safe_summary()
         restored = store.load_report(research_id + "-cache", account_scope)
         incremental = service.run(replace(request, days=5, no_self_drive=True),
-                                  research_id=research_id + "-cache", revision=1,
+                                  research_id=research_id + "-cache", revision=revision + 1,
                                   account_scope=account_scope, budget=ResearchBudget(0, 0))
         after_contents = {source: store.contents.load(source, account_scope) for source in sorted(source_ids)}
         after = {source: [c["content_hash"] for c in rows] for source, rows in after_contents.items()}

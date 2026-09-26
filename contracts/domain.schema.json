@@ -843,6 +843,23 @@
             "type": "string",
             "pattern": "^note-body:(?:v1:|v2:(?:STATE|DOM|UNKNOWN):)[a-f0-9]{64}:chars:[0-9]+-[0-9]+$"
           }
+        },
+        "context_review_status": {
+          "enum": [
+            "PENDING",
+            "WORK_REVIEWED"
+          ]
+        },
+        "grounding_rule_version": {
+          "const": 2
+        },
+        "audit_attempt_id": {
+          "type": "string"
+        },
+        "audit_candidate_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 11
         }
       }
     },
@@ -2874,7 +2891,9 @@
         "diagnostic",
         "retry_fix_commit",
         "created_at",
-        "finished_at"
+        "finished_at",
+        "content_hash",
+        "extraction_mode"
       ],
       "properties": {
         "attempt_id": {
@@ -2909,7 +2928,10 @@
           "enum": [
             "PENDING",
             "RUNNING",
+            "PENDING_REVIEW",
+            "PARTIAL_SUCCESS",
             "SUCCEEDED",
+            "NO_ACCEPTED_EVIDENCE",
             "FAILED",
             "INTERRUPTED",
             "OBSOLETE"
@@ -2942,6 +2964,149 @@
             "null"
           ],
           "format": "date-time"
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "extraction_mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "GroundingCandidateCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_index",
+        "passed",
+        "reason_code",
+        "block_ids",
+        "rule_version"
+      ],
+      "properties": {
+        "candidate_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 11
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "reason_code": {
+          "enum": [
+            "BLOCK_ID_OUT_OF_RANGE",
+            "CLAIM_QUOTE_MISMATCH",
+            "CONDITION_NOT_IN_CITED_BLOCK",
+            "CONDITION_QUOTE_MISMATCH",
+            "DUPLICATE_BLOCK_REFERENCE",
+            "IMAGE_INFORMATION_REQUIRED",
+            "LOCATOR_PASS",
+            "QUOTE_NOT_IN_CITED_BLOCK",
+            "SENSITIVE_CONTENT_REJECTED",
+            "UNSENT_BLOCK_REFERENCED",
+            "UNSUPPORTED_EXTRA_BLOCK_REFERENCE"
+          ]
+        },
+        "block_ids": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "rule_version": {
+          "const": 2
+        },
+        "context_status": {
+          "enum": [
+            "PENDING",
+            "REJECTED",
+            "ACCEPTED"
+          ]
+        },
+        "context_reason": {
+          "enum": [
+            "BLOCK_ID_OUT_OF_RANGE",
+            "CLAIM_QUOTE_MISMATCH",
+            "CONDITION_NOT_IN_CITED_BLOCK",
+            "CONDITION_QUOTE_MISMATCH",
+            "CONTEXT_CONDITION_OMITTED",
+            "CONTEXT_NEGATION_OMITTED",
+            "CONTEXT_REVIEW_REQUIRED",
+            "CONTEXT_SUBJECT_OMITTED",
+            "CONTEXT_TIME_UNCERTAIN",
+            "CONTEXT_TRANSPORT_MISMATCH",
+            "CONTEXT_UNCERTAIN",
+            "DEPENDENCY_INDEPENDENT",
+            "DEPENDENCY_UNRESOLVED",
+            "DUPLICATE_BLOCK_REFERENCE",
+            "IMAGE_INFORMATION_REQUIRED",
+            "LOCATOR_PASS",
+            "NOT_TRAVEL_EVIDENCE",
+            "QUOTE_NOT_IN_CITED_BLOCK",
+            "SENSITIVE_CONTENT_REJECTED",
+            "UNSENT_BLOCK_REFERENCED",
+            "UNSUPPORTED_EXTRA_BLOCK_REFERENCE",
+            "UNVERIFIED_IMPORTANT_FACT",
+            "WORK_CONTEXT_VERIFIED"
+          ]
+        }
+      }
+    },
+    "GroundingCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "generated_candidates",
+        "locator_passed_candidates",
+        "rejected_candidates",
+        "context_review_pending",
+        "persisted_evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "PENDING",
+            "RUNNING",
+            "PENDING_REVIEW",
+            "PARTIAL_SUCCESS",
+            "SUCCEEDED",
+            "NO_ACCEPTED_EVIDENCE",
+            "FAILED",
+            "INTERRUPTED",
+            "OBSOLETE"
+          ]
+        },
+        "generated_candidates": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "locator_passed_candidates": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "rejected_candidates": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "context_review_pending": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "persisted_evidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
         }
       }
     }

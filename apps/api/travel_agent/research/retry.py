@@ -37,9 +37,11 @@ def retry_saved(store: EvidenceStore, extractor: EvidenceExtractor, *, attempt_i
     evidence = store.lookup(row["research_id"], request.destination, row["account_scope"])
     gaps = SufficiencyEvaluator(clock=store.db.clock).gaps(request, evidence)
     report = ResearchReport(row["research_id"], row["revision"], run, request, evidence, gaps,
-        "ERROR" if outcome["status"] != "SUCCEEDED" else "BUDGET_EXHAUSTED" if gaps else "EVIDENCE_SUFFICIENT",
+        "SOURCE_UNAVAILABLE" if outcome["status"] in {"PENDING_REVIEW", "NO_ACCEPTED_EVIDENCE"} else
+        "ERROR" if outcome["status"] not in {"SUCCEEDED", "PARTIAL_SUCCESS"} else "BUDGET_EXHAUSTED" if gaps else "EVIDENCE_SUFFICIENT",
         {"search": 0, "detail": 0}, len(evidence), assessed_at=store.db.stamp(),
-        extraction_diagnostics=(outcome["diagnostic"],) if outcome.get("diagnostic") else ())
+        extraction_diagnostics=(outcome["diagnostic"],) if outcome.get("diagnostic") else (),
+        extraction_results=({"status": outcome["status"], **outcome["counts"]},))
     store.finish(run, row["revision"], [g.to_dict() for g in gaps], report.safe_summary())
     return {k: v for k, v in outcome.items() if k != "result"} | {
         "summary": report.safe_summary(), "xhs_calls": {"connect": 0, "search": 0, "detail": 0},

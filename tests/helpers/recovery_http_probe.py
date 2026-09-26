@@ -63,6 +63,13 @@ try:
         provider = OpenAICompatibleProvider(f"http://127.0.0.1:{server.server_port}", "synthetic-model",
                                             SecretStr("synthetic-key"), response_format="json_object")
         result = retry_saved(store, EvidenceExtractor(provider), attempt_id=sys.argv[2], fix_commit="a" * 40)
+        from travel_agent.research.candidate_review import review_candidates
+        from travel_agent.research.grounding import REVIEW_DIMENSIONS
+        reviewed = review_candidates(store, attempt_id=result["attempt_id"], account_scope="owner", decisions={
+            c["candidate_index"]: {"action": "ACCEPT", "reason_code": "WORK_CONTEXT_VERIFIED",
+                "dimension_checks": {k: True for k in REVIEW_DIMENSIONS}}
+            for c in result["candidate_checks"] if c["context_status"] == "PENDING"})
+        result.update({k:v for k,v in reviewed.items() if k != "result"})
         after = json.dumps(store.contents.load("xhs:synthetic-a", "owner"), sort_keys=True, ensure_ascii=False)
         result.update(content_unchanged=before == after, digest=sha256(after.encode()).hexdigest(),
                       versions=len(contents), blocks=len(contents[0]["body_blocks"]),
