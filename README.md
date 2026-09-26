@@ -9,6 +9,17 @@
 
 ## 当前定位：私人本地研究
 
+P02 增加普通 v3 入口、独立模型上下文审核和页面主动触发的有限研究。新材料与选择保存在同一个私人工作副本，必须显式采用；刷新、查询状态和改条件仍不触发外部请求。模型审核只检查原文支持关系，未核实当前可行性。历史 Work 审核不会改名为模型审核，G1 仍 NOT PASS。真实分项结果、预算与限制见 [P02 验收报告](reports/P02-live-research-workbench.md)，契约见 [P02 设计](docs/architecture/p02-live-workbench.md)。
+
+本机已建立的 P02 工作区可用以下命令恢复（端口占用时直接使用正在运行的页面，不要重复启动）：
+
+```powershell
+Set-Location E:\workSpace\travel-agent-project\travel-agent
+.venv\Scripts\python.exe -X utf8 scripts\live_workbench.py serve --source-database .local\p01-preview\preview.sqlite3 --workspace .local\p02-preview --account-scope current-private-profile --continuation p02-live-workbench --port 8766 --open
+```
+
+本机地址 `http://127.0.0.1:8766/`；`--open` 自动打开短时本机入口，不需要复制 Cookie 或数据库 ID。启动不会重新覆盖已存在的副本、自动创建许可或调用模型。受控验证完成后关闭本轮许可，未用次数保留为历史记录，不因重启恢复。没有既定模型配置也可浏览缓存，真实研究不可执行。原 P01 8765 服务和数据库独立保留。
+
 P01 已接通已审核缓存到 Vue 页面、条件选择、改选预览/取消/确认及重启恢复。它是缓存驱动开发预览，G1 仍 NOT PASS，不能据兴趣确认判断行程可行。见 [P01 使用与验收](reports/P01-cached-overview-preview.md)、[接口与备份](docs/architecture/p01-cached-preview.md)。不自动研究、不调用小红书或模型。
 
 已安装锁定依赖的开发环境中，在 `apps/web` 执行 `pnpm build` 后回仓库根目录启动（路径和 scope 使用自己的已配置缓存）：

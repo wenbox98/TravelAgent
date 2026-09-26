@@ -15,11 +15,11 @@ def test_dns_rebinding_and_cross_origin_blocked():
         assert "access-control-allow-origin" not in client.get("/health").headers
 
 
-def test_built_mock_page_and_assets():
+def test_built_local_page_and_assets():
     from travel_agent.settings import PROJECT_ROOT
     with TestClient(create_app(), base_url="http://127.0.0.1:8765") as client:
         response = client.get("/")
         assert response.status_code == 200
-        assert "合成演示" in response.text
+        assert "TravelAgent · 本机研究" in response.text
         for asset in (PROJECT_ROOT / "apps/web/dist/assets").iterdir():
             assert client.get("/assets/" + asset.name).status_code == 200
