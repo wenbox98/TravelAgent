@@ -1,0 +1,103 @@
+"""Loopback ticket/cookie/CSRF boundary for the local cache preview."""
+from dataclasses import dataclass, field
+import hmac
+from pathlib import Path
+import secrets
+import sqlite3
+import time
+from typing import Any
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import ValidationError
+
+from travel_agent.persistence.database import Database
+from .models import Mode, PreviewCreate, PreviewMutation, PreviewView, PreviewIndex
+from .service import PreviewService
+
+
+@dataclass(frozen=True)
+class PreviewConfig:
+    database: Path
+    account_scope: str
+    mode: Mode
+    auth_key: bytes = field(repr=False)
+    ticket: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
+
+
+def error(code: str, status: int) -> JSONResponse:
+    messages = {"AUTH_REQUIRED": "请使用本次启动窗口中的本机入口打开页面。", "CSRF_DENIED": "本机会话校验失败，请刷新页面。",
+                "STALE_REVISION": "选择已更新，请刷新后查看最新状态。", "RESEARCH_CHANGED": "缓存依据已变化，请重新选择已有研究；原选择记录保留。",
+                "INVALID_INPUT": "输入格式不正确，请检查选择。", "CACHE_UNAVAILABLE": "本地资料暂不可用；没有发起外部研究。"}
+    return JSONResponse({"error": {"code": code, "message": messages.get(code, "本次操作未提交，请检查当前选择或重新打开研究。"),
+                        "request_id": secrets.token_hex(8), "retryable": False, "details": {}}}, status_code=status)
+
+
+def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
+    origin = f"http://127.0.0.1:{port}"
+    cookie = hmac.digest(config.auth_key, b"preview-session", "sha256").hex()
+    csrf = hmac.digest(config.auth_key, b"preview-csrf", "sha256").hex()
+    expires, used = time.monotonic() + 300, False
+
+    @app.middleware("http")
+    async def authentication(request: Request, call_next: Any) -> Any:
+        if request.url.path.startswith("/api/v1/preview"):
+            if not secrets.compare_digest(request.cookies.get("ta_preview", ""), cookie):
+                return error("AUTH_REQUIRED", 401)
+            if request.method not in {"GET", "HEAD"}:
+                if (request.headers.get("origin") != origin or
+                    not secrets.compare_digest(request.headers.get("x-csrf-token", ""), csrf)):
+                    return error("CSRF_DENIED", 403)
+            if request.query_params:
+                return error("INVALID_INPUT", 422)
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.get("/bootstrap")
+    async def bootstrap(request: Request) -> Any:
+        nonlocal used
+        if (request.headers.get("host") != f"127.0.0.1:{port}" or used or time.monotonic() > expires
+            or not secrets.compare_digest(request.query_params.get("ticket", ""), config.ticket)):
+            return error("AUTH_REQUIRED", 401)
+        used = True
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie("ta_preview", cookie, httponly=True, samesite="strict", secure=False, path="/")
+        return response
+
+    @app.exception_handler(RequestValidationError)
+    @app.exception_handler(ValidationError)
+    async def invalid(request: Request, exc: Exception) -> JSONResponse:
+        return error("INVALID_INPUT", 422)
+
+    @app.exception_handler(ValueError)
+    async def rejected(request: Request, exc: ValueError) -> JSONResponse:
+        codes = {"STALE_REVISION", "RESEARCH_CHANGED", "OPTION_UNAVAILABLE", "PREVIEW_REQUIRED", "IDEMPOTENCY_CONFLICT",
+                 "RESEARCH_UNAVAILABLE", "SESSION_UNAVAILABLE", "INVALID_IDEMPOTENCY_KEY", "PREFERENCES_REQUIRED"}
+        return error(str(exc), 409) if str(exc) in codes else error("CACHE_UNAVAILABLE", 503)
+
+    @app.exception_handler(sqlite3.Error)
+    async def database_error(request: Request, exc: Exception) -> JSONResponse:
+        return error("CACHE_UNAVAILABLE", 503)
+
+    @app.get("/api/v1/preview", response_model=PreviewIndex)
+    def index() -> dict[str, Any]:
+        with Database(config.database) as db, db.transaction():
+            service = PreviewService(db, config.account_scope, config.mode)
+            return {"mode": config.mode, "csrf_token": csrf, "researches": service.researches(), "session": service.latest()}
+
+    @app.post("/api/v1/preview/sessions", response_model=PreviewView)
+    def create(body: PreviewCreate, request: Request) -> dict[str, Any]:
+        with Database(config.database) as db, db.transaction():
+            return PreviewService(db, config.account_scope, config.mode).open(body.research_id, body.text, request.headers.get("idempotency-key", ""))
+
+    @app.get("/api/v1/preview/sessions/{session_id}", response_model=PreviewView)
+    def read(session_id: str) -> dict[str, Any]:
+        with Database(config.database) as db, db.transaction():
+            return PreviewService(db, config.account_scope, config.mode).get(session_id)
+
+    @app.post("/api/v1/preview/sessions/{session_id}", response_model=PreviewView)
+    def mutate(session_id: str, body: PreviewMutation, request: Request) -> dict[str, Any]:
+        with Database(config.database) as db, db.transaction():
+            return PreviewService(db, config.account_scope, config.mode).mutate(session_id, body.model_dump(exclude_unset=True), request.headers.get("idempotency-key", ""))

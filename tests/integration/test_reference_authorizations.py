@@ -45,7 +45,7 @@ def test_v9_history_grants_120_180_cross_process_single_use(tmp_path,clock,monke
     path=tmp_path/'grant.sqlite3'
     provider,bases,before=prepare_grants(path,clock)
     with Database(path,clock=clock) as db:
-        assert db.version==10
+        assert db.version==Database.LATEST_VERSION
         for t,expected in before.items():
             assert [tuple(r) for r in db.connection.execute('SELECT * FROM '+t)]==expected
         store=EvidenceStore(db)

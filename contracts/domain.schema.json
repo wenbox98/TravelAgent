@@ -862,20 +862,58 @@
           "maximum": 11
         },
         "reference_scope": {
-          "enum": ["AUTHOR_RECORDED_TRIP", "AUTHOR_PROPOSED_PLAN", "GUIDE_SUGGESTION", "UNKNOWN"]
+          "enum": [
+            "AUTHOR_RECORDED_TRIP",
+            "AUTHOR_PROPOSED_PLAN",
+            "GUIDE_SUGGESTION",
+            "UNKNOWN"
+          ]
         },
-        "duration_scope": {"enum": ["WHOLE_TRIP", "DAY_SEGMENT"]},
-        "reference_selection": {"$ref": "#/$defs/ReferenceSelection"},
+        "duration_scope": {
+          "enum": [
+            "WHOLE_TRIP",
+            "DAY_SEGMENT"
+          ]
+        },
+        "reference_selection": {
+          "$ref": "#/$defs/ReferenceSelection"
+        },
         "route_association": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["source_id", "object_quote", "object_block_id", "object_locator", "scope"],
+          "required": [
+            "source_id",
+            "object_quote",
+            "object_block_id",
+            "object_locator",
+            "scope"
+          ],
           "properties": {
-            "source_id": {"type": "string", "minLength": 1, "maxLength": 160},
-            "object_quote": {"type": "string", "minLength": 1, "maxLength": 120},
-            "object_block_id": {"type": "integer", "minimum": 0, "maximum": 119},
-            "object_locator": {"type": "string", "pattern": "^note-body:(?:v1:|v2:(?:STATE|DOM|UNKNOWN):)[a-f0-9]{64}:chars:[0-9]+-[0-9]+$"},
-            "scope": {"enum": ["WHOLE_TRIP", "SEGMENT"]}
+            "source_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "object_quote": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "object_block_id": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 119
+            },
+            "object_locator": {
+              "type": "string",
+              "pattern": "^note-body:(?:v1:|v2:(?:STATE|DOM|UNKNOWN):)[a-f0-9]{64}:chars:[0-9]+-[0-9]+$"
+            },
+            "scope": {
+              "enum": [
+                "WHOLE_TRIP",
+                "SEGMENT"
+              ]
+            }
           }
         }
       }
@@ -3358,13 +3396,925 @@
         "max_http_attempts": {
           "const": 1
         },
-        "extraction_version": {"const": 3},
-        "prompt_version": {"const": "reference-selection-v1"},
-        "reference_version": {"const": 1},
+        "extraction_version": {
+          "const": 3
+        },
+        "prompt_version": {
+          "const": "reference-selection-v1"
+        },
+        "reference_version": {
+          "const": 1
+        },
         "purpose": {
           "const": "PRIVATE_TRAVEL_RESEARCH"
         }
       }
+    },
+    "PreviewCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "research_id": {
+          "anyOf": [
+            {
+              "maxLength": 180,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Id"
+        },
+        "text": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "title": "PreviewCreate",
+      "type": "object"
+    },
+    "PreviewPreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Days"
+        },
+        "driving": {
+          "default": "UNKNOWN",
+          "enum": [
+            "YES",
+            "NO",
+            "UNKNOWN"
+          ],
+          "title": "Driving",
+          "type": "string"
+        }
+      },
+      "title": "PreviewPreferences",
+      "type": "object"
+    },
+    "PreviewMutation": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "preferences",
+            "preview",
+            "cancel",
+            "confirm"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 0,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "option_id": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Option Id"
+        },
+        "preferences": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreviewPreferences"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        }
+      },
+      "required": [
+        "action",
+        "expected_revision"
+      ],
+      "title": "PreviewMutation",
+      "type": "object"
+    },
+    "PreviewCalls": {
+      "additionalProperties": false,
+      "properties": {
+        "connect": {
+          "const": 0,
+          "title": "Connect",
+          "type": "integer"
+        },
+        "search": {
+          "const": 0,
+          "title": "Search",
+          "type": "integer"
+        },
+        "detail": {
+          "const": 0,
+          "title": "Detail",
+          "type": "integer"
+        },
+        "xhs_browser": {
+          "const": 0,
+          "title": "Xhs Browser",
+          "type": "integer"
+        },
+        "model": {
+          "const": 0,
+          "title": "Model",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "connect",
+        "search",
+        "detail",
+        "xhs_browser",
+        "model"
+      ],
+      "title": "PreviewCalls",
+      "type": "object"
+    },
+    "PreviewDifference": {
+      "additionalProperties": false,
+      "properties": {
+        "option_id": {
+          "title": "Option Id",
+          "type": "string"
+        },
+        "added": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added",
+          "type": "array"
+        },
+        "removed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed",
+          "type": "array"
+        },
+        "retained": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Retained",
+          "type": "array"
+        },
+        "gaps_added": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gaps Added",
+          "type": "array"
+        },
+        "gaps_removed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gaps Removed",
+          "type": "array"
+        },
+        "gaps_retained": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gaps Retained",
+          "type": "array"
+        }
+      },
+      "required": [
+        "option_id",
+        "added",
+        "removed",
+        "retained",
+        "gaps_added",
+        "gaps_removed",
+        "gaps_retained"
+      ],
+      "title": "PreviewDifference",
+      "type": "object"
+    },
+    "PreviewEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_title": {
+          "title": "Source Title",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "topic": {
+          "title": "Topic",
+          "type": "string"
+        },
+        "locator": {
+          "title": "Locator",
+          "type": "string"
+        },
+        "reference_kind": {
+          "title": "Reference Kind",
+          "type": "string"
+        },
+        "duration_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Duration Scope"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "block_locators": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Block Locators",
+          "type": "array"
+        },
+        "span_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Span Ids",
+          "type": "array"
+        },
+        "completeness": {
+          "title": "Completeness",
+          "type": "string"
+        },
+        "review_status": {
+          "const": "WORK_REVIEWED",
+          "title": "Review Status",
+          "type": "string"
+        },
+        "travel_time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Travel Time"
+        },
+        "retrieved_at": {
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "source_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Url"
+        }
+      },
+      "required": [
+        "claim_id",
+        "source_id",
+        "source_title",
+        "text",
+        "topic",
+        "locator",
+        "reference_kind",
+        "duration_scope",
+        "conditions",
+        "block_locators",
+        "span_ids",
+        "completeness",
+        "review_status",
+        "travel_time",
+        "retrieved_at",
+        "source_url"
+      ],
+      "title": "PreviewEvidence",
+      "type": "object"
+    },
+    "PreviewOption": {
+      "additionalProperties": false,
+      "properties": {
+        "option_id": {
+          "title": "Option Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "label_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Label Evidence Ids",
+          "type": "array"
+        },
+        "reference_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reference Kinds",
+          "type": "array"
+        },
+        "source_count": {
+          "title": "Source Count",
+          "type": "integer"
+        },
+        "independent_source_count": {
+          "title": "Independent Source Count",
+          "type": "null"
+        },
+        "opinion_count": {
+          "title": "Opinion Count",
+          "type": "integer"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/PreviewEvidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "route_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Route Evidence Ids",
+          "type": "array"
+        },
+        "experience_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Experience Evidence Ids",
+          "type": "array"
+        },
+        "source_transport_conditions": {
+          "items": {
+            "$ref": "#/$defs/PreviewCondition"
+          },
+          "title": "Source Transport Conditions",
+          "type": "array"
+        },
+        "source_time_conditions": {
+          "items": {
+            "$ref": "#/$defs/PreviewCondition"
+          },
+          "title": "Source Time Conditions",
+          "type": "array"
+        },
+        "source_schedule": {
+          "$ref": "#/$defs/PreviewSchedule"
+        },
+        "verified_duration_days": {
+          "title": "Verified Duration Days",
+          "type": "null"
+        },
+        "cost_cny_fen": {
+          "title": "Cost Cny Fen",
+          "type": "null"
+        },
+        "feasibility": {
+          "const": "UNVERIFIED",
+          "title": "Feasibility",
+          "type": "string"
+        },
+        "unknown": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unknown",
+          "type": "array"
+        }
+      },
+      "required": [
+        "option_id",
+        "label",
+        "label_evidence_ids",
+        "reference_kinds",
+        "source_count",
+        "independent_source_count",
+        "opinion_count",
+        "evidence",
+        "route_evidence_ids",
+        "experience_evidence_ids",
+        "source_transport_conditions",
+        "source_time_conditions",
+        "source_schedule",
+        "verified_duration_days",
+        "cost_cny_fen",
+        "feasibility",
+        "unknown"
+      ],
+      "title": "PreviewOption",
+      "type": "object"
+    },
+    "PreviewQuestion": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "advice": {
+          "title": "Advice",
+          "type": "string"
+        },
+        "choices": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Choices",
+          "type": "array"
+        }
+      },
+      "required": [
+        "field",
+        "title",
+        "advice",
+        "choices"
+      ],
+      "title": "PreviewQuestion",
+      "type": "object"
+    },
+    "PreviewSavedPreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Days"
+        },
+        "driving": {
+          "enum": [
+            "YES",
+            "NO",
+            "UNKNOWN"
+          ],
+          "title": "Driving",
+          "type": "string"
+        },
+        "budget_cny_fen": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Budget Cny Fen"
+        },
+        "traveler_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Traveler Count"
+        },
+        "time_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Time Hint"
+        },
+        "travel_date": {
+          "title": "Travel Date",
+          "type": "null"
+        },
+        "charter": {
+          "const": "UNKNOWN",
+          "title": "Charter",
+          "type": "string"
+        },
+        "answered": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Answered",
+          "type": "array"
+        }
+      },
+      "required": [
+        "days",
+        "driving",
+        "budget_cny_fen",
+        "traveler_count",
+        "time_hint",
+        "travel_date",
+        "charter",
+        "answered"
+      ],
+      "title": "PreviewSavedPreferences",
+      "type": "object"
+    },
+    "PreviewSchedule": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/PreviewScheduleEntry"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "day_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Day Count"
+        },
+        "basis": {
+          "enum": [
+            "DERIVED_FROM_SOURCE_SCHEDULE",
+            "INCOMPLETE_OR_AMBIGUOUS"
+          ],
+          "title": "Basis",
+          "type": "string"
+        },
+        "meaning": {
+          "title": "Meaning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entries",
+        "day_count",
+        "basis",
+        "meaning"
+      ],
+      "title": "PreviewSchedule",
+      "type": "object"
+    },
+    "PreviewScheduleEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "day": {
+          "title": "Day",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "day",
+        "text",
+        "evidence_ids"
+      ],
+      "title": "PreviewScheduleEntry",
+      "type": "object"
+    },
+    "PreviewView": {
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "research_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Research Id"
+        },
+        "research_revision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Research Revision"
+        },
+        "mode": {
+          "enum": [
+            "CACHED_PRIVATE_PREVIEW",
+            "SYNTHETIC_DEMO"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "input_text": {
+          "title": "Input Text",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/PreviewOption"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "other_clues": {
+          "items": {
+            "$ref": "#/$defs/PreviewEvidence"
+          },
+          "title": "Other Clues",
+          "type": "array"
+        },
+        "evidence_count": {
+          "title": "Evidence Count",
+          "type": "integer"
+        },
+        "source_count": {
+          "title": "Source Count",
+          "type": "integer"
+        },
+        "preferences": {
+          "$ref": "#/$defs/PreviewSavedPreferences"
+        },
+        "confirmed_option_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confirmed Option Id"
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreviewDifference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "gaps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gaps",
+          "type": "array"
+        },
+        "questions": {
+          "items": {
+            "$ref": "#/$defs/PreviewQuestion"
+          },
+          "maxItems": 2,
+          "title": "Questions",
+          "type": "array"
+        },
+        "clarification": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Clarification"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "cache_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cache Message"
+        },
+        "feasibility": {
+          "const": "UNVERIFIED",
+          "title": "Feasibility",
+          "type": "string"
+        },
+        "business_calls": {
+          "$ref": "#/$defs/PreviewCalls"
+        }
+      },
+      "required": [
+        "session_id",
+        "revision",
+        "research_id",
+        "research_revision",
+        "mode",
+        "input_text",
+        "options",
+        "other_clues",
+        "evidence_count",
+        "source_count",
+        "preferences",
+        "confirmed_option_id",
+        "preview",
+        "gaps",
+        "questions",
+        "clarification",
+        "stale",
+        "cache_message",
+        "feasibility",
+        "business_calls"
+      ],
+      "title": "PreviewView",
+      "type": "object"
+    },
+    "PreviewResearch": {
+      "additionalProperties": false,
+      "properties": {
+        "research_id": {
+          "title": "Research Id",
+          "type": "string"
+        },
+        "research_revision": {
+          "title": "Research Revision",
+          "type": "integer"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "evidence_count": {
+          "title": "Evidence Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "research_id",
+        "research_revision",
+        "label",
+        "evidence_count"
+      ],
+      "title": "PreviewResearch",
+      "type": "object"
+    },
+    "PreviewIndex": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "CACHED_PRIVATE_PREVIEW",
+            "SYNTHETIC_DEMO"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "csrf_token": {
+          "title": "Csrf Token",
+          "type": "string"
+        },
+        "researches": {
+          "items": {
+            "$ref": "#/$defs/PreviewResearch"
+          },
+          "title": "Researches",
+          "type": "array"
+        },
+        "session": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreviewView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "mode",
+        "csrf_token",
+        "researches",
+        "session"
+      ],
+      "title": "PreviewIndex",
+      "type": "object"
+    },
+    "PreviewCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "text",
+        "evidence_ids"
+      ],
+      "title": "PreviewCondition",
+      "type": "object"
     }
   }
 }

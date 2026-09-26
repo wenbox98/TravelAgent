@@ -3,11 +3,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .settings import PROJECT_ROOT, Settings
+from .preview.api import PreviewConfig, install
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, preview: PreviewConfig | None = None) -> FastAPI:
     settings = settings or Settings.load()
-    app = FastAPI(title="TravelAgent 合成演示", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="TravelAgent 本机预览", docs_url=None, redoc_url=None, openapi_url=None)
+    if preview is not None:
+        install(app, preview, settings.preferred_port)
 
     @app.middleware("http")
     async def local_boundary(request: Request, call_next):

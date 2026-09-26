@@ -70,7 +70,7 @@ def test_v7_candidate_and_accepted_evidence_survive_v8_migration(tmp_path, clock
         before_candidate = db.connection.execute("SELECT * FROM extraction_candidates").fetchone()[:]
         before_evidence = store.lookup("partial", "合成青谷", "owner")[0].to_dict()
     with Database(path, clock=clock) as db:
-        assert db.version == 10 and not db.connection.execute("PRAGMA foreign_key_check").fetchall()
+        assert db.version == Database.LATEST_VERSION and not db.connection.execute("PRAGMA foreign_key_check").fetchall()
         assert db.connection.execute("SELECT * FROM extraction_candidates").fetchone()[:] == before_candidate
         assert EvidenceStore(db).lookup("partial", "合成青谷", "owner")[0].to_dict() == before_evidence
         assert db.connection.execute("SELECT status,authorization_id FROM extraction_attempts").fetchone()[:] == ("SUCCEEDED", None)

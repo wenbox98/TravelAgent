@@ -1,5 +1,9 @@
 # 07｜API、事件、错误和数据契约
 
+## P01 已实现子集
+
+`/api/v1/preview` 与其会话 GET/POST 已接通本机已审核缓存和用户选择，使用独立 Preview DTO、单次 bootstrap、本地 cookie、CSRF、幂等及 revision。SQLite v11 仅新增预览状态与回执。其他原业务 API 仍为设计契约。备份及恢复见 [P01 契约](architecture/p01-cached-preview.md)，历史 G1 结论不变。
+
 ## T02/T03内部sidecar契约
 
 [xhs-sidecar.openapi.json](../contracts/xhs-sidecar.openapi.json)是独立内部API v0.3.0，由严格Pydantic模型导出并与运行路由离线比对。它不是下面业务OpenAPI/FetchResult的替代物，不改Evidence或SQLite语义。默认offline保留T02合成读取；显式login模式仅实现普通浏览器登录，搜索、详情和旧POST browser/session返回409 LOGIN_ONLY。无完整upstream二进制兼容声明。

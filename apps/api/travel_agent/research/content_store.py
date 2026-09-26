@@ -129,16 +129,19 @@ class SourceContentStore:
             con.executemany("DELETE FROM source_contents WHERE content_id=?", [(key,) for key in expired])
         return len(expired)
 
-    def load(self, source_id: str, account_scope: str) -> tuple[dict[str, Any], ...]:
+    def load(self, source_id: str, account_scope: str, *, purge: bool = True) -> tuple[dict[str, Any], ...]:
         if self.db.version < 5:
             return ()
-        self.purge_expired(account_scope)
+        if purge:
+            self.purge_expired(account_scope)
         result = []
         for row in self.db.connection.execute(
             "SELECT c.* FROM source_contents c JOIN sources s ON s.source_id=c.source_id "
             "WHERE c.source_id=? AND c.account_scope=? AND s.account_scope=? "
             "AND s.deleted_at IS NULL ORDER BY c.rowid", (source_id, account_scope, account_scope),
         ):
+            if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) <= self.db.clock():
+                continue
             policies = self.db.connection.execute(
                 "SELECT policy_json FROM source_policies WHERE policy_id=? AND (version=? OR version="
                 "(SELECT max(version) FROM source_policies WHERE policy_id=?))",
