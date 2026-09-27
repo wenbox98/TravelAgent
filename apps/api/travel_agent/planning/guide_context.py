@@ -31,6 +31,13 @@ def walking(draft: PlanDraft, request: str = "") -> dict[str, Any]:
 def from_request(draft: PlanDraft, request: str) -> None:
     """Only explicit clauses establish consent; softer walking wishes stay unknown."""
     draft.walking_allowed = None
+    digits = {"一": 1, "两": 2, "二": 2, "三": 3, "四": 4, "五": 5, "零": 0}
+    for key, unit in (("people", "(?:个)?人"), ("rooms", "间房"), ("nights", "晚")):
+        match = re.search(r"(\d{1,2}|一|两|二|三|四|五|零)" + unit, request)
+        if match:
+            value = int(match[1]) if match[1].isdigit() else digits[match[1]]
+            if value > 0 or key == "nights":
+                setattr(draft.trip_budget, key, value)
     clauses = [s.strip() for s in re.split(r"[，。；;,\n]", request)]
     refused = walking(draft, request)["state"] == "DECLINED"
     allowed = any(

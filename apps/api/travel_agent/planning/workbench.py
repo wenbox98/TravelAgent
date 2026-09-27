@@ -14,6 +14,8 @@ from travel_agent.research.store import EvidenceStore
 KINDS = ("CONNECT", "SEARCH", "DETAIL", "MODEL", "MAP_PLACE", "MAP_ROUTE")
 PURPOSE = "PRIVATE_OPERATION"
 STATUS_MESSAGES = {
+    "DIAGNOSTIC_EXPIRED": "保留的诊断已过期，不能从报告重建回复；旧失败和采用版保留。",
+    "DIAGNOSTIC_UNAVAILABLE": "没有可安全复核的原始诊断；未发起模型请求。",
     "KNOWLEDGE_SOURCE_UNAVAILABLE": "知识原文身份缺失或发生意外变化，未继续使用。",
     "KNOWLEDGE_STALE_OR_DELETED": "知识版本已改变或已删除，请重新选择可用资料。",
     "KNOWLEDGE_POLICY_DENIED": "来源当前策略不允许此用途。",

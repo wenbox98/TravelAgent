@@ -1448,6 +1448,33 @@
     "BudgetLine": {
       "additionalProperties": false,
       "properties": {
+        "inclusion": {
+          "default": "AUTO",
+          "enum": [
+            "AUTO",
+            "IN_SCOPE",
+            "OUT_OF_SCOPE",
+            "UNDECIDED"
+          ],
+          "title": "Inclusion",
+          "type": "string"
+        },
+        "inclusion_origin": {
+          "anyOf": [
+            {
+              "enum": [
+                "PROGRAM_CONTEXT",
+                "NORMALIZED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inclusion Origin"
+        },
         "line_id": {
           "pattern": "^[a-zA-Z0-9_-]{1,80}$",
           "title": "Line Id",
@@ -6812,7 +6839,9 @@
             "authorize",
             "revoke_authorization",
             "reuse_activities",
-            "preview_combination"
+            "preview_combination",
+            "revalidate_guide",
+            "use_revalidated_guide"
           ],
           "title": "Action",
           "type": "string"
@@ -7006,6 +7035,19 @@
           ],
           "default": null,
           "title": "Guide View"
+        },
+        "local_guide_review": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Local Guide Review"
         },
         "combination_candidates": {
           "items": {
@@ -8357,6 +8399,16 @@
     "TripBudget": {
       "additionalProperties": false,
       "properties": {
+        "lodging_scope": {
+          "default": "AUTO",
+          "enum": [
+            "AUTO",
+            "INCLUDE",
+            "EXCLUDE"
+          ],
+          "title": "Lodging Scope",
+          "type": "string"
+        },
         "people": {
           "anyOf": [
             {

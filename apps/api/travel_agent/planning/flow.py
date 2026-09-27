@@ -13,6 +13,11 @@ from travel_agent.preview.service import PreviewService
 from .flow_models import Activity, PlanAction, PlanCreate, PlanDraft
 
 
+def empty_library_entry(p: dict[str, Any]) -> bool:
+    """Library-first is an entry preference, not a ban on this trip's new sources."""
+    return bool(p.get("knowledge_mode") and not p["draft"]["activities"] and not p.get("adopted"))
+
+
 def demo_activities(kind: str) -> list[Activity]:
     # Authored fiction, never injected into private cache/evidence. Same names in
     # different regions deliberately exercise identity/ambiguity handling.
@@ -443,7 +448,7 @@ class PlanningService:
         from .discovery import checked, contents
 
         leads, discovery_available = [], False
-        if not p["demo"] and not p.get("knowledge_mode"):
+        if not p["demo"] and (not p.get("knowledge_mode") or empty_library_entry(p)):
             try:
                 discovery_available = bool(contents(self.db, self.scope, sid, p))
                 leads = list(checked(self.db, self.scope, sid, p).values())
@@ -483,10 +488,12 @@ class PlanningService:
         differences = [k for k in p["draft"] if old is not None and p["draft"][k] != old.get(k)]
         from .advisory import pool
         from .guide_view import project
+        from .guide_revalidation import view as local_review
 
         guide_view = project(p) if draft.planning_mode == "ADVISORY" else None
         return {
             "guide_view": guide_view,
+            "local_guide_review": local_review(self.db, self.scope, sid, p) if guide_view else None,
             "combination_candidates": [a.model_dump() for a in pool(self.db, self.scope, sid, p)]
             if guide_view
             else [],
@@ -505,9 +512,8 @@ class PlanningService:
             "gaps": gaps,
             "differences": differences,
             "evidence_count": len(refs) if not p["demo"] else view["evidence_count"],
-            "proposal_preview_active": bool(
-                p.get("knowledge_preview") or p.get("combination_preview")
-            ),
+            "proposal_preview_active": bool(p.get("local_guide_preview"))
+            or bool(p.get("knowledge_preview") or p.get("combination_preview")),
             "direction_change_pending": p.get("direction_backup") is not None,
             "cache_message": "合成活动测试，非真实攻略或地图。"
             if p["demo"]
@@ -771,6 +777,8 @@ class PlanningService:
             elif action.action == "discover_places":
                 from .discovery import discover
 
+                if empty_library_entry(p):
+                    p["knowledge_mode"] = False
                 if not p.get("discovery"):
                     p["discovery"] = dict(
                         version=1,
@@ -800,6 +808,8 @@ class PlanningService:
                 p["draft"]["adjustment"] = "NONE"
                 p["collapsed"]["activities"] = False
             elif action.action == "use_activities":
+                if empty_library_entry(p):
+                    p["knowledge_mode"] = False
                 catalog = {a["activity_id"]: a for a in self.get(sid)["activity_candidates"]}
                 if (
                     not action.activity_ids
@@ -828,6 +838,8 @@ class PlanningService:
                     PrivatePlanningBudget.for_trip(self.db, sid).identifier,
                 ).create(sid, row["revision"], p["destination"], key + "-research", ready=True)
                 p["research_job_id"] = job["job_id"]
+                if empty_library_entry(p):
+                    p["knowledge_mode"] = False
             elif action.action == "adopt_research":
                 research_service = self.research_service(sid, p)
                 if (
@@ -846,6 +858,9 @@ class PlanningService:
                     from .advisory import verify_current
 
                     verify_current(self.db, self.scope, sid, p)
+                from .guide_revalidation import check_adoption
+
+                check_adoption(self.db, self.scope, sid, p, row["revision"])
                 p.pop("combination_preview", None)
                 p.pop("knowledge_preview", None)
                 p.pop("knowledge_preview_cancel", None)
@@ -887,6 +902,9 @@ class PlanningService:
                 p["adopted"] = deepcopy(p["draft"])
                 p["collapsed"] = dict.fromkeys(["direction", "activities", "conditions"], True)
             elif action.action == "cancel":
+                local_preview = p.pop("local_guide_preview", None)
+                if local_preview:
+                    p["draft"] = local_preview["draft"]
                 combination = p.pop("combination_preview", None)
                 preview = p.pop("knowledge_preview", None)
                 if combination:
@@ -898,7 +916,7 @@ class PlanningService:
                     )
                 p.pop("revision_preview", None)
                 p["direction_backup"] = None
-                if p["adopted"] and not preview and not combination:
+                if p["adopted"] and not preview and not combination and not local_preview:
                     p["draft"] = deepcopy(p["adopted"])
                 p["collapsed"] = dict.fromkeys(["direction", "activities", "conditions"], True)
             elif action.action == "collapse":
@@ -923,6 +941,16 @@ class PlanningService:
                         "UPDATE preview_jobs SET cancel_requested=1,status='CANCELED' WHERE job_id=? AND status IN ('QUEUED','RUNNING')",
                         (p["job_id"],),
                     )
+            elif action.action == "revalidate_guide":
+                from .guide_revalidation import create
+
+                create(self.db, self.scope, sid, p)
+            elif action.action == "use_revalidated_guide":
+                from .guide_revalidation import preview as local_preview_guide
+
+                local_preview_guide(
+                    self.db, self.scope, sid, p, row["revision"], action.proposal_index
+                )
             elif action.action == "use_proposal":
                 if p.get("knowledge_mode") or enabled(p):
                     p["knowledge_preview"] = dict(draft=deepcopy(p["draft"]), job_id=p["job_id"])

@@ -24,6 +24,8 @@ class AmountRange(StrictModel):
 
 
 class BudgetLine(StrictModel):
+    inclusion: Literal["AUTO", "IN_SCOPE", "OUT_OF_SCOPE", "UNDECIDED"] = "AUTO"
+    inclusion_origin: Literal["PROGRAM_CONTEXT", "NORMALIZED"] | None = None
     line_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     label: str = Field(min_length=1, max_length=100)
     category: Literal["TRANSPORT", "LODGING", "FOOD", "ACTIVITY", "RESERVE", "DEPOSIT", "OTHER"]
@@ -78,6 +80,7 @@ class BudgetLine(StrictModel):
 
 
 class TripBudget(StrictModel):
+    lodging_scope: Literal["AUTO", "INCLUDE", "EXCLUDE"] = "AUTO"
     people: int | None = Field(default=None, ge=1, le=100)
     days: int | None = Field(default=None, ge=1, le=90)
     nights: int | None = Field(default=None, ge=0, le=90)

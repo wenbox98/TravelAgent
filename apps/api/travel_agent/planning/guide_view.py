@@ -25,6 +25,9 @@ LODGING = {
 
 def project(p: dict[str, Any]) -> dict[str, Any]:
     d = PlanDraft.model_validate(p["draft"])
+    from .lodging import context as lodging_context, project_line
+
+    lodging_decision = lodging_context(d)
     b = d.trip_budget.model_copy(deep=True)
     context = budget_context(d)
     b.days = context["days"]
@@ -32,16 +35,14 @@ def project(p: dict[str, Any]) -> dict[str, Any]:
     for v in defaults(d.days, d.inputs.planning_scope == "ACTIVITY_WINDOW"):
         if (v.category, v.transport_scope) not in categories:
             b.lines.append(v)
+    b.lines = [project_line(v, lodging_decision) for v in b.lines]
     for v in b.lines:
         if v.locked or v.paid_fen:
             continue
-        if (
-            v.category == "LODGING"
-            and (d.days == 1 or d.guide.lodging.strategy == "NOT_APPLICABLE")
-        ) or (v.transport_scope == "ROUND_TRIP" and d.inputs.planning_scope == "ACTIVITY_WINDOW"):
+        if v.transport_scope == "ROUND_TRIP" and d.inputs.planning_scope == "ACTIVITY_WINDOW":
             from .guide_models import AmountRange
 
-            v.basis = "NOT_APPLICABLE" if v.category == "LODGING" else "EXCLUDED_SELF_ARRANGED"
+            v.basis = "EXCLUDED_SELF_ARRANGED"
             v.unit_amount = AmountRange()
             v.status = "UNKNOWN"
     money = calculate(b, [a.activity_id for a in d.activities])
@@ -67,12 +68,21 @@ def project(p: dict[str, Any]) -> dict[str, Any]:
             dict(day=day, window="午餐", text=DINING["NEAR_SELECTED_AREA"])
             for day in sorted({a.day for a in d.activities} - covered)
         ]
-    lodging = "NOT_APPLICABLE" if d.days == 1 else d.guide.lodging.strategy
+    lodging = (
+        "NOT_APPLICABLE"
+        if lodging_decision["state"] == "OUT_OF_SCOPE"
+        else d.guide.lodging.strategy
+    )
+    if lodging == "NOT_APPLICABLE" and lodging_decision["state"] != "OUT_OF_SCOPE":
+        lodging = "UNDECIDED"
     areas = {a["area_id"]: a["name"] for a in p.get("lodging_areas", [])}
     return dict(
         title=d.guide.title,
         reason=d.guide.reason,
         origin=d.guide.origin,
+        local_revalidation=bool(
+            p.get("local_guide_preview") or p.get("last_guide_revalidation_adoption")
+        ),
         walking=walking(d, p.get("request", "")),
         walking_suggestion="步行仅为待选择的建议，尚未核实路线或取得同意。"
         if d.guide.walking_requirement == "OPTIONAL"
@@ -118,7 +128,8 @@ def project(p: dict[str, Any]) -> dict[str, Any]:
         dining=dining,
         lodging=dict(
             strategy=lodging,
-            text=LODGING[lodging],
+            text=lodging_decision["reason"] if lodging == "NOT_APPLICABLE" else LODGING[lodging],
+            scope=lodging_decision,
             areas=[areas[i] for i in d.guide.lodging.area_ids if i in areas],
             nights=b.nights,
             rooms=b.rooms,
@@ -180,6 +191,9 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         "",
         escaped(guide["title"]),
         escaped(guide["reason"]),
+        "本版经本地规则复核与空费用规范化（LOCAL_REVALIDATION / NORMALIZED）；保留原模型失败记录。活动与停留仍为 AI 建议。"
+        if guide["local_revalidation"]
+        else "",
     ]
     for a in guide["activities"]:
         lines += [

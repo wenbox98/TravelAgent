@@ -48,7 +48,18 @@ def calculate(budget: TripBudget, selected: list[str]) -> dict[str, Any]:
         )
         reason = None
         active = set(line.activity_ids) & set(selected)
-        if line.basis in {"NOT_APPLICABLE", "EXCLUDED_SELF_ARRANGED"}:
+        if (
+            line.category == "LODGING"
+            and line.inclusion == "OUT_OF_SCOPE"
+            and line.basis in {"UNKNOWN", "NOT_APPLICABLE"}
+            and line.unit_amount.min_fen is None
+            and not line.paid_fen
+            and not line.locked
+        ):
+            reason = "本草案暂不纳入住宿；金额仍未知，不按零计"
+        elif line.basis in {"NOT_APPLICABLE", "EXCLUDED_SELF_ARRANGED"} and not (
+            line.paid_fen or line.locked
+        ):
             reason = BASIS[line.basis]
         elif line.optional and not line.include_optional and not line.paid_fen and not line.locked:
             reason = "备选未纳入"
@@ -70,7 +81,9 @@ def calculate(budget: TripBudget, selected: list[str]) -> dict[str, Any]:
             "PER_DAY": (budget.days,),
         }[line.unit]
         for factor in factors:
-            count = count * factor if count is not None and factor is not None else None
+            count = (
+                count * factor if count is not None and factor is not None and factor > 0 else None
+            )
         partial_bundle = bool(active) and active != set(line.activity_ids)
         known = line.unit_amount.min_fen is not None and count is not None and not partial_bundle
         lo: int | None

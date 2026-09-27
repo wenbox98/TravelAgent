@@ -150,6 +150,8 @@ class PlanAction(StrictModel):
         "revoke_authorization",
         "reuse_activities",
         "preview_combination",
+        "revalidate_guide",
+        "use_revalidated_guide",
     ]
     expected_revision: int = Field(ge=0)
     draft: PlanDraft | None = None
@@ -241,6 +243,7 @@ class RevisionResponse(StrictModel):
 
 class PlanView(StrictModel):
     guide_view: dict[str, Any] | None = None
+    local_guide_review: dict[str, Any] | None = None
     combination_candidates: list[Activity] = Field(default_factory=list)
     session_id: str
     revision: int

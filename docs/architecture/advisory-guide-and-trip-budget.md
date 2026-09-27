@@ -41,3 +41,18 @@ GuideProposal/GuideContent 增加 walking_requirement NONE/OPTIONAL/REQUIRED。U
 guide_context.budget_context 从当前旅行生成已知/待补条件，供 payload、计算、页面和 Markdown 共用。模型不重抄人数/天数/房晚；实际价格未知不能被误作人数未知。模型输出 schema 将 quantity 限定为 1，程序按 unit 乘 people/days/rooms/nights 一次；普通用户/历史 BudgetLine 数量契约保留。ONCE 表示整个条目的一次性总额，未选活动关联费用由现有计算器排除。
 
 规则版本 advisory-guide-1.3，仍为协议 v4。旧回答与原判定不变；原输入回放、修正输入复核和新请求保持区分。SQLite 仍为 16，无迁移、无预算回填。
+
+
+## P10 / 1.4 住宿范围与本地复核契约
+
+住宿范围由 `lodging.context` 从当前草稿生成，独立于 BudgetLine 的 basis/status/金额。`TripBudget.lodging_scope=AUTO/INCLUDE/EXCLUDE` 为本次可修改选择；已付、锁定、用户费用和有效报价保留。确认正晚数优先于一日缺省，一日无住宿要求仅建议暂不纳入，不声称用户拒绝住宿。多日未知保持 UNDECIDED；往返自行安排不推断住宿安排。
+
+`BudgetLine.inclusion` 与 `inclusion_origin` 是程序派生信息。仅对 OUT_OF_SCOPE 且无金额、报价、付款、锁定、包含引用或住宿服务断言的空住宿行，记录 EMPTY_LODGING_SCOPE / NORMALIZED；basis/status/金额原义保留。未知金额不写为零；非空住宿冲突、引用、语义、范围、硬约束继续逐方案完整校验。已有报价/历史参考也不得被模型采用覆盖。
+
+原 v4 回复与原失败保持不变。普通 planning action `revalidate_guide` 读取仍有效的7天私人诊断，校验原输入、诊断哈希、当前引用和完整草稿，仅允许新增确定性 lodging_context；结果追加在原 session 的 guide_revalidations。`use_revalidated_guide` 开始可取消预览；采用再次核对 revision、输入、规则版本、结果与引用。结果标 LOCAL_REVALIDATION，活动仍 AI_PROPOSED；不是新模型审核或 Work 人工接纳。过期或失配拒绝采用，GET不会执行回放或网络派发。页面与导出保留派生标记。
+
+领域 schema 显式追加上述字段、两个 action 和 `PlanView.local_guide_review`；HTTP路由和SQLite16表结构不变，无历史回填、无预算迁移。人数、房间和晚数只从本次明确数字短语解析，模型数量仍固定1，由程序乘一次。
+
+显式排除住宿可保留已填晚数而不计入空住宿行；已付、锁定、用户费用和真实引用费用仍优先保留。未知费用即使曾标不适用，也不隐藏其已付记录。
+
+普通资料库入口尚未选入知识且没有采用版时，显式研究/地点发现可切换到本旅行来源通路。安全检查区分公共地铁“号线”和门牌“号”，私址与危险上下文仍隔离；名称线索不提升为 Evidence。建议候选集合只纳入身份已检查且范围不冲突的线索，其他未检查候选不能拖垮独立合法项目的采用。改选组合后由程序给出中性的当前组合说明，标 USER_CONFIRMED；停留保持原来源，原模型标题、回复及旧采用版本不改写。

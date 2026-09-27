@@ -20,7 +20,7 @@ NAME = re.compile(
     r"(?=出发|[，,。；;～~\s→➡]|$)"
 )
 FLAGS = {
-    "PRIVATE_OR_IDENTIFIER": r"住宅|住址|家里|我家|私宅|私密|门牌|\d+号|\d+室|电话|姓名|联系人|身份证|微信",
+    "PRIVATE_OR_IDENTIFIER": r"住宅|住址|家里|我家|私宅|私密|门牌|\d+号(?!线)|\d+室|电话|姓名|联系人|身份证|微信",
     "UNSAFE_INSTRUCTION": r"https?://|www\.|忽略.{0,8}(?:指令|规则)|系统提示|提示词|system\s*:|执行代码|```|<script|curl\s",
     "FICTION_OR_EXAMPLE": r"虚构|虚拟地点|编造|小说|示例|假设有|不存在的",
     "ACCESS_RESTRICTION": r"关闭|闭园|封闭|无法进入|禁止|谢绝|限制进入|危险|不要去|不能去|不对外",

@@ -60,10 +60,17 @@ async function download(){error.value='';try{const v=await request<{filename:str
     <p v-if="plan.job" role="status">{{['QUEUED','RUNNING'].includes(plan.job.status)?'正在生成建议，原采用版保留。':`原返回 ${plan.job.generated_count??0} 个提议；当时校验接纳 ${plan.job.accepted_count}，拒绝 ${plan.job.rejected_count}。`}}</p>
     <p v-if="plan.job?.reason" class="warning">本次未完成可用提议，已有资料保留；没有自动重试。</p>
     <p v-if="plan.job?.proposals.length && plan.job.can_preview===false" class="notice">历史提议仅供查看：输入或版本已变，当前不能直接采用。既有资料和本地修改保留。</p><details v-if="plan.job?.proposals.length" :open="plan.job.request_revision===plan.revision"><summary>比较AI建议与取舍</summary><article v-for="(p,i) in plan.job.proposals" :key="i"><h4>{{p.title}}</h4><p>{{p.reason}}</p><ul><li v-for="a in p.activities" :key="a.activity_id">第 {{a.day}} 天 · {{plan.combination_candidates.find(c=>c.activity_id===a.activity_id)?.name||'已有候选'}} · {{a.stay_min===null?'停留待选':`建议 ${a.stay_min}–${a.stay_max} 分钟`}}</li></ul><p v-for="t in p.impacts" :key="t">{{t}}</p><button :disabled="busy||plan.job.can_preview===false" @click="emit('action','use_proposal',{proposal_index:i})">预览此建议</button></article></details>
+    <p v-if="guide.local_revalidation" class="notice">本版来自已存回复的本地复核与空费用规范化（LOCAL_REVALIDATION / NORMALIZED）。原模型失败未改写，活动与停留仍是AI建议。</p>
+    <button v-if="plan.job?.protocol_version===4 && plan.job.local_diagnostic?.replayable" class="quiet" :disabled="busy||!!plan.proposal_preview_active" @click="emit('action','revalidate_guide',{})">用已保存回复本地复核（不联网）</button>
+    <article v-if="plan.local_guide_review" class="notice"><h3>本地复核结果</h3><p>规则 {{plan.local_guide_review.rule_version}}：接纳 {{plan.local_guide_review.summary.accepted_count}}，拒绝 {{plan.local_guide_review.summary.rejected_count}}。只规范化符合原条件的空住宿行，不是模型重新回答。</p>
+      <article v-for="(p,i) in plan.local_guide_review.summary.proposals" :key="i"><h4>{{p.title}}</h4><p>{{p.reason}}</p><button :disabled="busy||!plan.local_guide_review.can_preview" @click="emit('action','use_revalidated_guide',{proposal_index:i})">预览本地复核建议</button></article>
+      <p v-for="(d,i) in plan.local_guide_review.summary.decisions.filter(d=>d.status==='REJECTED')" :key="i">仍未通过：{{d.reason}}</p>
+    </article>
     <h3>用餐与住宿怎么选</h3><p v-for="m in guide.dining" :key="m.day+m.window">第 {{m.day}} 天{{m.window}}：{{m.text}}</p><p>{{guide.lodging.text}}</p><p v-if="guide.lodging.areas.length">片区备选：{{guide.lodging.areas.join('、')}}（没有核实酒店或交通便利性）</p>
     <details><summary>修改住宿策略与人数口径</summary><fieldset :disabled="busy"><div class="grid">
       <label>人数<input :value="form.trip_budget.people??''" type="number" min="1" @change="form.trip_budget.people=number($event);save()" /></label>
       <label>房间数<input :value="form.trip_budget.rooms??''" type="number" min="1" @change="form.trip_budget.rooms=number($event);save()" /></label>
+      <label>本草案是否纳入住宿<select v-model="form.trip_budget.lodging_scope" @change="save"><option value="AUTO">按本次条件提出建议，可修改</option><option value="INCLUDE">纳入，金额可以未知</option><option value="EXCLUDE">暂不纳入，不表示免费</option></select></label>
       <label>住宿晚数<input :value="form.trip_budget.nights??''" type="number" min="0" @change="form.trip_budget.nights=number($event);save()" /></label>
       <label>住宿取舍<select v-model="form.guide.lodging.strategy" @change="save"><option value="UNDECIDED">尚未决定</option><option value="NEAR_ACTIVITIES">靠近活动集中区域</option><option value="NEXT_DAY_AREA">衔接次日活动</option><option value="FEWER_MOVES">减少换酒店</option><option value="NOT_APPLICABLE">不住宿</option></select></label>
     </div></fieldset></details>

@@ -458,3 +458,61 @@ def test_authenticated_page_api_discovery_without_claim_acceptance(discovery):
         for _ in range(3):
             assert client.get(url).status_code == 200
         assert adapter.calls == ["place"]
+
+
+def test_empty_library_entry_can_discover_own_unreviewed_sources(discovery):
+    s, v = discovery
+    _, state = s.load(v["session_id"])
+    state["planning"]["knowledge_mode"] = True
+    s.db.connection.execute(
+        "UPDATE preview_sessions SET state_json=? WHERE session_id=?",
+        (json.dumps(state), v["session_id"]),
+    )
+    before = s.db.connection.execute("SELECT count(*) FROM claims").fetchone()[0]
+    v = s.get(v["session_id"])
+    assert v["discovery_available"] and not v["draft"]["activities"]
+    v = act(s, v, "discover_places")
+    assert len(v["place_leads"]) == 3
+    assert s.load(v["session_id"])[1]["planning"]["knowledge_mode"] is False
+    assert s.db.connection.execute("SELECT count(*) FROM claims").fetchone()[0] == before
+    assert all(lead["mention_only"] for lead in v["place_leads"])
+
+
+def test_advisory_adopts_checked_lead_independently_of_unchecked_siblings(discovery):
+    from travel_agent.planning.advisory import pool, verify_current
+    from travel_agent.planning.guide_view import export
+
+    s, v = discovery
+    v, _, adapter = discover_and_check(s, v, count=1)
+    v = act(s, v, "use_leads", activity_ids=[v["place_leads"][0]["lead_id"]])
+    draft = PlanDraft.model_validate(v["draft"])
+    draft.planning_mode = "ADVISORY"
+    v = act(s, v, "save", draft=draft)
+    _, state = s.load(v["session_id"])
+    p = state["planning"]
+    assert len(p["discovery"]["leads"]) == 3
+    assert len(pool(s.db, s.scope, v["session_id"], p)) == 1
+    verify_current(s.db, s.scope, v["session_id"], p)
+    v = act(s, v, "adopt")
+    assert v["adopted"]["activities"][0]["provenance"] == "SOURCE_MENTION"
+    assert "纸舟路" in export(s.db, s.scope, v["session_id"])["markdown"]
+    assert s.db.connection.execute("SELECT count(*) FROM claims").fetchone()[0] == 0
+    assert adapter.calls == ["place"]
+
+
+@pytest.mark.parametrize(
+    ("context", "quarantined"),
+    [("乘地铁7号线。", False), ("附近123号。", True), ("地铁7号线，住宅123号。", True)],
+)
+def test_transit_line_number_is_not_a_private_street_address(context, quarantined):
+    content = dict(
+        source_id="s",
+        content_id="c",
+        content_hash="h",
+        raw_text=context + "\n从纸舟路出发，走到云台街。",
+        dom_text=None,
+        content_completeness="PARTIAL_TEXT",
+    )
+    leads = identify(content, "合成青谷", "CITY_CORE")
+    assert leads
+    assert all(lead["quarantined"] is quarantined for lead in leads)

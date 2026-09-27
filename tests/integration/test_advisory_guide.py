@@ -235,6 +235,10 @@ def test_normal_grant_worker_combination_money_export_and_restart(normal):
     adopted = deepcopy(v["adopted"])
     v = act(s, v, "preview_combination", activity_ids=["guide-a", "guide-b", "guide-d"])
     assert v["guide_view"]["budget_difference"]["min_fen"] == 12000
+    assert v["guide_view"]["origin"] == "USER_CONFIRMED"
+    assert "原模型提议保留" in v["guide_view"]["reason"]
+    assert v["draft"]["activities"][0]["timing_origin"] == "AI_PROPOSED"
+    assert v["job"]["proposals"][0]["title"] == adopted["guide"]["title"]
     assert v["guide_view"]["budget"]["known_total"]["min_fen"] == 106000
     assert v["adopted"] == adopted
     v = act(s, v, "cancel")
