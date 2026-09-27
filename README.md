@@ -13,21 +13,28 @@
 
 同一主页面提供建议攻略、候选组合预览/取消/采用、食宿策略、旅行花费草案和采用版 Markdown 导出。旅行花费与外部调用额度分开；未知不当零，AI金额是预算预留而非市价。食宿先给选择原则，未接通报价供应商。详细时间视图按需展开，地图缺失不阻止建议。见 [建议攻略与费用契约](docs/architecture/advisory-guide-and-trip-budget.md) 和 [P09验收](reports/P09-advisory-guide-and-trip-budget.md) 与 [P09.1一致性收尾](reports/P09.1-context-consistency-and-acceptance.md)。
 
+P10 整体验收 **PARTIAL，尚不具备完整私人建议版冻结条件**：A 原失败保留，零联网本地重新校验后可采用；B 冻结成果无回归。真实城市需求得到一个公园的有限建议，相关内容仍只有地点提及；真实周末需求可改选、计预算并恢复，但尚未形成第二天安排。不能用流程通过代替内容通过。见 [P10 分项验收](reports/P10-final-advisory-acceptance.md) 和 [交付候选检查单](reports/P10-private-advisory-candidate.md)。
+
 当前普通主入口是日常私人工作台：独立新旅行、明确复用历史活动、页面授权与可见预算、研究/安排/改选/地图和本地采用恢复。无需阶段参数或命令行授权，不自动继承历史测试偏好。新旅行无外部额度；只有用户确认用途、接收方和次数后，明确点击操作才派发。追加记录关联旧许可，失败和旧消耗保留。详见 [日常工作台契约](docs/architecture/daily-private-workbench.md)。P06 改选协议和历史门禁保持原义，G1仍NOT PASS；地点线索、作者证据、范围与当前可行性继续分别展示。
 
-已有依赖时，唯一推荐启动方式（已运行则直接使用，不重复启动）：
+本机已经构建好前端并安装依赖，唯一日常启动入口如下（8768 已运行则直接使用，不重复启动）：
 
 ```powershell
-Set-Location E:\workSpace\travel-agent-project\travel-agent\apps\web
-node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
-node node_modules/vite/bin/vite.js build --outDir ../../.local/workbench-web
 Set-Location E:\workSpace\travel-agent-project\travel-agent
-.venv\Scripts\python.exe -X utf8 scripts\product_preview.py --open
+.venv\Scripts\python.exe -X utf8 scripts\product_preview.py serve --open
 ```
 
 地址 `http://127.0.0.1:8768/`。默认沿用 `.local/p04-preview` 活动库；原数据库、profile和历史静态目录保留。模型/高德继续读取现有本机服务端配置，不探测Key、不进入前端。保存、浏览、复用、刷新和重启为零项目外部调用。
 
 日常使用：新建旅行 → 选择本机已有活动或主动研究 → 确认有限操作许可 → 生成安排/按意图改选/地图核实 → 预览、取消或采用。用途和累计用量可展开查看；关闭许可后仍能本地编辑。来源不足、未配置、未授权、耗尽和上游失败分别说明。地图临时值重启过期，不自动重新查询。
+
+预览不会覆盖采用版；取消后可再次打开同一已存提议，不再请求模型。导出的是采用版，含引用、建议属性、预算不完整处和未计入项。本轮两个测试旅行的许可均已关闭；查看结果和资料库关键词检索不需要追加额度。测试资料需显式显示，不自动成为所有新旅行的偏好。
+
+页面会话过期时，在拥有该服务的终端按 Ctrl+C 正常停止，再运行上面的启动命令，由 `--open` 打开新的本机入口；不要复制 Cookie 或清空数据库。中断任务和失败消耗保留，不会自动重新派发。若提示已有服务，使用它或先正常关闭该服务，不停止其他页面的进程。地图临时值过期不影响已采用玩法。
+
+A 类旧失败只有在原安全诊断仍有效、原引用与当前条件仍可核实时，才能通过页面“本地重新校验”形成版本化派生结果；这不是模型重新作答。诊断过期时保留原失败，不从报告补造回答。是否纳入住宿和金额是否已知分别展示，未纳入不是免费，已付/锁定住宿不会被一日缺省覆盖。
+
+仅开发更新前端时才需重新构建：先正常关闭本工作台并保留当前静态目录，再在 `apps/web` 执行 `npm.cmd run build -- --outDir ../../.local/workbench-web`，成功后回仓库根目录用上面的唯一入口启动。日常查看无须构建。备份、回滚和未完成项见交付候选检查单；不得用旧库覆盖当前库恢复次数。
 
 首次空白安装与可配置scope见上述契约；已配置数据库缺失或损坏不会静默建立空库。`.local/p07-backup` 保留本轮升级前一致性备份、代码和构建用于核对；备份不能覆盖当前库恢复旧预算。
 
