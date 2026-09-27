@@ -6267,6 +6267,14 @@
     "Activity": {
       "additionalProperties": false,
       "properties": {
+        "knowledge_refs": {
+          "items": {
+            "$ref": "#/$defs/KnowledgeBinding"
+          },
+          "maxItems": 12,
+          "title": "Knowledge Refs",
+          "type": "array"
+        },
         "activity_id": {
           "pattern": "^[a-zA-Z0-9_-]{1,80}$",
           "title": "Activity Id",
@@ -6723,6 +6731,11 @@
     "PlanCreate": {
       "additionalProperties": false,
       "properties": {
+        "knowledge_first": {
+          "default": false,
+          "title": "Knowledge First",
+          "type": "boolean"
+        },
         "destination": {
           "maxLength": 80,
           "minLength": 1,
@@ -6868,6 +6881,11 @@
         "evidence_count": {
           "title": "Evidence Count",
           "type": "integer"
+        },
+        "proposal_preview_active": {
+          "default": false,
+          "title": "Proposal Preview Active",
+          "type": "boolean"
         },
         "direction_change_pending": {
           "default": false,
@@ -7598,6 +7616,152 @@
         "tasks"
       ],
       "title": "OperationAuthorization",
+      "type": "object"
+    },
+    "KnowledgeBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "card_id": {
+          "pattern": "^card-[a-f0-9]{28}$",
+          "title": "Card Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "card_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Card Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id",
+        "version",
+        "card_hash"
+      ],
+      "title": "KnowledgeBinding",
+      "type": "object"
+    },
+    "LibraryAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "search",
+            "options",
+            "preview_organize",
+            "organize",
+            "preview_pattern",
+            "save_pattern",
+            "attach",
+            "preview_cleanup",
+            "cleanup",
+            "delete",
+            "withdraw",
+            "rebuild",
+            "retention"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "query": {
+          "default": "",
+          "maxLength": 160,
+          "title": "Query",
+          "type": "string"
+        },
+        "destination": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Destination",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "enum": [
+            "",
+            "SOURCE_REFERENCE",
+            "PLACE_LEAD",
+            "PLAN_PATTERN"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "include_test": {
+          "default": false,
+          "title": "Include Test",
+          "type": "boolean"
+        },
+        "since": {
+          "default": "",
+          "maxLength": 30,
+          "title": "Since",
+          "type": "string"
+        },
+        "session_id": {
+          "default": "",
+          "maxLength": 100,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "refs": {
+          "items": {
+            "$ref": "#/$defs/KnowledgeBinding"
+          },
+          "maxItems": 12,
+          "title": "Refs",
+          "type": "array"
+        },
+        "preview_hash": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Preview Hash",
+          "type": "string"
+        },
+        "retention_policy": {
+          "default": "PERSISTENT",
+          "enum": [
+            "PERSISTENT",
+            "READY_AFTER_ORGANIZED",
+            "SESSION"
+          ],
+          "title": "Retention Policy",
+          "type": "string"
+        },
+        "confirm": {
+          "default": false,
+          "title": "Confirm",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "LibraryAction",
+      "type": "object"
+    },
+    "LibraryResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "additionalProperties": true,
+          "title": "Result",
+          "type": "object"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "LibraryResponse",
       "type": "object"
     }
   }

@@ -63,7 +63,7 @@ class FlowMapService(RoutePreviewService):
                 region=a.region,
                 evidence_ids=a.evidence_ids,
                 provenance="SOURCE_MENTION"
-                if a.discovery_ids
+                if a.discovery_ids or a.knowledge_refs
                 else "EVIDENCE_FRAGMENT"
                 if a.evidence_ids
                 else "USER_INPUT",

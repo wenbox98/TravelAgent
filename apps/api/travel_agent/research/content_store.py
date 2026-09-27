@@ -126,6 +126,8 @@ class SourceContentStore:
                 "SELECT content_id,expires_at FROM source_contents WHERE account_scope=? "
                 "AND expires_at IS NOT NULL", (account_scope,),
             ) if datetime.fromisoformat(row[1]) <= self.db.clock()]
+            if self.db.version >= 16:
+                expired = [key for key in expired if not con.execute("SELECT 1 FROM knowledge_raw_state WHERE content_id=? AND state='USER_CLEARED'", (key,)).fetchone()]
             con.executemany("DELETE FROM source_contents WHERE content_id=?", [(key,) for key in expired])
         return len(expired)
 
@@ -149,6 +151,8 @@ class SourceContentStore:
             ).fetchall()
             if not policies or not all(self._allowed(SourcePolicy(json.loads(p[0])), account_scope)
                                        for p in policies):
+                continue
+            if self.db.version >= 16 and self.db.connection.execute("SELECT 1 FROM knowledge_raw_state WHERE content_id=? AND state='USER_CLEARED'", (row["content_id"],)).fetchone():
                 continue
             data = dict(row)
             data["truncation_risk"] = bool(data["truncation_risk"])

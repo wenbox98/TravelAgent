@@ -464,7 +464,14 @@ def apply_proposal(
         return draft.model_dump()
     if (
         job["status"] not in {"COMPLETED", "PARTIAL"}
-        or job["request_revision"] != revision
+        or (
+            job["request_revision"] != revision
+            and not (
+                p.get("knowledge_mode")
+                and p.get("knowledge_preview_cancel", {}).get("job_id") == p.get("job_id")
+                and p.get("knowledge_preview_cancel", {}).get("restored_revision") == revision
+            )
+        )
         or index >= len(job["proposals"])
     ):
         raise ValueError("STALE_PROPOSAL")
@@ -605,7 +612,17 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
                 summary["activity_catalog"] = catalog
             else:
                 summary = validate_response(raw, data["payload"])
-            current, _ = PlanningService(db, row["account_scope"]).load(row["session_id"])
+            current, latest_state = PlanningService(db, row["account_scope"]).load(
+                row["session_id"]
+            )
+            if (
+                data["payload"].get("knowledge_mode")
+                and payload_for(
+                    latest_state["planning"], db, row["account_scope"], row["session_id"]
+                )
+                != data["payload"]
+            ):
+                raise ValueError("STALE_PROPOSAL")
             budget.check_job_active(jid)
             if current["revision"] != row["request_revision"]:
                 raise ValueError("STALE_PROPOSAL")
@@ -655,6 +672,21 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
                 protocol_version=2, rule_version=VERSION, input_hash=fingerprint(saved_input)
             )
         with db.transaction() as con:
+            if saved_input.get("knowledge_mode") and status in {"COMPLETED", "PARTIAL"}:
+                try:
+                    latest, state = PlanningService(db, row["account_scope"]).load(
+                        row["session_id"]
+                    )
+                    if (
+                        latest["revision"] != row["request_revision"]
+                        or payload_for(
+                            state["planning"], db, row["account_scope"], row["session_id"]
+                        )
+                        != saved_input
+                    ):
+                        raise ValueError("STALE_PROPOSAL")
+                except ValueError:
+                    status, summary = "FAILED", {"reason": "STALE_PROPOSAL", "protocol_version": 2}
             # Never writes a trip draft or adopted plan. Cancellation/deadline wins.
             con.execute(
                 "UPDATE preview_jobs SET status=?,summary_json=?,finished_at=? WHERE job_id=? AND status='RUNNING' AND cancel_requested=0",

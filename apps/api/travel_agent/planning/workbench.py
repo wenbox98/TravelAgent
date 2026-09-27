@@ -14,6 +14,15 @@ from travel_agent.research.store import EvidenceStore
 KINDS = ("CONNECT", "SEARCH", "DETAIL", "MODEL", "MAP_PLACE", "MAP_ROUTE")
 PURPOSE = "PRIVATE_OPERATION"
 STATUS_MESSAGES = {
+    "KNOWLEDGE_SOURCE_UNAVAILABLE": "知识原文身份缺失或发生意外变化，未继续使用。",
+    "KNOWLEDGE_STALE_OR_DELETED": "知识版本已改变或已删除，请重新选择可用资料。",
+    "KNOWLEDGE_POLICY_DENIED": "来源当前策略不允许此用途。",
+    "KNOWLEDGE_SOURCE_WITHDRAWN": "此来源已停止使用；旧安排保留，引用不再可用。",
+    "KNOWLEDGE_PREVIEW_CHANGED": "资料已变化，请重新查看本次操作影响。",
+    "KNOWLEDGE_NO_PUBLIC_ACTIVITY": "这些条目只提供条件参考，没有可直接安排的公共活动。",
+    "KNOWLEDGE_SCOPE_MISMATCH": "资料目的地不匹配，或尚未明确包含测试资料。",
+    "KNOWLEDGE_PATTERN_LINEAGE_UNAVAILABLE": "部分采用项目缺少当前可整理的来源链，旧安排保留。",
+    "KNOWLEDGE_RAW_UNAVAILABLE": "原文已清理或当前无法读取；知识条目仍可按各自状态使用。",
     "NOT_AUTHORIZED": "本次旅行尚未授权外部操作，请先确认用途与上限。",
     "OPERATION_NOT_AUTHORIZED": "当前许可不包含这项用途，可在页面明确追加。",
     "OPERATION_CLOSED": "本次许可已关闭；本地编辑和已有资料仍可使用。",
@@ -93,6 +102,10 @@ class DailyBudget(BoundedBudget):
         s = self.state()
         self.task("REVISION" if data.get("protocol_version") == 3 else "PLANNING")
         gate = s["gate"]
+        if data.get("knowledge_mode") and any(
+            r not in gate.get("knowledge_bindings", []) for r in data["knowledge_bindings"]
+        ):
+            raise ValueError("OPERATION_MATERIAL_CHANGED")
         if "RESEARCH" not in gate["tasks"] and not {
             a["activity_id"] for a in data["activities"]
         } <= set(gate["activity_ids"]):
@@ -152,7 +165,7 @@ def authorize(db: Any, scope: str, sid: str, p: dict[str, Any], proposal: Any) -
     if previous:
         close(db, scope, sid, p)
     identifier = "operation-" + uuid4().hex
-    material = contents(db, scope, sid, p)
+    material = [] if p.get("knowledge_mode") else contents(db, scope, sid, p)
     gate = dict(
         status="PASS",
         purpose=PURPOSE,
@@ -169,6 +182,9 @@ def authorize(db: Any, scope: str, sid: str, p: dict[str, Any], proposal: Any) -
                 if not lead["quarantined"]
             }
         ),
+        knowledge_bindings=[
+            r for a in p["draft"]["activities"] for r in a.get("knowledge_refs", [])
+        ],
         research_ids=sorted(p.get("research_ids", [])),
         recipients=[
             h

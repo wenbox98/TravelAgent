@@ -12,7 +12,14 @@ class SpatialIntent(StrictModel):
     origin: Literal["UNKNOWN", "USER_EXPLICIT", "TEST_INPUT", "PRODUCT_PROPOSED"] = "UNKNOWN"
 
 
+class KnowledgeBinding(StrictModel):
+    card_id: str = Field(pattern=r"^card-[a-f0-9]{28}$")
+    version: int = Field(ge=1)
+    card_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 class Activity(StrictModel):
+    knowledge_refs: list[KnowledgeBinding] = Field(default_factory=list, max_length=12)
     activity_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     name: str = Field(min_length=1, max_length=120)
     region: str = Field(default="", max_length=80)
@@ -78,6 +85,7 @@ class PlanDraft(StrictModel):
 
 
 class PlanCreate(StrictModel):
+    knowledge_first: bool = False
     destination: str = Field(min_length=1, max_length=80)
     request: str = Field(default="", max_length=500)
     travel_kind: Literal["CITY", "REGIONAL"] = "CITY"
@@ -229,6 +237,7 @@ class PlanView(StrictModel):
     gaps: list[str]
     differences: list[str]
     evidence_count: int
+    proposal_preview_active: bool = False
     direction_change_pending: bool = False
     cache_message: str
     job: dict[str, Any] | None

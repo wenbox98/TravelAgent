@@ -347,6 +347,15 @@ def run_job(
             ).fetchone()
             if row[1]:
                 state = "CANCELED"
+            if state in {"COMPLETED", "PARTIAL"} and summary.get("new_evidence_count"):
+                try:
+                    from travel_agent.knowledge.organize import after_research
+
+                    summary["knowledge_organized"] = after_research(
+                        db, j["account_scope"], j["session_id"], j["research_id"]
+                    )
+                except ValueError:
+                    summary["knowledge_status"] = "NEEDS_ORGANIZE"
             with db.transaction():
                 con.execute(
                     "UPDATE preview_jobs SET status=?,summary_json=?,finished_at=? WHERE job_id=?",

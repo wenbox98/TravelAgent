@@ -275,6 +275,7 @@ class PlanningService:
                 draft.anchor_origin = "SYNTHETIC_TEST"
                 draft.activities = demo_activities(body.demo)
             state["planning"] = {
+                "knowledge_mode": body.knowledge_first,
                 "destination": body.destination,
                 "request": body.request,
                 "travel_kind": body.travel_kind,
@@ -340,6 +341,15 @@ class PlanningService:
         from travel_agent.preview.jobs import JobService
 
         job = job_view(self.db, self.scope, p["job_id"]) if p["job_id"] else None
+        if job and p.get("knowledge_mode"):
+            marker = p.get("knowledge_preview_cancel", {})
+            job["can_preview"] = bool(
+                job["request_revision"] == row["revision"]
+                or (
+                    marker.get("job_id") == p.get("job_id")
+                    and marker.get("restored_revision") == row["revision"]
+                )
+            )
         refs = references(self.db, self.scope, sid)
         area_gaps = scope_gaps(p["travel_kind"] == "CITY" and "市区" in p["request"], refs)
         candidates = [
@@ -370,13 +380,20 @@ class PlanningService:
         from .discovery import checked, contents
 
         leads, discovery_available = [], False
-        if not p["demo"]:
+        if not p["demo"] and not p.get("knowledge_mode"):
             try:
                 discovery_available = bool(contents(self.db, self.scope, sid, p))
                 leads = list(checked(self.db, self.scope, sid, p).values())
             except ValueError:
                 if p.get("discovery"):
                     gaps.append("地点来源已过期或不再获准使用，旧草稿保留，不能继续派发或采用。")
+        if p.get("knowledge_mode") and draft.activities:
+            try:
+                from travel_agent.knowledge.planning import verify
+
+                verify(self.db, self.scope, p)
+            except ValueError:
+                gaps.append("知识引用已删除、撤销或变化；历史安排保留，当前不能采用或发给模型。")
         if any(a.provenance == "SOURCE_MENTION" for a in draft.activities):
             gaps.append(
                 "部分项目仅来自原文地点提及；身份曾确认不等于市区范围、可游玩性或当前开放已核实。"
@@ -417,6 +434,7 @@ class PlanningService:
             "gaps": gaps,
             "differences": differences,
             "evidence_count": len(refs) if not p["demo"] else view["evidence_count"],
+            "proposal_preview_active": bool(p.get("knowledge_preview")),
             "direction_change_pending": p.get("direction_backup") is not None,
             "cache_message": "合成活动测试，非真实攻略或地图。"
             if p["demo"]
@@ -446,7 +464,10 @@ class PlanningService:
             "place_leads": leads,
             "operation": operation,
             "reuse_options": reuse_options(self.db, self.scope, sid, p)
-            if daily(p) and not draft.activities and not p["adopted"]
+            if daily(p)
+            and not p.get("knowledge_mode")
+            and not draft.activities
+            and not p["adopted"]
             else [],
             "model_status": status,
             "discovery_available": discovery_available,
@@ -496,6 +517,7 @@ class PlanningService:
                 else:
                     reuse(self.db, self.scope, sid, p, action.reuse_key or "", action.activity_ids)
             elif action.action == "save":
+                p.pop("knowledge_preview_cancel", None)
                 p.pop("revision_preview", None)
                 if action.draft is None:
                     raise ValueError("INVALID_INPUT")
@@ -519,16 +541,19 @@ class PlanningService:
                         a.evidence_ids,
                         a.conditions,
                         a.discovery_ids,
+                        a.knowledge_refs,
                     ) != (
                         original.name,
                         original.region,
                         original.evidence_ids,
                         original.conditions,
                         original.discovery_ids,
+                        original.knowledge_refs,
                     ):
                         a.provenance = "USER_INPUT"
                         a.evidence_ids = []
                         a.discovery_ids = []
+                        a.knowledge_refs = []
                         a.conditions = []
                         a.reference_kinds = []
                         a.description = "用户输入，来源支持待核实"
@@ -721,6 +746,12 @@ class PlanningService:
                 p["own_research_ids"] = sorted(set(p.get("own_research_ids", []) + [rid]))
                 p["collapsed"]["activities"] = False
             elif action.action == "adopt":
+                p.pop("knowledge_preview", None)
+                p.pop("knowledge_preview_cancel", None)
+                if p.get("knowledge_mode"):
+                    from travel_agent.knowledge.planning import verify
+
+                    verify(self.db, self.scope, p)
                 p.pop("last_revision_adoption", None)
                 if p.get("revision_preview"):
                     from .suggestions import revision_proposal
@@ -742,7 +773,9 @@ class PlanningService:
                     )
                 p["adopted_version"] = p.get("adopted_version", 0) + 1
                 p.pop("revision_preview", None)
-                if any(a.get("provenance") == "SOURCE_MENTION" for a in p["draft"]["activities"]):
+                if not p.get("knowledge_mode") and any(
+                    a.get("provenance") == "SOURCE_MENTION" for a in p["draft"]["activities"]
+                ):
                     from .discovery import checked, verify_activity
 
                     leads = checked(self.db, self.scope, sid, p)
@@ -753,9 +786,15 @@ class PlanningService:
                 p["adopted"] = deepcopy(p["draft"])
                 p["collapsed"] = dict.fromkeys(["direction", "activities", "conditions"], True)
             elif action.action == "cancel":
+                preview = p.pop("knowledge_preview", None)
+                if preview:
+                    p["draft"] = preview["draft"]
+                    p["knowledge_preview_cancel"] = dict(
+                        job_id=preview["job_id"], restored_revision=row["revision"] + 1
+                    )
                 p.pop("revision_preview", None)
                 p["direction_backup"] = None
-                if p["adopted"]:
+                if p["adopted"] and not preview:
                     p["draft"] = deepcopy(p["adopted"])
                 p["collapsed"] = dict.fromkeys(["direction", "activities", "conditions"], True)
             elif action.action == "collapse":
@@ -781,6 +820,8 @@ class PlanningService:
                         (p["job_id"],),
                     )
             elif action.action == "use_proposal":
+                if p.get("knowledge_mode"):
+                    p["knowledge_preview"] = dict(draft=deepcopy(p["draft"]), job_id=p["job_id"])
                 from .suggestions import apply_proposal
 
                 p["draft"] = apply_proposal(

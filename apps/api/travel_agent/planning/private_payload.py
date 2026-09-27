@@ -11,6 +11,10 @@ from .private_budget import PrivatePlanningBudget
 
 
 def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
+    if p.get("knowledge_mode"):
+        from travel_agent.knowledge.planning import payload as knowledge_payload
+
+        return knowledge_payload(db, scope, p)
     from .workbench import daily
 
     if not daily(p):
@@ -93,6 +97,16 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         and not draft.activities
     ):
         raise ValueError("ACTIVITY_SELECTION_REQUIRED")
+    return assemble(p, draft, selected, discovery_mode, refs)
+
+
+def assemble(
+    p: dict[str, Any],
+    draft: PlanDraft,
+    selected: list[dict[str, Any]],
+    discovery_mode: bool,
+    refs: list[dict[str, Any]],
+) -> dict[str, Any]:
     return {
         "protocol_version": p.get("protocol_version", 1),
         "discovery_mode": discovery_mode,
@@ -135,7 +149,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
             for a in draft.activities
         ],
         "references": selected,
-        "allowed_citation_ids": sorted(allowed),
+        "allowed_citation_ids": sorted(e["claim_id"] for e in selected),
         "known_map_values": [],
         "instructions": (
             "当前输入仅证明公共名称被原文提及，引用ID是发现依据，不是获准的作者事实。只给顺序、建议停留/休息和节奏取舍；不得添加地点历史、展览、特色、开放或预约事实。范围UNKNOWN的选项仅为临时草案。不要解释地点体验。"

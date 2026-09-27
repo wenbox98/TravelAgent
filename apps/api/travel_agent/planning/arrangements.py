@@ -63,7 +63,11 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
     needed = {
         e
         for i in ids
-        for e in [*allowed[i].get("evidence_ids", []), *allowed[i].get("discovery_ids", [])]
+        for e in [
+            *allowed[i].get("evidence_ids", []),
+            *allowed[i].get("discovery_ids", []),
+            *allowed[i].get("knowledge_citation_ids", []),
+        ]
     }
     if not needed <= set(p["citation_ids"]):
         raise Rejected("PLANNING_UNKNOWN_REFERENCE", "citation_ids")

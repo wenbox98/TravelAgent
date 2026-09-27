@@ -136,6 +136,8 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
         from travel_agent.planning.api import install_routes
         install_routes(app, config)
     if config.product_flow:
+        from travel_agent.knowledge.api import install_library
+        install_library(app, config)
         from travel_agent.planning.flow_api import install_flow
         install_flow(app, config)
 

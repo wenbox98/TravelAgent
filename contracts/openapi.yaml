@@ -1217,6 +1217,42 @@ paths:
           application/json:
             schema:
               $ref: ./domain.schema.json#/$defs/MapAction
+  /api/v1/preview/knowledge:
+    post:
+      operationId: manageLocalKnowledge
+      summary: 本机关键词资料库：整理、检索、显式复用、独立清理和撤销；无外部派发
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/LibraryResponse
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/LibraryAction
 components:
   securitySchemes:
     LocalSession:

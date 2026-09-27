@@ -11,9 +11,12 @@ from travel_agent.planning.models import MapAction, MapView  # noqa: E402
 from travel_agent.planning.flow_models import PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse  # noqa: E402
 
 
+from travel_agent.knowledge.api import LibraryAction, LibraryResponse  # noqa: E402
+
+
 def definitions():
     result = {}
-    for model in (PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse):
+    for model in (LibraryAction, LibraryResponse, PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse):
         schema = model.model_json_schema()
         result.update(schema.pop("$defs", {}))
         result[model.__name__] = schema
@@ -33,6 +36,7 @@ def main():
     path = ROOT / "contracts/openapi.yaml"
     api = yaml.safe_load(path.read_text(encoding="utf-8"))
     routes = [
+        ("/api/v1/preview/knowledge", "post", "manageLocalKnowledge", "LibraryAction", "LibraryResponse"),
         ('/api/v1/preview/planning', 'get', 'readPlanningIndex', None, 'PlanIndex'),
         ('/api/v1/preview/planning', 'post', 'createIndependentTrip', 'PlanCreate', 'PlanView'),
         ('/api/v1/preview/planning/{session_id}', 'get', 'readPlanningDraft', None, 'PlanView'),
@@ -65,6 +69,9 @@ def main():
         if 'Planning' in operation or operation == 'createIndependentTrip':
             value['summary']='日常私人工作台：新旅行无隐含授权；页面有限许可、追加/撤销复用耐久账本；本地复用/修改/恢复零外部调用；历史规则保留'
             value['security']=[{'PreviewMapSession':[]}]
+        if operation == "manageLocalKnowledge":
+            value["summary"] = "本机关键词资料库：整理、检索、显式复用、独立清理和撤销；无外部派发"
+            value["security"] = [{"PreviewMapSession": []}]
         if body:
             value["requestBody"] = {"required": True, "content": {"application/json": {"schema": {"$ref": f"./domain.schema.json#/$defs/{body}"}}}}
         if 'BoundedResearch' in operation or operation=='readWorkbench':
