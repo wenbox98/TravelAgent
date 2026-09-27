@@ -84,6 +84,10 @@ def payload_for(
 ) -> dict[str, Any]:
     """Allowlisted synthetic data only. Never serialize UI request/private endpoints."""
     from .flow import demo_activities
+    from .advisory import enabled, payload as advisory_payload
+
+    if enabled(p) and db is not None:
+        return advisory_payload(db, scope, sid, p)
 
     if not p["demo"] and db is not None:
         from .private_budget import PrivatePlanningBudget, REVISION_IDENTIFIER
@@ -241,7 +245,9 @@ def create_job(
     payload = payload_for(p, db, scope, sid)
     jid = "planning-" + uuid4().hex
     identifier, slot = IDENTIFIER, p["demo"]
-    if not p["demo"]:
+    from .workbench import daily
+
+    if not p["demo"] or daily(p):
         from .private_budget import PrivatePlanningBudget
 
         budget_private = PrivatePlanningBudget.for_trip(db, sid)
@@ -467,7 +473,7 @@ def apply_proposal(
         or (
             job["request_revision"] != revision
             and not (
-                p.get("knowledge_mode")
+                (p.get("knowledge_mode") or p.get("draft", {}).get("planning_mode") == "ADVISORY")
                 and p.get("knowledge_preview_cancel", {}).get("job_id") == p.get("job_id")
                 and p.get("knowledge_preview_cancel", {}).get("restored_revision") == revision
             )
@@ -475,7 +481,7 @@ def apply_proposal(
         or index >= len(job["proposals"])
     ):
         raise ValueError("STALE_PROPOSAL")
-    if not p["demo"]:
+    if not p["demo"] or job["protocol_version"] == 4:
         stored = db.connection.execute(
             "SELECT session_id,request_json FROM preview_jobs WHERE job_id=? AND account_scope=?",
             (p["job_id"], scope),
@@ -488,6 +494,20 @@ def apply_proposal(
             raise ValueError("STALE_PROPOSAL")
     draft = PlanDraft.model_validate(p["draft"])
     proposal = job["proposals"][index]
+    if job["protocol_version"] == 4:
+        from .advisory import validate, apply
+        from .guide_models import GuideProposal
+
+        current_payload = payload_for(p, db, scope, stored["session_id"])
+        checked = validate(
+            dict(
+                protocol_version=4, proposals=[{k: proposal[k] for k in GuideProposal.model_fields}]
+            ),
+            current_payload,
+        )
+        if checked["accepted_count"] != 1:
+            raise ValueError("STALE_PROPOSAL")
+        return apply(p, checked["proposals"][0])
     if job["protocol_version"] == 2:
         from .arrangements import validate_arrangements
 
@@ -583,20 +603,31 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
                 raise ValueError("STALE_PROPOSAL")
             modern = data["payload"].get("protocol_version") == 2
             revision_mode = data["payload"].get("protocol_version") == 3
+            advisory_mode = data["payload"].get("protocol_version") == 4
+            from .guide_models import GuideResponse
+
             raw = provider.structured(
-                "planning_revision_v3"
+                "planning_advisory_v4"
+                if advisory_mode
+                else "planning_revision_v3"
                 if revision_mode
                 else "planning_arrangement_v2"
                 if modern
                 else "planning_suggestion",
                 data["payload"],
-                RevisionResponse.model_json_schema()
+                GuideResponse.model_json_schema()
+                if advisory_mode
+                else RevisionResponse.model_json_schema()
                 if revision_mode
                 else ArrangementResponse.model_json_schema()
                 if modern or revision_mode
                 else PlanningResponse.model_json_schema(),
             )
-            if revision_mode:
+            if advisory_mode:
+                from .advisory import validate as validate_guide
+
+                summary = validate_guide(raw, data["payload"])
+            elif revision_mode:
                 from .revisions import validate
 
                 summary = validate(raw, data["payload"])
@@ -615,13 +646,9 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             current, latest_state = PlanningService(db, row["account_scope"]).load(
                 row["session_id"]
             )
-            if (
-                data["payload"].get("knowledge_mode")
-                and payload_for(
-                    latest_state["planning"], db, row["account_scope"], row["session_id"]
-                )
-                != data["payload"]
-            ):
+            if (data["payload"].get("knowledge_mode") or advisory_mode) and payload_for(
+                latest_state["planning"], db, row["account_scope"], row["session_id"]
+            ) != data["payload"]:
                 raise ValueError("STALE_PROPOSAL")
             budget.check_job_active(jid)
             if current["revision"] != row["request_revision"]:
@@ -671,8 +698,27 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             summary.update(
                 protocol_version=2, rule_version=VERSION, input_hash=fingerprint(saved_input)
             )
+        if saved_input.get("protocol_version") == 4:
+            from .advisory import VERSION as GUIDE_VERSION
+            from .revision_diagnostics import retain
+
+            summary.update(
+                protocol_version=4,
+                rule_version=GUIDE_VERSION,
+                input_hash=fingerprint(saved_input),
+                returned=raw is not None,
+                parsed=isinstance(raw, dict),
+            )
+            try:
+                summary["local_diagnostic"] = retain(db, row, raw, summary)
+            except OSError, ValueError, TypeError:
+                summary["local_diagnostic"] = dict(
+                    replayable=False, reason="RECORD_UNAVAILABLE", adopted_affected=False
+                )
         with db.transaction() as con:
-            if saved_input.get("knowledge_mode") and status in {"COMPLETED", "PARTIAL"}:
+            if (
+                saved_input.get("knowledge_mode") or saved_input.get("protocol_version") == 4
+            ) and status in {"COMPLETED", "PARTIAL"}:
                 try:
                     latest, state = PlanningService(db, row["account_scope"]).load(
                         row["session_id"]

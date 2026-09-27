@@ -43,6 +43,13 @@ STATUS_MESSAGES = {
     "REUSE_SOURCE_UNAVAILABLE": "历史资料已过期、范围不符或来源发生变化，未复用。",
     "REUSE_REQUIRES_EMPTY_DRAFT": "请在尚未选择活动的新旅行中复用，已有安排保留。",
     "DAILY_TRIP_REQUIRED": "这是保留的历史验收旅行；请新建独立旅行使用普通操作许可。",
+    "PLANNING_LOCKED_CONSTRAINT": "这项修改会移除锁定项目或预约，原方案保留。",
+    "PLANNING_SCOPE_UNVERIFIED": "明确不匹配当前范围的项目仍在备选区，未改变需求。",
+    "BUDGET_LOCKED_LINE": "已锁定或已付费用不能随组合修改移除。",
+    "BUDGET_REFERENCE_UNAVAILABLE": "没有可用报价依据；可以填写预算目标。",
+    "GUIDE_REFERENCE_UNAVAILABLE": "所选资料已经变化，不能继续导出为可用来源。",
+    "GUIDE_ADOPT_FIRST": "请先采用一版建议，再导出。",
+    "GUIDE_MODE_REQUIRED": "请在新的建议型旅行中使用此操作；历史版保持原义。",
 }
 
 
@@ -63,9 +70,10 @@ def check_active(db: Any, state: dict[str, Any]) -> dict[str, Any]:
     p = json.loads(row[0]).get("planning", {}) if row else {}
     if (
         not row
-        or row[1] != "CACHED_PRIVATE_PREVIEW"
+        or row[1]
+        != ("SYNTHETIC_DEMO" if p.get("demo") == "GUIDE_MULTI_DAY" else "CACHED_PRIVATE_PREVIEW")
         or not daily(p)
-        or p.get("demo")
+        or p.get("demo") not in {None, "GUIDE_MULTI_DAY"}
         or p.get("operation_grant") != state["continuation_id"]
         or p["destination"] != gate["destination"]
     ):
@@ -137,9 +145,16 @@ def authorize(db: Any, scope: str, sid: str, p: dict[str, Any], proposal: Any) -
     from travel_agent.research.retry import _config
     from .discovery import contents
 
-    if not daily(p) or p["demo"] or proposal is None or not proposal.confirm:
+    if (
+        not daily(p)
+        or p["demo"] not in {None, "GUIDE_MULTI_DAY"}
+        or proposal is None
+        or not proposal.confirm
+    ):
         raise ValueError("OPERATION_NOT_AUTHORIZED")
     limits = {k: getattr(proposal, k.lower()) for k in KINDS}
+    if p.get("demo") == "GUIDE_MULTI_DAY" and any(limits[k] for k in KINDS if k != "MODEL"):
+        raise ValueError("OPERATION_NOT_AUTHORIZED")
     tasks = sorted(set(proposal.tasks))
     if not any(limits.values()) or not tasks:
         raise ValueError("INVALID_INPUT")
@@ -165,7 +180,7 @@ def authorize(db: Any, scope: str, sid: str, p: dict[str, Any], proposal: Any) -
     if previous:
         close(db, scope, sid, p)
     identifier = "operation-" + uuid4().hex
-    material = [] if p.get("knowledge_mode") else contents(db, scope, sid, p)
+    material = [] if p.get("knowledge_mode") or p.get("demo") else contents(db, scope, sid, p)
     gate = dict(
         status="PASS",
         purpose=PURPOSE,
@@ -176,6 +191,11 @@ def authorize(db: Any, scope: str, sid: str, p: dict[str, Any], proposal: Any) -
         content_ids=sorted(c["content_id"] for c in material),
         activity_ids=sorted(
             {a["activity_id"] for a in p["draft"]["activities"]}
+            | {
+                a["activity_id"]
+                for a in p.get("activity_pool", [])
+                if a["provenance"] == "SYNTHETIC_TEST"
+            }
             | {
                 lead["lead_id"]
                 for lead in p.get("discovery", {}).get("leads", [])

@@ -12,11 +12,12 @@ from travel_agent.planning.flow_models import PlanAction, PlanCreate, PlanView, 
 
 
 from travel_agent.knowledge.api import LibraryAction, LibraryResponse  # noqa: E402
+from travel_agent.planning.guide_models import GuideResponse, GuideExport  # noqa: E402
 
 
 def definitions():
     result = {}
-    for model in (LibraryAction, LibraryResponse, PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse):
+    for model in (GuideResponse, GuideExport, LibraryAction, LibraryResponse, PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse):
         schema = model.model_json_schema()
         result.update(schema.pop("$defs", {}))
         result[model.__name__] = schema
@@ -41,6 +42,7 @@ def main():
         ('/api/v1/preview/planning', 'post', 'createIndependentTrip', 'PlanCreate', 'PlanView'),
         ('/api/v1/preview/planning/{session_id}', 'get', 'readPlanningDraft', None, 'PlanView'),
         ('/api/v1/preview/planning/{session_id}', 'post', 'changePlanningDraft', 'PlanAction', 'PlanView'),
+        ('/api/v1/preview/planning/{session_id}/guide-export', 'get', 'exportPlanningGuide', None, 'GuideExport'),
         ('/api/v1/preview/planning-maps/{session_id}', 'get', 'readPlanningPlaces', None, 'MapView'),
         ('/api/v1/preview/planning-maps', 'post', 'changePlanningPlaces', 'MapAction', 'MapView'),
         ('/api/v1/preview/routes/{session_id}', 'get', 'readRoutePreview', None, 'MapView'),

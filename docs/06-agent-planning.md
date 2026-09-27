@@ -3,6 +3,10 @@
 ## 责任边界
 模型负责理解模糊需求、提出研究问题、抽取证据和解释方案。程序负责权限、请求预算、时间计算、费用、版本和任务恢复。模型不获得任意浏览器执行权。
 
+P09普通新旅行改为 `ADVISORY`，模型协议v4只返回候选ID、建议停留/日段、食宿策略和专用预算字段。没有首项钟点或地图仍可生成；详细时间视图按需展开，未知移动保持未知。既有v2/v3历史语义不变，未含新字段的旧采用版按 `DETAILED/LOCKED`读取，不批量重写。以下精确可行性规则用于用户要求精确安排或已知硬约束，不能用来阻止有限建议。门到门不是默认范围。
+
+旅行费用复用并扩展 `AmountRange/BudgetLine` 草案，程序整数分计算；AI预留不是真实报价。当前持久化在既有PlanDraft JSON，旧SQL budget_lines不迁移、不伪造旧报价。新字段、接口和兼容策略见 [显式契约变更](architecture/advisory-guide-and-trip-budget.md)。
+
 ## 流程
 ```text
 INTAKE → RESEARCH_OVERVIEW → DRAFT_OVERVIEW → WAITING_CHOICE

@@ -35,6 +35,7 @@ def new(s, cards, **values):
             destination="合成青谷",
             knowledge_first=True,
             request="一天，公共交通和步行，10点开始首项",
+            planning_mode="DETAILED",
             **values,
         ),
         str(uuid4()),

@@ -255,6 +255,15 @@ class PlanningService:
             state = json.loads(row[0])
             parsed, _ = parse_preferences(body.request)
             draft = PlanDraft(days=parsed.get("days"), driving=parsed.get("driving", "UNKNOWN"))
+            from .advisory import SYNTHETIC, fixture
+
+            if body.planning_mode == "ADVISORY" or (
+                body.planning_mode is None
+                and self.daily_workbench
+                and (not body.demo or body.demo == SYNTHETIC)
+            ):
+                draft.planning_mode = "ADVISORY"
+                draft.start_constraint = draft.end_constraint = "FLEXIBLE"
             from .spatial import parse_intent
 
             draft.spatial = parse_intent(body.request, body.travel_kind, body.validation_trip)
@@ -268,19 +277,36 @@ class PlanningService:
                 if match and int(match[1]) < 24:
                     draft.inputs.activity_start = f"{int(match[1]):02d}:{int(match[2] or 0):02d}"
                     draft.anchor_origin = "USER_CONFIRMED"
-            if body.demo:
+            if body.demo and body.demo != SYNTHETIC:
                 draft.days = 2 if body.demo != "REGIONAL" else None
                 draft.transport = "PUBLIC_TRANSIT" if body.demo == "CITY" else "UNKNOWN"
                 draft.inputs.activity_start = "10:00"
                 draft.anchor_origin = "SYNTHETIC_TEST"
                 draft.activities = demo_activities(body.demo)
+            if body.demo == SYNTHETIC:
+                draft.planning_mode = "ADVISORY"
+                draft.start_constraint = draft.end_constraint = "FLEXIBLE"
+                draft.days = 2
+                draft.trip_budget.people = 2
+                draft.trip_budget.days = 2
+                draft.trip_budget.nights = 1
+                draft.trip_budget.rooms = 1
+                draft.activities = [fixture()[0][0], fixture()[0][2]]
+            if draft.planning_mode == "ADVISORY":
+                from .advisory import request_times
+
+                if not body.demo:
+                    request_times(draft, body.request)
+                from .trip_budget import defaults
+
+                draft.trip_budget.lines = defaults(draft.days, True)
             state["planning"] = {
                 "knowledge_mode": body.knowledge_first,
                 "destination": body.destination,
                 "request": body.request,
                 "travel_kind": body.travel_kind,
                 "demo": body.demo,
-                "validation_trip": body.validation_trip,
+                "validation_trip": body.validation_trip or body.demo == SYNTHETIC,
                 "protocol_version": 2,
                 "research_ids": sorted(matches),
                 "research_job_id": None,
@@ -289,7 +315,11 @@ class PlanningService:
                 "collapsed": {"activities": True, "conditions": True},
                 "job_id": None,
             }
-            if self.daily_workbench and not body.demo:
+            if body.demo == SYNTHETIC:
+                state["planning"].update(
+                    activity_pool=[a.model_dump() for a in fixture()[0]], lodging_areas=fixture()[1]
+                )
+            if self.daily_workbench and (not body.demo or body.demo == SYNTHETIC):
                 state["planning"].update(runtime_mode="DAILY", operation_grant=None)
             self.db.connection.execute(
                 "UPDATE preview_sessions SET state_json=? WHERE session_id=?",
@@ -341,7 +371,7 @@ class PlanningService:
         from travel_agent.preview.jobs import JobService
 
         job = job_view(self.db, self.scope, p["job_id"]) if p["job_id"] else None
-        if job and p.get("knowledge_mode"):
+        if job and (p.get("knowledge_mode") or draft.planning_mode == "ADVISORY"):
             marker = p.get("knowledge_preview_cancel", {})
             job["can_preview"] = bool(
                 job["request_revision"] == row["revision"]
@@ -350,6 +380,33 @@ class PlanningService:
                     and marker.get("restored_revision") == row["revision"]
                 )
             )
+            if job["can_preview"] and draft.planning_mode == "ADVISORY":
+                from .suggestions import payload_for
+
+                saved = self.db.connection.execute(
+                    "SELECT request_json FROM preview_jobs WHERE job_id=? AND account_scope=?",
+                    (p["job_id"], self.scope),
+                ).fetchone()
+                try:
+                    job["can_preview"] = bool(saved) and json.loads(saved[0])[
+                        "payload"
+                    ] == payload_for(p, self.db, self.scope, sid)
+                except ValueError:
+                    job["can_preview"] = False
+                if job["can_preview"] and job.get("proposals"):
+                    from .advisory import VERSION, validate
+                    from .guide_models import GuideProposal
+
+                    if job.get("rule_version") != VERSION:
+                        raw = dict(
+                            protocol_version=4,
+                            proposals=[
+                                {k: value[k] for k in GuideProposal.model_fields if k in value}
+                                for value in job["proposals"]
+                            ],
+                        )
+                        current_validation = validate(raw, json.loads(saved[0])["payload"])
+                        job["can_preview"] = current_validation["accepted_count"] > 0
         refs = references(self.db, self.scope, sid)
         area_gaps = scope_gaps(p["travel_kind"] == "CITY" and "市区" in p["request"], refs)
         candidates = [
@@ -418,7 +475,15 @@ class PlanningService:
         status = model_status(self.db, self.scope, sid, p) if daily(p) else None
         old = p["adopted"]
         differences = [k for k in p["draft"] if old is not None and p["draft"][k] != old.get(k)]
+        from .advisory import pool
+        from .guide_view import project
+
+        guide_view = project(p) if draft.planning_mode == "ADVISORY" else None
         return {
+            "guide_view": guide_view,
+            "combination_candidates": [a.model_dump() for a in pool(self.db, self.scope, sid, p)]
+            if guide_view
+            else [],
             "session_id": sid,
             "revision": row["revision"],
             "destination": p["destination"],
@@ -434,7 +499,9 @@ class PlanningService:
             "gaps": gaps,
             "differences": differences,
             "evidence_count": len(refs) if not p["demo"] else view["evidence_count"],
-            "proposal_preview_active": bool(p.get("knowledge_preview")),
+            "proposal_preview_active": bool(
+                p.get("knowledge_preview") or p.get("combination_preview")
+            ),
             "direction_change_pending": p.get("direction_backup") is not None,
             "cache_message": "合成活动测试，非真实攻略或地图。"
             if p["demo"]
@@ -505,6 +572,13 @@ class PlanningService:
             if row["revision"] != action.expected_revision:
                 raise ValueError("STALE_REVISION")
             p = state["planning"]
+            from .advisory import enabled, check_transition, combine
+
+            if enabled(p):
+                # Keep provided candidates for reversible combination changes; validity is rechecked on use.
+                catalog = {a["activity_id"]: a for a in p.get("activity_pool", [])}
+                catalog.update({a["activity_id"]: deepcopy(a) for a in p["draft"]["activities"]})
+                p["activity_pool"] = list(catalog.values())
             if action.action in {"authorize", "revoke_authorization", "reuse_activities"}:
                 from .workbench import daily, authorize, close, reuse
 
@@ -523,6 +597,13 @@ class PlanningService:
                     raise ValueError("INVALID_INPUT")
                 before = PlanDraft.model_validate(p["draft"])
                 draft = action.draft
+                if enabled(p):
+                    from .trip_budget import preserve_edits
+
+                    check_transition(before, draft)
+                    draft.trip_budget = preserve_edits(before.trip_budget, draft.trip_budget)
+                    if draft.guide != before.guide:
+                        draft.guide.origin = "USER_CONFIRMED"
                 view = PreviewService(self.db, self.scope, row["mode"]).get(sid)
                 options = {o["option_id"]: o for o in view["options"]}
                 allowed = {e["claim_id"] for o in view["options"] for e in o["evidence"]}
@@ -714,7 +795,9 @@ class PlanningService:
                 ):
                     raise ValueError("OPTION_UNAVAILABLE")
                 if PlanDraft.model_validate(p["draft"]).spatial.intent == "CITY_CORE" and any(
-                    catalog[i]["spatial_status"] != "MATCH" for i in action.activity_ids
+                    catalog[i]["spatial_status"]
+                    not in ({"MATCH", "UNKNOWN"} if enabled(p) else {"MATCH"})
+                    for i in action.activity_ids
                 ):
                     raise ValueError("OPTION_UNAVAILABLE")
                 p["draft"]["activities"] = [deepcopy(catalog[i]) for i in action.activity_ids]
@@ -746,6 +829,11 @@ class PlanningService:
                 p["own_research_ids"] = sorted(set(p.get("own_research_ids", []) + [rid]))
                 p["collapsed"]["activities"] = False
             elif action.action == "adopt":
+                if enabled(p):
+                    from .advisory import verify_current
+
+                    verify_current(self.db, self.scope, sid, p)
+                p.pop("combination_preview", None)
                 p.pop("knowledge_preview", None)
                 p.pop("knowledge_preview_cancel", None)
                 if p.get("knowledge_mode"):
@@ -786,7 +874,10 @@ class PlanningService:
                 p["adopted"] = deepcopy(p["draft"])
                 p["collapsed"] = dict.fromkeys(["direction", "activities", "conditions"], True)
             elif action.action == "cancel":
+                combination = p.pop("combination_preview", None)
                 preview = p.pop("knowledge_preview", None)
+                if combination:
+                    p["draft"] = combination["draft"]
                 if preview:
                     p["draft"] = preview["draft"]
                     p["knowledge_preview_cancel"] = dict(
@@ -794,7 +885,7 @@ class PlanningService:
                     )
                 p.pop("revision_preview", None)
                 p["direction_backup"] = None
-                if p["adopted"] and not preview:
+                if p["adopted"] and not preview and not combination:
                     p["draft"] = deepcopy(p["adopted"])
                 p["collapsed"] = dict.fromkeys(["direction", "activities", "conditions"], True)
             elif action.action == "collapse":
@@ -820,7 +911,7 @@ class PlanningService:
                         (p["job_id"],),
                     )
             elif action.action == "use_proposal":
-                if p.get("knowledge_mode"):
+                if p.get("knowledge_mode") or enabled(p):
                     p["knowledge_preview"] = dict(draft=deepcopy(p["draft"]), job_id=p["job_id"])
                 from .suggestions import apply_proposal
 
@@ -828,6 +919,10 @@ class PlanningService:
                     self.db, self.scope, p, row["revision"], action.proposal_index
                 )
                 p["collapsed"]["activities"] = False
+            elif action.action == "preview_combination":
+                if not enabled(p):
+                    raise ValueError("GUIDE_MODE_REQUIRED")
+                combine(self.db, self.scope, sid, p, action.activity_ids)
             self.db.connection.execute(
                 "UPDATE preview_sessions SET state_json=?,revision=revision+?,updated_at=? WHERE session_id=?",
                 (

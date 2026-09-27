@@ -5,6 +5,7 @@ from pydantic import Field, field_validator, model_validator
 from travel_agent.preview.models import StrictModel
 from travel_agent.preview.projection import safe_text
 from .models import TripInputs
+from .guide_models import TripBudget, GuideContent
 
 
 class SpatialIntent(StrictModel):
@@ -19,6 +20,8 @@ class KnowledgeBinding(StrictModel):
 
 
 class Activity(StrictModel):
+    locked: bool = False
+    period: Literal["UNDECIDED", "MORNING", "AFTERNOON", "EVENING"] = "UNDECIDED"
     knowledge_refs: list[KnowledgeBinding] = Field(default_factory=list, max_length=12)
     activity_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     name: str = Field(min_length=1, max_length=120)
@@ -61,6 +64,13 @@ class Activity(StrictModel):
 
 
 class PlanDraft(StrictModel):
+    # Missing fields keep historical semantics. Only creation sets the new default.
+    planning_mode: Literal["DETAILED", "ADVISORY"] = "DETAILED"
+    start_constraint: Literal["LOCKED", "FLEXIBLE"] = "LOCKED"
+    end_constraint: Literal["LOCKED", "FLEXIBLE"] = "LOCKED"
+    guide: GuideContent = Field(default_factory=GuideContent)
+    trip_budget: TripBudget = Field(default_factory=TripBudget)
+    hard_notes: list[str] = Field(default_factory=list, max_length=4)
     spatial: SpatialIntent = Field(default_factory=SpatialIntent)
     direction: str | None = Field(default=None, max_length=100)
     days: int | None = Field(default=None, ge=1, le=90)
@@ -78,6 +88,11 @@ class PlanDraft(StrictModel):
     return_deadline: str | None = None
     activities: list[Activity] = Field(default_factory=list, max_length=12)
 
+    @field_validator("hard_notes")
+    @classmethod
+    def safe_notes(cls, values: list[str]) -> list[str]:
+        return [safe_text(v, 160) for v in values]
+
     @field_validator("return_deadline")
     @classmethod
     def time(cls, value: str | None) -> str | None:
@@ -85,11 +100,12 @@ class PlanDraft(StrictModel):
 
 
 class PlanCreate(StrictModel):
+    planning_mode: Literal["DETAILED", "ADVISORY"] | None = None
     knowledge_first: bool = False
     destination: str = Field(min_length=1, max_length=80)
     request: str = Field(default="", max_length=500)
     travel_kind: Literal["CITY", "REGIONAL"] = "CITY"
-    demo: Literal["CITY", "REGIONAL", "OTHER_CITY"] | None = None
+    demo: Literal["CITY", "REGIONAL", "OTHER_CITY", "GUIDE_MULTI_DAY"] | None = None
     validation_trip: bool = False
 
     @field_validator("destination", "request")
@@ -132,6 +148,7 @@ class PlanAction(StrictModel):
         "authorize",
         "revoke_authorization",
         "reuse_activities",
+        "preview_combination",
     ]
     expected_revision: int = Field(ge=0)
     draft: PlanDraft | None = None
@@ -222,6 +239,8 @@ class RevisionResponse(StrictModel):
 
 
 class PlanView(StrictModel):
+    guide_view: dict[str, Any] | None = None
+    combination_candidates: list[Activity] = Field(default_factory=list)
     session_id: str
     revision: int
     destination: str

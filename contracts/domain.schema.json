@@ -1405,54 +1405,61 @@
       "additionalProperties": false
     },
     "AmountRange": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "min_fen": {
           "anyOf": [
             {
-              "type": "integer",
-              "minimum": 0
+              "maximum": 100000000,
+              "minimum": 0,
+              "type": "integer"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "default": null,
+          "title": "Min Fen"
         },
         "max_fen": {
           "anyOf": [
             {
-              "type": "integer",
-              "minimum": 0
+              "maximum": 100000000,
+              "minimum": 0,
+              "type": "integer"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "default": null,
+          "title": "Max Fen"
         },
         "currency": {
-          "const": "CNY"
+          "const": "CNY",
+          "default": "CNY",
+          "title": "Currency",
+          "type": "string"
         }
       },
-      "required": [
-        "min_fen",
-        "max_fen",
-        "currency"
-      ],
-      "additionalProperties": false
+      "title": "AmountRange",
+      "type": "object"
     },
     "BudgetLine": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "line_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 160
+          "pattern": "^[a-zA-Z0-9_-]{1,80}$",
+          "title": "Line Id",
+          "type": "string"
         },
         "label": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Label",
           "type": "string"
         },
         "category": {
-          "type": "string",
           "enum": [
             "TRANSPORT",
             "LODGING",
@@ -1461,65 +1468,172 @@
             "RESERVE",
             "DEPOSIT",
             "OTHER"
-          ]
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "transport_scope": {
+          "anyOf": [
+            {
+              "enum": [
+                "ROUND_TRIP",
+                "LOCAL"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transport Scope"
         },
         "unit": {
+          "default": "ONCE",
+          "enum": [
+            "ONCE",
+            "PER_PERSON",
+            "PER_PERSON_DAY",
+            "PER_ROOM_NIGHT",
+            "PER_DAY"
+          ],
+          "title": "Unit",
           "type": "string"
         },
         "quantity": {
-          "type": "integer",
-          "minimum": 1
+          "default": 1,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Quantity",
+          "type": "integer"
         },
         "unit_amount": {
           "$ref": "#/$defs/AmountRange"
         },
         "status": {
-          "type": "string",
+          "default": "UNKNOWN",
           "enum": [
             "QUOTED",
             "ESTIMATED",
             "HISTORICAL",
             "PAID",
             "UNKNOWN"
-          ]
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "basis": {
+          "default": "UNKNOWN",
+          "enum": [
+            "USER_BUDGET_TARGET",
+            "AI_BUDGET_PROPOSAL",
+            "HISTORICAL_REFERENCE",
+            "OBSERVED_QUOTE",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            "EXCLUDED_SELF_ARRANGED"
+          ],
+          "title": "Basis",
+          "type": "string"
         },
         "included_in_line_id": {
           "anyOf": [
             {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 160
+              "maxLength": 80,
+              "type": "string"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "default": null,
+          "title": "Included In Line Id"
         },
         "quote_id": {
           "anyOf": [
             {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 160
+              "maxLength": 160,
+              "type": "string"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "default": null,
+          "title": "Quote Id"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Conditions",
+          "type": "array"
+        },
+        "citation_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Citation Ids",
+          "type": "array"
+        },
+        "queried_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Queried At"
+        },
+        "activity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Activity Ids",
+          "type": "array"
+        },
+        "optional": {
+          "default": false,
+          "title": "Optional",
+          "type": "boolean"
+        },
+        "include_optional": {
+          "default": false,
+          "title": "Include Optional",
+          "type": "boolean"
+        },
+        "paid_fen": {
+          "default": 0,
+          "maximum": 100000000,
+          "minimum": 0,
+          "title": "Paid Fen",
+          "type": "integer"
+        },
+        "locked": {
+          "default": false,
+          "title": "Locked",
+          "type": "boolean"
+        },
+        "is_synthetic": {
+          "default": false,
+          "title": "Is Synthetic",
+          "type": "boolean"
         }
       },
       "required": [
         "line_id",
         "label",
-        "category",
-        "unit",
-        "quantity",
-        "unit_amount",
-        "status",
-        "included_in_line_id",
-        "quote_id"
+        "category"
       ],
-      "additionalProperties": false
+      "title": "BudgetLine",
+      "type": "object"
     },
     "BudgetResult": {
       "type": "object",
@@ -6267,6 +6381,22 @@
     "Activity": {
       "additionalProperties": false,
       "properties": {
+        "locked": {
+          "default": false,
+          "title": "Locked",
+          "type": "boolean"
+        },
+        "period": {
+          "default": "UNDECIDED",
+          "enum": [
+            "UNDECIDED",
+            "MORNING",
+            "AFTERNOON",
+            "EVENING"
+          ],
+          "title": "Period",
+          "type": "string"
+        },
         "knowledge_refs": {
           "items": {
             "$ref": "#/$defs/KnowledgeBinding"
@@ -6464,6 +6594,47 @@
     "PlanDraft": {
       "additionalProperties": false,
       "properties": {
+        "planning_mode": {
+          "default": "DETAILED",
+          "enum": [
+            "DETAILED",
+            "ADVISORY"
+          ],
+          "title": "Planning Mode",
+          "type": "string"
+        },
+        "start_constraint": {
+          "default": "LOCKED",
+          "enum": [
+            "LOCKED",
+            "FLEXIBLE"
+          ],
+          "title": "Start Constraint",
+          "type": "string"
+        },
+        "end_constraint": {
+          "default": "LOCKED",
+          "enum": [
+            "LOCKED",
+            "FLEXIBLE"
+          ],
+          "title": "End Constraint",
+          "type": "string"
+        },
+        "guide": {
+          "$ref": "#/$defs/GuideContent"
+        },
+        "trip_budget": {
+          "$ref": "#/$defs/TripBudget"
+        },
+        "hard_notes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Hard Notes",
+          "type": "array"
+        },
         "spatial": {
           "$ref": "#/$defs/SpatialIntent"
         },
@@ -6624,7 +6795,8 @@
             "use_leads",
             "authorize",
             "revoke_authorization",
-            "reuse_activities"
+            "reuse_activities",
+            "preview_combination"
           ],
           "title": "Action",
           "type": "string"
@@ -6731,6 +6903,22 @@
     "PlanCreate": {
       "additionalProperties": false,
       "properties": {
+        "planning_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "DETAILED",
+                "ADVISORY"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Planning Mode"
+        },
         "knowledge_first": {
           "default": false,
           "title": "Knowledge First",
@@ -6763,7 +6951,8 @@
               "enum": [
                 "CITY",
                 "REGIONAL",
-                "OTHER_CITY"
+                "OTHER_CITY",
+                "GUIDE_MULTI_DAY"
               ],
               "type": "string"
             },
@@ -6789,6 +6978,26 @@
     "PlanView": {
       "additionalProperties": false,
       "properties": {
+        "guide_view": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Guide View"
+        },
+        "combination_candidates": {
+          "items": {
+            "$ref": "#/$defs/Activity"
+          },
+          "title": "Combination Candidates",
+          "type": "array"
+        },
         "session_id": {
           "title": "Session Id",
           "type": "string"
@@ -7762,6 +7971,449 @@
         "result"
       ],
       "title": "LibraryResponse",
+      "type": "object"
+    },
+    "DiningAdvice": {
+      "additionalProperties": false,
+      "properties": {
+        "day": {
+          "maximum": 90,
+          "minimum": 1,
+          "title": "Day",
+          "type": "integer"
+        },
+        "window": {
+          "enum": [
+            "LUNCH",
+            "DINNER"
+          ],
+          "title": "Window",
+          "type": "string"
+        },
+        "strategy": {
+          "enum": [
+            "BETWEEN_ACTIVITIES",
+            "NEAR_SELECTED_AREA",
+            "OPTIONAL_FINISH"
+          ],
+          "title": "Strategy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "day",
+        "window",
+        "strategy"
+      ],
+      "title": "DiningAdvice",
+      "type": "object"
+    },
+    "GuideActivity": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "day": {
+          "maximum": 90,
+          "minimum": 1,
+          "title": "Day",
+          "type": "integer"
+        },
+        "period": {
+          "default": "UNDECIDED",
+          "enum": [
+            "UNDECIDED",
+            "MORNING",
+            "AFTERNOON",
+            "EVENING"
+          ],
+          "title": "Period",
+          "type": "string"
+        },
+        "stay_min": {
+          "anyOf": [
+            {
+              "maximum": 360,
+              "minimum": 10,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stay Min"
+        },
+        "stay_max": {
+          "anyOf": [
+            {
+              "maximum": 480,
+              "minimum": 10,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stay Max"
+        },
+        "rest_minutes": {
+          "anyOf": [
+            {
+              "maximum": 120,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rest Minutes"
+        }
+      },
+      "required": [
+        "activity_id",
+        "day"
+      ],
+      "title": "GuideActivity",
+      "type": "object"
+    },
+    "GuideProposal": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "activities": {
+          "items": {
+            "$ref": "#/$defs/GuideActivity"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Activities",
+          "type": "array"
+        },
+        "citation_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 40,
+          "title": "Citation Ids",
+          "type": "array"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "unknowns": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Unknowns",
+          "type": "array"
+        },
+        "impacts": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Impacts",
+          "type": "array"
+        },
+        "dining": {
+          "items": {
+            "$ref": "#/$defs/DiningAdvice"
+          },
+          "maxItems": 12,
+          "title": "Dining",
+          "type": "array"
+        },
+        "lodging": {
+          "$ref": "#/$defs/LodgingAdvice"
+        },
+        "budget_lines": {
+          "items": {
+            "$ref": "#/$defs/BudgetLine"
+          },
+          "maxItems": 24,
+          "title": "Budget Lines",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "reason",
+        "activities",
+        "citation_ids",
+        "assumptions",
+        "unknowns"
+      ],
+      "title": "GuideProposal",
+      "type": "object"
+    },
+    "LodgingAdvice": {
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "default": "UNDECIDED",
+          "enum": [
+            "NOT_APPLICABLE",
+            "UNDECIDED",
+            "NEAR_ACTIVITIES",
+            "NEXT_DAY_AREA",
+            "FEWER_MOVES"
+          ],
+          "title": "Strategy",
+          "type": "string"
+        },
+        "area_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Area Ids",
+          "type": "array"
+        }
+      },
+      "title": "LodgingAdvice",
+      "type": "object"
+    },
+    "GuideResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": 4,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/GuideProposal"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Proposals",
+          "type": "array"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "proposals"
+      ],
+      "title": "GuideResponse",
+      "type": "object"
+    },
+    "GuideExport": {
+      "additionalProperties": false,
+      "properties": {
+        "filename": {
+          "title": "Filename",
+          "type": "string"
+        },
+        "markdown": {
+          "title": "Markdown",
+          "type": "string"
+        },
+        "adopted_version": {
+          "title": "Adopted Version",
+          "type": "integer"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "filename",
+        "markdown",
+        "adopted_version",
+        "revision"
+      ],
+      "title": "GuideExport",
+      "type": "object"
+    },
+    "GuideContent": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "default": "可修改的旅行建议",
+          "maxLength": 80,
+          "title": "Title",
+          "type": "string"
+        },
+        "reason": {
+          "default": "先选想做的项目，再决定节奏。",
+          "maxLength": 240,
+          "title": "Reason",
+          "type": "string"
+        },
+        "dining": {
+          "items": {
+            "$ref": "#/$defs/DiningAdvice"
+          },
+          "maxItems": 12,
+          "title": "Dining",
+          "type": "array"
+        },
+        "lodging": {
+          "$ref": "#/$defs/LodgingAdvice"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "unknowns": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Unknowns",
+          "type": "array"
+        },
+        "impacts": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Impacts",
+          "type": "array"
+        },
+        "origin": {
+          "default": "PRODUCT_DEFAULT",
+          "enum": [
+            "PRODUCT_DEFAULT",
+            "AI_PROPOSED",
+            "USER_CONFIRMED"
+          ],
+          "title": "Origin",
+          "type": "string"
+        }
+      },
+      "title": "GuideContent",
+      "type": "object"
+    },
+    "TripBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "people": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "People"
+        },
+        "days": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Days"
+        },
+        "nights": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Nights"
+        },
+        "rooms": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rooms"
+        },
+        "target_fen": {
+          "anyOf": [
+            {
+              "maximum": 100000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Fen"
+        },
+        "target_locked": {
+          "default": false,
+          "title": "Target Locked",
+          "type": "boolean"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "lines": {
+          "items": {
+            "$ref": "#/$defs/BudgetLine"
+          },
+          "maxItems": 36,
+          "title": "Lines",
+          "type": "array"
+        }
+      },
+      "title": "TripBudget",
       "type": "object"
     }
   }

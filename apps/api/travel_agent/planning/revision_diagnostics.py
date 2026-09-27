@@ -22,7 +22,10 @@ def _path(db: Any, jid: str) -> Path:
 
 def retain(db: Any, row: Any, raw: Any, result: dict[str, Any]) -> dict[str, Any]:
     request = json.loads(row["request_json"])
-    replayable = raw is not None and revisions.safe_shape(raw, request["payload"])
+    from . import advisory
+
+    rules = advisory if request["payload"].get("protocol_version") == 4 else revisions
+    replayable = raw is not None and rules.safe_shape(raw, request["payload"])
     record = dict(
         version=1,
         job_id=row["job_id"],
@@ -30,8 +33,8 @@ def retain(db: Any, row: Any, raw: Any, result: dict[str, Any]) -> dict[str, Any
         input_hash=fingerprint(request["payload"]),
         request_hash=fingerprint(request),
         base_revision=request.get("base_revision"),
-        rule_version=revisions.VERSION,
-        protocol_version=3,
+        rule_version=rules.VERSION,
+        protocol_version=request["payload"].get("protocol_version", 3),
         model_config_hash=fingerprint(
             db.connection.execute(
                 "SELECT config_json FROM research_continuations WHERE continuation_id=?",
@@ -77,9 +80,10 @@ def load(db: Any, scope: str, jid: str) -> tuple[dict[str, Any], dict[str, Any]]
         raise ValueError("DIAGNOSTIC_BINDING_CHANGED")
     if datetime.fromisoformat(record["expires_at"]) <= db.clock():
         raise ValueError("DIAGNOSTIC_EXPIRED")
-    if not record["replayable"] or not revisions.safe_shape(
-        record["proposals"], request["payload"]
-    ):
+    from . import advisory
+
+    rules = advisory if record.get("protocol_version") == 4 else revisions
+    if not record["replayable"] or not rules.safe_shape(record["proposals"], request["payload"]):
         raise ValueError("DIAGNOSTIC_NOT_REPLAYABLE")
     return record, request
 
@@ -88,12 +92,15 @@ def replay(db: Any, scope: str, jid: str, code_sha: str) -> dict[str, Any]:
     if not re.fullmatch(r"[0-9a-f]{40}", code_sha):
         raise ValueError("CODE_SHA_REQUIRED")
     record, request = load(db, scope, jid)
-    result = revisions.validate(record["proposals"], request["payload"])
+    from . import advisory
+
+    rules = advisory if record.get("protocol_version") == 4 else revisions
+    result = rules.validate(record["proposals"], request["payload"])
     output = dict(
         kind="LOCAL_REVALIDATION",
         original_job=jid,
         original_rule_version=record["rule_version"],
-        rule_version=revisions.VERSION,
+        rule_version=rules.VERSION,
         code_sha=code_sha,
         input_hash=record["input_hash"],
         expires_at=record["expires_at"],

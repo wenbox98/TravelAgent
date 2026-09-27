@@ -29,7 +29,15 @@ def service(tmp_path, clock):
 
 def create(s, destination="合成城市甲", demo=None, kind="CITY", request=""):
     return s.create(
-        PlanCreate(destination=destination, request=request, demo=demo, travel_kind=kind),
+        # Historical detailed-plan scenarios retain their old semantics; P09 tests
+        # exercise the new default through ordinary PlanCreate without this flag.
+        PlanCreate(
+            destination=destination,
+            request=request,
+            demo=demo,
+            travel_kind=kind,
+            planning_mode="DETAILED",
+        ),
         str(uuid4()),
     )
 

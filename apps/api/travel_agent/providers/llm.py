@@ -192,6 +192,7 @@ class OpenAICompatibleProvider:
     def structured(
         self, task: str, payload: dict[str, Any], schema: dict[str, Any],
     ) -> dict[str, Any]:
+        from travel_agent.planning.advisory import PROMPT as ADVISORY_PROMPT
         started = monotonic()
         diagnostic = Diagnostic(requested_model=safe_model(self.model, self.api_key.get_secret_value()),
                                 timeout_seconds=self.timeout)
@@ -254,7 +255,8 @@ class OpenAICompatibleProvider:
                            "distinct experiences over generic praise. Keep day/segment durations "
                            "distinct from whole-trip duration; do not reconstruct an unquoted route."
                            if task == "extract_evidence" else ""))
-                        if task not in {"review_evidence_context_v1", "review_evidence_context_v2", "planning_suggestion", "planning_arrangement_v2", "planning_revision_v3"}
+                        if task not in {"review_evidence_context_v1", "review_evidence_context_v2", "planning_suggestion", "planning_arrangement_v2", "planning_revision_v3", "planning_advisory_v4"}
+                        else ADVISORY_PROMPT if task == "planning_advisory_v4"
                         else REVISION_PROMPT if task == "planning_revision_v3"
                         else ARRANGEMENT_PROMPT if task == "planning_arrangement_v2"
                         else PLANNING_PROMPT if task == "planning_suggestion"
@@ -332,6 +334,9 @@ class OpenAICompatibleProvider:
             if task == "planning_revision_v3":
                 from travel_agent.planning.revisions import envelope_schema as revision_envelope
                 validation_schema = revision_envelope()
+            if task == "planning_advisory_v4":
+                from travel_agent.planning.advisory import envelope_schema as guide_envelope
+                validation_schema = guide_envelope()
             result = validate_structured(output, validation_schema)
             diagnostic.stage, diagnostic.category = "COMPLETE", "SUCCESS"
             return result

@@ -9,6 +9,7 @@ from .flow_maps import FlowMapService, SyntheticMapAdapter, PrivateFlowMapServic
 from travel_agent.providers.amap import AmapAdapter
 from .models import MapAction, MapView
 from .workbench import STATUS_MESSAGES
+from .guide_models import GuideExport
 
 
 def movement_references(draft: PlanDraft, legs: list[dict[str, Any]]) -> dict[str, float]:
@@ -96,6 +97,18 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
     def read(session_id: str) -> Any:
         with Database(config.database) as db:
             return present(PlanningService(db, config.account_scope).get(session_id))
+
+    @app.get("/api/v1/preview/planning/{session_id}/guide-export", response_model=GuideExport)
+    def export_guide(session_id: str) -> Any:
+        from .guide_view import export
+
+        try:
+            with Database(config.database) as db:
+                return export(db, config.account_scope, session_id)
+        except ValueError as exc:
+            return error(
+                str(exc) if str(exc) in STATUS_MESSAGES else "GUIDE_REFERENCE_UNAVAILABLE", 409
+            )
 
     @app.post("/api/v1/preview/planning/{session_id}", response_model=PlanView)
     def change(session_id: str, body: PlanAction, request: Request) -> Any:

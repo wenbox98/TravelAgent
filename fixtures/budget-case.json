@@ -6,7 +6,7 @@
       "line_id": "train",
       "label": "往返交通",
       "category": "TRANSPORT",
-      "unit": "人程",
+      "unit": "ONCE",
       "quantity": 4,
       "unit_amount": {
         "min_fen": 18000,
@@ -15,13 +15,18 @@
       },
       "status": "ESTIMATED",
       "included_in_line_id": null,
-      "quote_id": null
+      "quote_id": null,
+      "basis": "USER_BUDGET_TARGET",
+      "is_synthetic": true,
+      "conditions": [
+        "合成算例；quantity已按原人程口径展开，不再乘人数或晚数"
+      ]
     },
     {
       "line_id": "hotel",
       "label": "酒店",
       "category": "LODGING",
-      "unit": "间夜",
+      "unit": "ONCE",
       "quantity": 2,
       "unit_amount": {
         "min_fen": 32000,
@@ -30,13 +35,18 @@
       },
       "status": "ESTIMATED",
       "included_in_line_id": null,
-      "quote_id": null
+      "quote_id": null,
+      "basis": "USER_BUDGET_TARGET",
+      "is_synthetic": true,
+      "conditions": [
+        "合成算例；quantity已按原间夜口径展开，不再乘人数或晚数"
+      ]
     },
     {
       "line_id": "local",
       "label": "当地交通",
       "category": "TRANSPORT",
-      "unit": "全程",
+      "unit": "ONCE",
       "quantity": 1,
       "unit_amount": {
         "min_fen": 20000,
@@ -45,13 +55,18 @@
       },
       "status": "ESTIMATED",
       "included_in_line_id": null,
-      "quote_id": null
+      "quote_id": null,
+      "basis": "USER_BUDGET_TARGET",
+      "is_synthetic": true,
+      "conditions": [
+        "合成算例；quantity已按原全程口径展开，不再乘人数或晚数"
+      ]
     },
     {
       "line_id": "food",
       "label": "餐饮",
       "category": "FOOD",
-      "unit": "全程",
+      "unit": "ONCE",
       "quantity": 1,
       "unit_amount": {
         "min_fen": 40000,
@@ -60,13 +75,18 @@
       },
       "status": "ESTIMATED",
       "included_in_line_id": null,
-      "quote_id": null
+      "quote_id": null,
+      "basis": "USER_BUDGET_TARGET",
+      "is_synthetic": true,
+      "conditions": [
+        "合成算例；quantity已按原全程口径展开，不再乘人数或晚数"
+      ]
     },
     {
       "line_id": "activity",
       "label": "活动",
       "category": "ACTIVITY",
-      "unit": "人次",
+      "unit": "ONCE",
       "quantity": 2,
       "unit_amount": {
         "min_fen": 12000,
@@ -75,13 +95,18 @@
       },
       "status": "ESTIMATED",
       "included_in_line_id": null,
-      "quote_id": null
+      "quote_id": null,
+      "basis": "USER_BUDGET_TARGET",
+      "is_synthetic": true,
+      "conditions": [
+        "合成算例；quantity已按原人次口径展开，不再乘人数或晚数"
+      ]
     },
     {
       "line_id": "reserve",
       "label": "预留",
       "category": "RESERVE",
-      "unit": "全程",
+      "unit": "ONCE",
       "quantity": 1,
       "unit_amount": {
         "min_fen": 20000,
@@ -90,7 +115,12 @@
       },
       "status": "ESTIMATED",
       "included_in_line_id": null,
-      "quote_id": null
+      "quote_id": null,
+      "basis": "USER_BUDGET_TARGET",
+      "is_synthetic": true,
+      "conditions": [
+        "合成算例；quantity已按原全程口径展开，不再乘人数或晚数"
+      ]
     }
   ],
   "expected_total": {
@@ -105,7 +135,7 @@
     "line_id": "unpriced",
     "label": "待查体验",
     "category": "ACTIVITY",
-    "unit": "项",
+    "unit": "ONCE",
     "quantity": 1,
     "unit_amount": {
       "min_fen": null,
@@ -114,7 +144,8 @@
     },
     "status": "UNKNOWN",
     "included_in_line_id": null,
-    "quote_id": null
+    "quote_id": null,
+    "is_synthetic": true
   },
   "unknown_expected_completeness": "PARTIAL"
 }

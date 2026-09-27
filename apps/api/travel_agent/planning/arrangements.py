@@ -88,7 +88,11 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
     end: int | None = None
     previous_day = None
     for a in p["activities"]:
-        if a["stay_min"] > a["stay_max"] or (data.get("days") and a["day"] > data["days"]):
+        if (
+            a["stay_min"] is not None
+            and a["stay_max"] is not None
+            and a["stay_min"] > a["stay_max"]
+        ) or (data.get("days") and a["day"] > data["days"]):
             raise Rejected("PLANNING_INVALID_TIME", "activities.stay_max")
         locked = allowed[a["activity_id"]].get("locked_start")
         if a["day"] != previous_day:
@@ -101,6 +105,8 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
             if end is not None and end > minutes(locked):
                 raise Rejected("PLANNING_LOCKED_CONSTRAINT", "activities.locked_start")
             end = minutes(locked)
+        if a["stay_min"] is None:
+            end = None
         if end is not None:
             end += a["stay_min"]
             deadline = data.get("return_deadline") or data.get("activity_end")
@@ -114,7 +120,7 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
                     bound += 1440
                 if end > bound:
                     raise Rejected("PLANNING_LOCKED_CONSTRAINT", "return_deadline")
-            end += a["rest_minutes"]
+            end = end + a["rest_minutes"] if a["rest_minutes"] is not None else None
         previous_day = a["day"]
     proposed = p.get("unresolved_suggestions") or {}
     if data.get("first_start") and proposed.get("first_start"):

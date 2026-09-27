@@ -80,7 +80,8 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         if (
             p.get("protocol_version") == 2
             and draft.spatial.intent == "CITY_CORE"
-            and supported.spatial_status != "MATCH"
+            and supported.spatial_status
+            not in ({"MATCH", "UNKNOWN"} if draft.planning_mode == "ADVISORY" else {"MATCH"})
         ):
             raise ValueError("PLANNING_SCOPE_UNVERIFIED")
         a.spatial_status, a.spatial_basis, a.source_locations = (
