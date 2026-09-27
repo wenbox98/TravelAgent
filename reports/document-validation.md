@@ -1,6 +1,6 @@
 # 文档包校验报告
 
-执行时间（UTC）：2026-09-27T05:56:12+00:00
+执行时间（UTC）：2026-09-27T06:57:04+00:00
 
 **结果：12/12 项文档校验通过；失败 0 项。**
 
@@ -9,11 +9,11 @@
 | 校验 | 结果 | 说明 |
 |---|---|---|
 | JSON_PARSE | PASS | 18 JSON files parsed |
-| DOMAIN_SCHEMA | PASS | 98 Draft 2020-12 definitions; format checks enabled for fixtures |
-| CONTRACT_REFERENCES | PASS | 173 JSON Schema/OpenAPI reference occurrences resolved offline |
+| DOMAIN_SCHEMA | PASS | 102 Draft 2020-12 definitions; format checks enabled for fixtures |
+| CONTRACT_REFERENCES | PASS | 178 JSON Schema/OpenAPI reference occurrences resolved offline |
 | FIXTURE_SCHEMA | PASS | 27 positive objects accepted; 5 negative objects rejected |
 | OPENAPI_STRUCTURAL | PASS | 38 operation IDs, local auth, path parameters, write headers and SSE example checked; structural checks, not a full OpenAPI conformance validator |
-| MARKDOWN_LINKS | PASS | 239 relative Markdown link targets exist |
+| MARKDOWN_LINKS | PASS | 240 relative Markdown link targets exist |
 | SQL_DRAFT_SMOKE | PASS | SQLite 3.50.4; 20 declared tables (FTS shadow tables excluded), FK checks, synthetic FTS lookup and cascade deletion passed |
 | SYNTHETIC_ARITHMETIC | PASS | Synthetic AC=510min, ABCD=760min, ABD=470min; total 240000–270000 fen; unknown amount remains null |
 | TEST_TRACEABILITY | PASS | 137 historical design rows, R01–R14 mapped, 12 task sheets; execution status is tracked in implementation reports |

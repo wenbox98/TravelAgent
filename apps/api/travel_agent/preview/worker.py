@@ -220,6 +220,12 @@ def run_job(
                     )
                     if reviewed.get("status") not in {"COMPLETED"}:
                         raise ResearchStopped("ERROR", "CONTEXT_REVIEW_NOT_COMPLETED")
+                # A completed review with no accepted activity is not a transport error.
+                # Continue to the next distinct source within this grant, never re-review it.
+                out["continue_after_pending_review"] = (
+                    data.get("planning_protocol") == 2
+                    and j["continuation_id"] == "p051-scope-locked-planning"
+                )
 
             from travel_agent.domain.source_policy import private_policy
 

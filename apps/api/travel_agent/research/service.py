@@ -252,7 +252,10 @@ class ResearchService:
                                 extraction_diagnostics.append(outcome["diagnostic"])
                             if outcome["status"] in {"PENDING_REVIEW", "NO_ACCEPTED_EVIDENCE"}:
                                 diagnostic = "CONTEXT_REVIEW_REQUIRED" if outcome["status"] == "PENDING_REVIEW" else "NO_ACCEPTED_EVIDENCE"
-                                if self.continuation is not None and outcome["status"] == "NO_ACCEPTED_EVIDENCE":
+                                if self.continuation is not None and (
+                                    outcome["status"] == "NO_ACCEPTED_EVIDENCE"
+                                    or outcome.get("continue_after_pending_review", False)
+                                ):
                                     gaps = assess(evidence)
                                     continue
                                 return finish("SOURCE_UNAVAILABLE")

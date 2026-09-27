@@ -401,7 +401,10 @@ def test_provider_defers_only_proposal_schema_to_program(monkeypatch):
     assert '"minimum": 10' in calls[0]["messages"][0]["content"]
 
 
-def test_unknown_first_source_continues_to_matching_second_and_reserves_planning(private):
+@pytest.mark.parametrize("first_review_pending", [False, True])
+def test_unknown_first_source_continues_to_matching_second_and_reserves_planning(
+    private, first_review_pending
+):
     from travel_agent.preview.worker import run_job
     from travel_agent.planning.private_budget import IDENTIFIER, CURRENT_IDENTIFIER, CURRENT_LIMITS
     from travel_agent.research.models import Candidate, DetailMaterial
@@ -451,7 +454,19 @@ def test_unknown_first_source_continues_to_matching_second_and_reserves_planning
             )
             return DetailMaterial(c.source_id, c.title, body, "PARTIAL_TEXT", private.db.stamp())
 
-    provider = Provider()
+    class ReviewedProvider(Provider):
+        def structured(self, task, data, schema):
+            result = super().structured(task, data, schema)
+            if (
+                first_review_pending
+                and task == "review_evidence_context_v2"
+                and len(self.calls) == 2
+            ):
+                for item in result["reviews"]:
+                    item["reference_scope"] = "AUTHOR_RECORDED_TRIP"
+            return result
+
+    provider = ReviewedProvider()
     reader = Reader()
     extract, review = dispatches(provider)
     run_job(
@@ -466,6 +481,13 @@ def test_unknown_first_source_continues_to_matching_second_and_reserves_planning
     view = private.get(v["session_id"])
     assert reader.details == [1, 2] and len(provider.calls) == 4
     assert view["private_budget"]["remaining"]["model"] == 1
+    if first_review_pending:
+        assert (
+            private.db.connection.execute(
+                "SELECT count(*) FROM extraction_candidates WHERE context_status='PENDING'"
+            ).fetchone()[0]
+            >= 1
+        )
     view = act(private, view, "adopt_research")
     assert sum(a["spatial_status"] == "MATCH" for a in view["activity_candidates"]) >= 2, view[
         "activity_candidates"
