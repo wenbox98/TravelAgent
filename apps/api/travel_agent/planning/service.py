@@ -405,12 +405,8 @@ class RoutePreviewService:
                     raise ValueError("MAP_CONFIRM_PLACES_FIRST")
                 if any(p.private_address for p in pair) and not action.private_send_confirmed:
                     raise ValueError("MAP_PRIVATE_ADDRESS_CONFIRMATION_REQUIRED")
-                if (
-                    inputs.mode == "DRIVING"
-                    and preview["preferences"]["driving"] == "NO"
-                    and inputs.charter != "COMPARE"
-                ):
-                    raise ValueError("MAP_CHARTER_UNDECIDED")
+                # Explicit DRIVING is only a road reference; it never changes charter
+                # preference, verifies a vehicle, or substitutes for a transit result.
                 # Validate before reservation. Departure is the explicit LEG time, not trip start.
                 params = route_parameters(start, end, inputs.mode, action.leg_depart_at)
                 kind, arguments = (

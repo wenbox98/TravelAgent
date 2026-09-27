@@ -209,7 +209,8 @@ def test_map_budget_independent_caps_atomic_and_copy_cannot_renew(setup, tmp_pat
         MapBudget(EvidenceStore(db)).initialize("owner", sid, option + "different")
 
 
-def test_private_address_consent_and_no_driving_fallback(setup):
+@pytest.mark.parametrize("charter", ["UNKNOWN", "NO"])
+def test_private_address_consent_and_explicit_road_reference_preserves_preference(setup, charter):
     s, sid = setup
     inputs = TripInputs(origin="USER-PRIVATE-SENTINEL", endpoints_private=True)
     act(s, sid, "save", inputs=inputs)
@@ -219,11 +220,18 @@ def test_private_address_consent_and_no_driving_fallback(setup):
     places(s, sid)
     data = TripInputs.model_validate(s.get(sid)["inputs"])
     data.mode = "DRIVING"
+    data.charter = charter
     act(s, sid, "save", inputs=data)
-    # Mode changes preserve unchanged place objects, but require charter comparison.
+    # Explicit road reference is not charter acceptance or a transit fallback.
     assert all(p["confirmed"] for p in s.get(sid)["places"])
-    with pytest.raises(ValueError, match="CHARTER_UNDECIDED"):
-        act(s, sid, "route", leg_id="a--b", send_confirmed=True)
+    out = act(s, sid, "route", leg_id="a--b", send_confirmed=True)
+    assert s.adapter.calls[-1] == ("route", "DRIVING")
+    assert out["inputs"]["charter"] == charter
+    assert out["inherited"]["driving"] == "NO"
+    assert out["legs"][0]["mode"] == "DRIVING"
+    assert out["legs"][0]["availability"] == "UNKNOWN"
+    assert "不是公共交通" in " ".join(out["legs"][0]["gaps"])
+    assert out["time_check"]["executable"] == "UNVERIFIED"
 
 
 def test_seed_never_stitches_days_and_regional_center_is_not_entrance():

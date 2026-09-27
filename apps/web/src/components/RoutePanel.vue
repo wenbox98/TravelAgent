@@ -62,7 +62,7 @@ watch(() => [props.session.session_id, props.session.revision], load, {immediate
       </fieldset>
       <fieldset :disabled="busy"><legend>2 · 交通偏好与时间假设</legend><p>不自驾不等于只接受公交。愿意比较包车不代表已预订，也不证明有车可用。</p>
         <div class="route-input-grid"><label>包车 / 拼车倾向<select v-model="form.charter" aria-label="包车倾向"><option value="UNKNOWN">暂未决定</option><option value="COMPARE">愿意比较</option><option value="NO">不接受</option></select></label>
-          <label>本次路段参考方式<select v-model="form.mode" aria-label="路段参考方式"><option value="TRANSIT">公共交通</option><option value="DRIVING">驾车道路参考（包车比较）</option><option value="WALKING">步行接驳参考</option></select></label></div>
+          <label>本次路段参考方式<select v-model="form.mode" aria-label="路段参考方式"><option value="TRANSIT">公共交通</option><option value="DRIVING">驾车道路参考（交通未落实）</option><option value="WALKING">步行接驳参考</option></select></label></div>
         <details><summary>可选：我自己决定的活动窗口、停留与缓冲</summary><p>留空就是未知。活动窗口之外作为夜间休息；下列总分钟数只计窗口内休息、停留和接口未含的末端接驳。公交总耗时已含等车，不再次叠加。</p>
           <div class="route-input-grid"><label>每天活动开始<input type="time" :value="form.activity_start || ''" @input="form.activity_start = emptyNull($event)" /></label><label>每天活动结束<input type="time" :value="form.activity_end || ''" @input="form.activity_end = emptyNull($event)" /></label>
             <label>活动停留合计（分钟）<input type="number" min="0" :value="form.stay_minutes ?? ''" @input="form.stay_minutes = numeric($event)" /></label>
