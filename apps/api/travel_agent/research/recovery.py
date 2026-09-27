@@ -145,6 +145,8 @@ class ExtractionRecovery:
             if valid_response and audit_grounding(result.bundle, (content,))["unsupported"]:
                 raise ValueError("SNAPSHOT_GROUNDING_MISMATCH")
             with db.transaction() as con:
+                if dispatch_guard is not None:
+                    dispatch_guard()
                 if not self.store.is_current(run_id, revision):
                     status = "OBSOLETE"
                 elif valid_response:

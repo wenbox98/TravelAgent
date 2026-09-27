@@ -107,6 +107,10 @@ class BoundedBudget:
     def reserve(self, kind: str, fingerprint: str) -> None:
         with self.store.db.transaction():
             state = self.state()
+            if state["gate"].get("purpose") == "PRIVATE_OPERATION":
+                from travel_agent.planning.workbench import DailyBudget
+                DailyBudget(self.store.db, self.identifier).reserve(kind, fingerprint)
+                return
             if kind not in LIMITS or state["finished_at"] or not state["started_at"]:
                 raise ValueError("BOUNDED_NOT_ACTIVE")
             if kind != "MODEL" and state["gate"]["status"] != "PASS":
@@ -138,7 +142,10 @@ class BoundedBudget:
             )
 
     def check_permit(self, kind: str, fingerprint: str) -> None:
-        self.state()
+        s = self.state()
+        if s["gate"].get("purpose") == "PRIVATE_OPERATION":
+            from travel_agent.planning.workbench import check_active
+            check_active(self.store.db, s)
         if not self.store.db.connection.execute(
             "SELECT 1 FROM continuation_operations WHERE continuation_id=? "
             "AND kind=? AND fingerprint=?",
@@ -147,10 +154,21 @@ class BoundedBudget:
             raise ValueError("BOUNDED_PERMIT_MISSING")
 
     def check_job_active(self, research_id: str) -> None:
+        s = self.state()
+        if s["gate"].get("purpose") == "PRIVATE_OPERATION":
+            from travel_agent.planning.workbench import check_active
+            check_active(self.store.db, s)
         row=self.store.db.connection.execute('SELECT status,cancel_requested FROM preview_jobs WHERE continuation_id=? '
             'AND research_id=?',(self.identifier,research_id)).fetchone()
         if row is None or row[0]!='RUNNING' or row[1]:
             raise ValueError('JOB_NO_LONGER_ACTIVE')
+        if s["gate"].get("purpose") == "PRIVATE_OPERATION":
+            job = self.store.db.connection.execute("SELECT * FROM preview_jobs WHERE continuation_id=? AND research_id=?", (self.identifier,research_id)).fetchone()
+            trip = self.store.db.connection.execute("SELECT revision,state_json FROM preview_sessions WHERE session_id=? AND account_scope=?", (job["session_id"],job["account_scope"])).fetchone()
+            planning = research_id.startswith("planning-")
+            p = json.loads(trip[1])["planning"] if trip else {}
+            if not trip or trip[0] != job["request_revision"] + (0 if planning else 1) or p.get("job_id" if planning else "research_job_id") != job["job_id"]:
+                raise ValueError("JOB_NO_LONGER_ACTIVE")
 
     def summary(self) -> dict[str, Any]:
         s = self.state()

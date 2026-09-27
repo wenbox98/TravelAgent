@@ -214,8 +214,8 @@ def timeline(
 
 
 class PlanningService:
-    def __init__(self, db: Database, scope: str):
-        self.db, self.scope = db, scope
+    def __init__(self, db: Database, scope: str, *, daily_workbench: bool = False):
+        self.db, self.scope, self.daily_workbench = db, scope, daily_workbench
 
     def load(self, sid: str) -> tuple[Any, dict[str, Any]]:
         row = self.db.connection.execute(
@@ -238,7 +238,7 @@ class PlanningService:
             if old:
                 return self.get(old)
             matches = []
-            if not body.demo:
+            if not body.demo and not self.daily_workbench:
                 for research in service.researches():
                     q, _ = service._cache(research["research_id"])
                     if (
@@ -288,6 +288,8 @@ class PlanningService:
                 "collapsed": {"activities": True, "conditions": True},
                 "job_id": None,
             }
+            if self.daily_workbench and not body.demo:
+                state["planning"].update(runtime_mode="DAILY", operation_grant=None)
             self.db.connection.execute(
                 "UPDATE preview_sessions SET state_json=? WHERE session_id=?",
                 (json.dumps(state, ensure_ascii=False), sid),
@@ -393,6 +395,10 @@ class PlanningService:
         except ValueError, RuntimeError:
             pass
         available = model_available(self.db, self.scope, p, sid)
+        from .workbench import daily, overview, reuse_options, model_status, STATUS_MESSAGES
+
+        operation = overview(self.db, self.scope, sid, p) if daily(p) else None
+        status = model_status(self.db, self.scope, sid, p) if daily(p) else None
         old = p["adopted"]
         differences = [k for k in p["draft"] if old is not None and p["draft"][k] != old.get(k)]
         return {
@@ -426,10 +432,23 @@ class PlanningService:
             "private_budget": private_budget,
             "research_available": research_available,
             "private_model_available": available and not p["demo"],
-            "model_reason": None
+            "model_reason": (
+                None
+                if available
+                else STATUS_MESSAGES.get(
+                    status or "", "当前资料或条件不支持这项修改，请查看项目与来源。"
+                )
+            )
+            if daily(p)
+            else None
             if available
             else "需要可用来源活动或已检查身份的公共地点、已配置服务和对应剩余额度；首次及改选各一次，不会自动重试。",
             "place_leads": leads,
+            "operation": operation,
+            "reuse_options": reuse_options(self.db, self.scope, sid, p)
+            if daily(p) and not draft.activities and not p["adopted"]
+            else [],
+            "model_status": status,
             "discovery_available": discovery_available,
             "provenance": {
                 "preferences": "TEST_INPUT" if p["demo"] else "CURRENT_TRIP_USER_INPUT",
@@ -465,7 +484,18 @@ class PlanningService:
             if row["revision"] != action.expected_revision:
                 raise ValueError("STALE_REVISION")
             p = state["planning"]
-            if action.action == "save":
+            if action.action in {"authorize", "revoke_authorization", "reuse_activities"}:
+                from .workbench import daily, authorize, close, reuse
+
+                if not daily(p):
+                    raise ValueError("DAILY_TRIP_REQUIRED")
+                if action.action == "authorize":
+                    authorize(self.db, self.scope, sid, p, action.authorization)
+                elif action.action == "revoke_authorization":
+                    close(self.db, self.scope, sid, p)
+                else:
+                    reuse(self.db, self.scope, sid, p, action.reuse_key or "", action.activity_ids)
+            elif action.action == "save":
                 p.pop("revision_preview", None)
                 if action.draft is None:
                     raise ValueError("INVALID_INPUT")
@@ -688,6 +718,7 @@ class PlanningService:
                     "SELECT research_id FROM preview_jobs WHERE job_id=?", (p["research_job_id"],)
                 ).fetchone()[0]
                 p["research_ids"] = sorted(set(p.get("research_ids", []) + [rid]))
+                p["own_research_ids"] = sorted(set(p.get("own_research_ids", []) + [rid]))
                 p["collapsed"]["activities"] = False
             elif action.action == "adopt":
                 p.pop("last_revision_adoption", None)

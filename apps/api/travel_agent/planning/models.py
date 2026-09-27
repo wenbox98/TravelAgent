@@ -187,8 +187,8 @@ class MapCounts(StrictModel):
 class MapQuota(StrictModel):
     used: MapCounts
     remaining: MapCounts
-    total_used: int = Field(ge=0, le=16)
-    total_limit: Literal[8, 10, 16]
+    total_used: int = Field(ge=0, le=32)
+    total_limit: int = Field(ge=0, le=32)
 
 
 class NoResearchCalls(StrictModel):

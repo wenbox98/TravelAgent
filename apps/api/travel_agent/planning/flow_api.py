@@ -8,6 +8,7 @@ from .suggestions import launch
 from .flow_maps import FlowMapService, SyntheticMapAdapter, PrivateFlowMapService
 from travel_agent.providers.amap import AmapAdapter
 from .models import MapAction, MapView
+from .workbench import STATUS_MESSAGES
 
 
 def movement_references(draft: PlanDraft, legs: list[dict[str, Any]]) -> dict[str, float]:
@@ -69,6 +70,7 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
                     "MAP_REGIONAL_REFERENCE_REQUIRED",
                     "MAP_ADOPT_ORDER_FIRST",
                 }
+                | STATUS_MESSAGES.keys()
                 else "INVALID_INPUT",
                 409,
             )
@@ -85,9 +87,9 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
     def create(body: PlanCreate, request: Request) -> Any:
         with Database(config.database) as db:
             return present(
-                PlanningService(db, config.account_scope).create(
-                    body, request.headers.get("idempotency-key", "")
-                )
+                PlanningService(
+                    db, config.account_scope, daily_workbench=config.daily_workbench
+                ).create(body, request.headers.get("idempotency-key", ""))
             )
 
     @app.get("/api/v1/preview/planning/{session_id}", response_model=PlanView)
@@ -124,6 +126,7 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
                     "OPTION_UNAVAILABLE",
                     "IDEMPOTENCY_CONFLICT",
                 }
+                | STATUS_MESSAGES.keys()
                 else "CACHE_UNAVAILABLE"
             )
             return error(code, 409)

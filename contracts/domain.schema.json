@@ -5957,17 +5957,14 @@
           "$ref": "#/$defs/MapCounts"
         },
         "total_used": {
-          "maximum": 16,
+          "maximum": 32,
           "minimum": 0,
           "title": "Total Used",
           "type": "integer"
         },
         "total_limit": {
-          "enum": [
-            8,
-            10,
-            16
-          ],
+          "maximum": 32,
+          "minimum": 0,
           "title": "Total Limit",
           "type": "integer"
         }
@@ -6616,7 +6613,10 @@
             "adopt_research",
             "use_activities",
             "discover_places",
-            "use_leads"
+            "use_leads",
+            "authorize",
+            "revoke_authorization",
+            "reuse_activities"
           ],
           "title": "Action",
           "type": "string"
@@ -6687,6 +6687,30 @@
           "maxItems": 12,
           "title": "Activity Ids",
           "type": "array"
+        },
+        "authorization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationAuthorization"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reuse_key": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reuse Key"
         }
       },
       "required": [
@@ -6963,6 +6987,39 @@
           },
           "title": "Place Leads",
           "type": "array"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
+        },
+        "reuse_options": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Reuse Options",
+          "type": "array"
+        },
+        "model_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Status"
         }
       },
       "required": [
@@ -7461,6 +7518,86 @@
         "proposals"
       ],
       "title": "RevisionResponse",
+      "type": "object"
+    },
+    "OperationAuthorization": {
+      "additionalProperties": false,
+      "properties": {
+        "confirm": {
+          "const": true,
+          "title": "Confirm",
+          "type": "boolean"
+        },
+        "tasks": {
+          "items": {
+            "enum": [
+              "RESEARCH",
+              "PLANNING",
+              "REVISION",
+              "MAP"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Tasks",
+          "type": "array"
+        },
+        "hours": {
+          "default": 24,
+          "maximum": 168,
+          "minimum": 1,
+          "title": "Hours",
+          "type": "integer"
+        },
+        "connect": {
+          "default": 0,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Connect",
+          "type": "integer"
+        },
+        "search": {
+          "default": 0,
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Search",
+          "type": "integer"
+        },
+        "detail": {
+          "default": 0,
+          "maximum": 6,
+          "minimum": 0,
+          "title": "Detail",
+          "type": "integer"
+        },
+        "model": {
+          "default": 0,
+          "maximum": 20,
+          "minimum": 0,
+          "title": "Model",
+          "type": "integer"
+        },
+        "map_place": {
+          "default": 0,
+          "maximum": 16,
+          "minimum": 0,
+          "title": "Map Place",
+          "type": "integer"
+        },
+        "map_route": {
+          "default": 0,
+          "maximum": 16,
+          "minimum": 0,
+          "title": "Map Route",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "confirm",
+        "tasks"
+      ],
+      "title": "OperationAuthorization",
       "type": "object"
     }
   }

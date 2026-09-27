@@ -90,6 +90,20 @@ class PlanCreate(StrictModel):
         return safe_text(value, 500).strip()
 
 
+class OperationAuthorization(StrictModel):
+    confirm: Literal[True]
+    tasks: list[Literal["RESEARCH", "PLANNING", "REVISION", "MAP"]] = Field(
+        min_length=1, max_length=4
+    )
+    hours: int = Field(default=24, ge=1, le=168)
+    connect: int = Field(default=0, ge=0, le=1)
+    search: int = Field(default=0, ge=0, le=3)
+    detail: int = Field(default=0, ge=0, le=6)
+    model: int = Field(default=0, ge=0, le=20)
+    map_place: int = Field(default=0, ge=0, le=16)
+    map_route: int = Field(default=0, ge=0, le=16)
+
+
 class PlanAction(StrictModel):
     action: Literal[
         "save",
@@ -107,6 +121,9 @@ class PlanAction(StrictModel):
         "use_activities",
         "discover_places",
         "use_leads",
+        "authorize",
+        "revoke_authorization",
+        "reuse_activities",
     ]
     expected_revision: int = Field(ge=0)
     draft: PlanDraft | None = None
@@ -115,6 +132,8 @@ class PlanAction(StrictModel):
     proposal_index: int = Field(default=0, ge=0, le=2)
     option_id: str | None = Field(default=None, max_length=100)
     activity_ids: list[str] = Field(default_factory=list, max_length=12)
+    authorization: OperationAuthorization | None = None
+    reuse_key: str | None = Field(default=None, max_length=64)
 
 
 class GroundedActivity(StrictModel):
@@ -226,6 +245,9 @@ class PlanView(StrictModel):
     model_reason: str | None = None
     discovery_available: bool = False
     place_leads: list[dict[str, Any]] = Field(default_factory=list)
+    operation: dict[str, Any] | None = None
+    reuse_options: list[dict[str, Any]] = Field(default_factory=list)
+    model_status: str | None = None
 
 
 class PlanIndex(StrictModel):

@@ -31,9 +31,15 @@ BLOCKING = set(FLAGS) - {"NEGATIVE_CONTEXT", "HYPOTHETICAL"}
 
 
 def contents(db: Any, scope: str, sid: str, p: dict[str, Any]) -> list[dict[str, Any]]:
+    from .workbench import daily, local_contents
+
+    if daily(p):
+        return local_contents(db, scope, sid, p)
     budget = PrivatePlanningBudget.for_trip(db, sid)
     gate = budget.check_trip(scope, sid)["gate"]
-    if budget.identifier not in {DISCOVERY_IDENTIFIER, REVISION_IDENTIFIER} or not gate.get("content_ids"):
+    if budget.identifier not in {DISCOVERY_IDENTIFIER, REVISION_IDENTIFIER} or not gate.get(
+        "content_ids"
+    ):
         raise ValueError("DISCOVERY_NOT_AUTHORIZED")
     job = db.connection.execute(
         "SELECT research_id FROM preview_jobs WHERE job_id=? AND session_id=? AND account_scope=?",

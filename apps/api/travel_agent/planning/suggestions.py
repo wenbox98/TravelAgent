@@ -88,7 +88,11 @@ def payload_for(
     if not p["demo"] and db is not None:
         from .private_budget import PrivatePlanningBudget, REVISION_IDENTIFIER
 
-        if PrivatePlanningBudget.for_trip(db, sid).identifier == REVISION_IDENTIFIER:
+        from .workbench import daily
+
+        if (
+            daily(p) and p["draft"].get("adjustment") in {"LONGER_FIRST", "FEWER"}
+        ) or PrivatePlanningBudget.for_trip(db, sid).identifier == REVISION_IDENTIFIER:
             from .revisions import payload as revision_payload
 
             return revision_payload(db, scope, sid, p)
@@ -139,6 +143,10 @@ def payload_for(
 
 
 def model_available(db: Database, scope: str, p: dict[str, Any], sid: str = "") -> bool:
+    from .workbench import daily, model_status
+
+    if daily(p):
+        return model_status(db, scope, sid, p) == "AVAILABLE"
     budget: BoundedBudget
     try:
         if not p["demo"]:
@@ -238,6 +246,10 @@ def create_job(
 
         budget_private = PrivatePlanningBudget.for_trip(db, sid)
         identifier, slot = budget_private.identifier, jid
+        from .workbench import DailyBudget
+
+        if isinstance(budget_private, DailyBudget):
+            budget_private.check_payload(payload)
         from .private_budget import DISCOVERY_IDENTIFIER
 
         if identifier == DISCOVERY_IDENTIFIER:
@@ -550,6 +562,10 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             budget.check_permit("MODEL", data["slot"])
             budget.check_job_active(jid)
             from .flow import PlanningService
+            from .workbench import DailyBudget, PURPOSE
+
+            if budget.state()["gate"].get("purpose") == PURPOSE:
+                DailyBudget(db, row["continuation_id"]).check_payload(data["payload"])
 
             live, state = PlanningService(db, row["account_scope"]).load(row["session_id"])
             if (
@@ -590,6 +606,7 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             else:
                 summary = validate_response(raw, data["payload"])
             current, _ = PlanningService(db, row["account_scope"]).load(row["session_id"])
+            budget.check_job_active(jid)
             if current["revision"] != row["request_revision"]:
                 raise ValueError("STALE_PROPOSAL")
             status = (
@@ -661,6 +678,8 @@ def launch(database: Path, jid: str, *, research: bool = False) -> None:
             "job-worker" if research else "worker",
             "--job",
             jid,
+            "--workspace",
+            str(database.resolve().parent),
         ]
         try:
             with _launch_lock:
@@ -749,6 +768,9 @@ def shutdown_workers(database: Path) -> None:
                 DISCOVERY_IDENTIFIER,
                 REVISION_IDENTIFIER,
             ),
+        )
+        db.connection.execute(
+            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1 WHERE continuation_id IN (SELECT continuation_id FROM research_continuations WHERE json_extract(gate_json,'$.purpose')='PRIVATE_OPERATION') AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')"
         )
     for process in processes:
         try:

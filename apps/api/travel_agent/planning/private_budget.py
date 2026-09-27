@@ -55,7 +55,15 @@ class PrivatePlanningBudget(BoundedBudget):
         self.identifier, self.limits = identifier, GRANTS[identifier]
 
     @classmethod
-    def for_trip(cls, db: Database, sid: str) -> "PrivatePlanningBudget":
+    def for_trip(cls, db: Database, sid: str) -> Any:
+        from .workbench import daily, DailyBudget
+
+        row = db.connection.execute(
+            "SELECT state_json FROM preview_sessions WHERE session_id=?", (sid,)
+        ).fetchone()
+        p = json.loads(row[0]).get("planning", {}) if row else {}
+        if daily(p):
+            return DailyBudget(db, p.get("operation_grant") or "unassigned")
         available = []
         for identifier in reversed(GRANTS):
             row = db.connection.execute(

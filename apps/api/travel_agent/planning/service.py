@@ -92,6 +92,9 @@ class RoutePreviewService:
     def _reserve(self, db: Any, kind: str, payload: str, sid: str, option: str) -> None:
         MapBudget(EvidenceStore(db)).reserve_map(kind, payload, self.scope, sid, option)
 
+    def _result_allowed(self, db: Any, sid: str) -> bool:
+        return True
+
     def _context(self, db: Any, sid: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         preview = PreviewService(db, self.scope, self.mode).get(sid)
         option = next(
@@ -486,7 +489,7 @@ class RoutePreviewService:
         with self.lock, Database(self.database) as db:
             current_preview, _, current_state = self._context(db, sid)
             mem = self.memory[sid]
-            if captured != (
+            if not self._result_allowed(db, sid) or captured != (
                 current_state["revision"],
                 current_preview["revision"],
                 mem["generation"],

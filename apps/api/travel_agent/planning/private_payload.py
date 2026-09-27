@@ -11,7 +11,10 @@ from .private_budget import PrivatePlanningBudget
 
 
 def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
-    PrivatePlanningBudget.for_trip(db, sid).check_trip(scope, sid)
+    from .workbench import daily
+
+    if not daily(p):
+        PrivatePlanningBudget.for_trip(db, sid).check_trip(scope, sid)
     draft = PlanDraft.model_validate(p["draft"])
     discovery_mode = bool(draft.activities) and all(
         a.provenance == "SOURCE_MENTION" for a in draft.activities

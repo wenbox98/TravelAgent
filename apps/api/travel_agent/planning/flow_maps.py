@@ -214,6 +214,14 @@ class FlowMapService(RoutePreviewService):
 class PrivateFlowMapService(FlowMapService):
     """The same place/leg lifecycle, with real adapter and this trip's grant."""
 
+    def _result_allowed(self, db: Any, sid: str) -> bool:
+        from .private_budget import PrivatePlanningBudget
+        try:
+            PrivatePlanningBudget.for_trip(db, sid).check_trip(self.scope, sid)
+            return True
+        except ValueError:
+            return False
+
     def _quota(self, db: Any, sid: str = "") -> dict[str, Any]:
         from .private_budget import PrivatePlanningBudget
 
@@ -255,14 +263,21 @@ class PrivateFlowMapService(FlowMapService):
                 draft.inputs, view["legs"], checked_scope="LOCAL_DAY_SEGMENT"
             )
         try:
-            PrivatePlanningBudget.for_trip(db, sid).check_trip(self.scope, sid)
+            budget = PrivatePlanningBudget.for_trip(db, sid)
+            budget.check_trip(self.scope, sid)
+            from .workbench import DailyBudget
+
+            if isinstance(budget, DailyBudget):
+                budget.task("MAP")
             authorized = True
         except ValueError:
             authorized = False
         view["budget"] = self._quota(db, sid)
         view["configured"] = self.adapter.configured and authorized
         view["configuration_status"] = (
-            "CONFIGURED_NOT_VERIFIED" if view["configured"] else "AMAP_LIVE_BLOCKED_NOT_CONFIGURED"
+            "CONFIGURED_NOT_VERIFIED"
+            if self.adapter.configured
+            else "AMAP_LIVE_BLOCKED_NOT_CONFIGURED"
         )
         if not authorized:
             view["message"] = "本次旅行尚无可用查询许可；历史额度保留。"
@@ -286,6 +301,19 @@ class PrivateFlowMapService(FlowMapService):
             _, state = PlanningService(db, self.scope).load(action.session_id)
             p = state["planning"]
             draft = PlanDraft.model_validate(p["draft"])
+            from .workbench import daily
+
+            if daily(p):
+                b = PrivatePlanningBudget.for_trip(db, action.session_id)
+                b.task("MAP")
+                allowed_ids = set(b.state()["gate"]["activity_ids"])
+                selected_ids = (
+                    {a.activity_id for a in draft.activities}
+                    if action.action == "route"
+                    else {action.place_id}
+                )
+                if "RESEARCH" not in b.state()["gate"]["tasks"] and not selected_ids <= allowed_ids:
+                    raise ValueError("OPERATION_MATERIAL_CHANGED")
             from .discovery import checked, verify_activity
 
             leads = checked(db, self.scope, action.session_id, p)

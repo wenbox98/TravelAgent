@@ -2,15 +2,36 @@
 
 import argparse
 import os
+from pathlib import Path
 import secrets
 import sys
 import threading
 from _bootstrap import enter
 
 
+def prepare_runtime(workspace: Path, *, initialize_empty: bool = False) -> Path:
+    """Explicit empty install; never recover a missing configured database as empty."""
+    import sqlite3
+    from travel_agent.persistence.database import Database
+
+    database = workspace / "preview.sqlite3"
+    if database.exists():
+        with sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True) as con:
+            if con.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                raise ValueError("WORKSPACE_DATABASE_DAMAGED")
+            if not con.execute("SELECT 1 FROM schema_version").fetchone():
+                raise ValueError("WORKSPACE_DATABASE_UNKNOWN")
+    elif (not initialize_empty and workspace.exists()) or (
+        workspace.exists() and any(workspace.iterdir())
+    ):
+        raise ValueError("WORKSPACE_DATABASE_MISSING")
+    with Database(database):
+        pass
+    return database
+
+
 def main() -> None:
     enter()
-    from cached_preview import prepare_workspace
     from travel_agent.persistence.database import Database
     from travel_agent.planning.suggestions import IDENTIFIER, grant, run_worker, shutdown_workers
     from travel_agent.preview.worker import configured_provider
@@ -43,10 +64,17 @@ def main() -> None:
     parser.add_argument("--batch", choices=["p05", "p051", "p052", "p06"], default="p06")
     parser.add_argument("--code-sha", default="")
     parser.add_argument("--all-records", action="store_true")
+    parser.add_argument("--workspace", type=Path, default=PROJECT_ROOT / ".local/p04-preview")
+    parser.add_argument(
+        "--account-scope", default=os.environ.get("TRAVEL_ACCOUNT_SCOPE", "current-private-profile")
+    )
+    parser.add_argument("--initialize-empty", action="store_true")
     args = parser.parse_args()
-    workspace = PROJECT_ROOT / ".local/p04-preview"
+    workspace = args.workspace.resolve()
     database = workspace / "preview.sqlite3"
-    scope = "current-private-profile"
+    scope = args.account_scope.strip()
+    if not scope or len(scope) > 80:
+        raise ValueError("ACCOUNT_SCOPE_REQUIRED")
     os.environ["LLM_TIMEOUT_SECONDS"] = "120"
     # Only configured model variables are inherited. No secret is logged or exposed.
     if os.name == "nt":
@@ -69,8 +97,7 @@ def main() -> None:
                         os.environ[name] = value
                     except FileNotFoundError:
                         pass
-    if not args.action.endswith("worker"):
-        prepare_workspace(PROJECT_ROOT / ".local/p03-preview/preview.sqlite3", workspace)
+    prepare_runtime(workspace, initialize_empty=args.initialize_empty)
     if args.action == "authorize-synthetic":
         with Database(database) as db:
             grant(db, scope, configured_provider())
@@ -100,9 +127,9 @@ def main() -> None:
         return
     from travel_agent.planning.network import install
 
-    audit = PROJECT_ROOT / ".local/p06-audit"
+    audit = workspace / "operation-audit"
     audit.mkdir(exist_ok=True)
-    install(args.action, audit / f"metrics-{os.getpid()}.json", model_only=True)
+    install(args.action, audit / f"metrics-{os.getpid()}.json")
     if args.action in {"diagnostic-replay", "diagnostic-clean"}:
         import json
         from travel_agent.planning.revision_diagnostics import cleanup, replay
@@ -150,7 +177,7 @@ def main() -> None:
 
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        raise SystemExit("P04_ALREADY_RUNNING") from None
+        raise SystemExit("WORKBENCH_ALREADY_RUNNING") from None
     with Database(database) as db:
         db.connection.execute(
             "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1 WHERE continuation_id IN (?,?,?,?,?) AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
@@ -159,6 +186,9 @@ def main() -> None:
         from travel_agent.planning.revision_diagnostics import cleanup
 
         cleanup(db)
+        db.connection.execute(
+            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1 WHERE continuation_id IN (SELECT continuation_id FROM research_continuations WHERE json_extract(gate_json,'$.purpose')='PRIVATE_OPERATION') AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')"
+        )
     keyfile = workspace / "preview-auth.key"
     if not keyfile.exists():
         with keyfile.open("xb") as f:
@@ -169,7 +199,9 @@ def main() -> None:
         "CACHED_PRIVATE_PREVIEW",
         keyfile.read_bytes(),
         product_flow=True,
-        static_dir=PROJECT_ROOT / ".local/p06-web",
+        daily_workbench=True,
+        local_metrics_path=audit / f"ui-requests-{os.getpid()}.json",
+        static_dir=PROJECT_ROOT / ".local/workbench-web",
     )
     url = f"http://127.0.0.1:{args.port}/bootstrap?ticket={config.ticket}"
     (workspace / "entry.url").write_text(url, encoding="utf-8")

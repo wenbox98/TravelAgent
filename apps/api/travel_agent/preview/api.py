@@ -1,6 +1,7 @@
 """Loopback ticket/cookie/CSRF boundary for the local cache preview."""
 from dataclasses import dataclass, field
 import hmac
+import json
 from pathlib import Path
 import secrets
 import sqlite3
@@ -30,9 +31,12 @@ class PreviewConfig:
     static_dir: Path | None = None
     route_check: bool = False
     product_flow: bool = False
+    daily_workbench: bool = False
+    local_metrics_path: Path | None = None
 
 
 def error(code: str, status: int) -> JSONResponse:
+    from travel_agent.planning.workbench import STATUS_MESSAGES
     messages = {"AUTH_REQUIRED": "请使用本次启动窗口中的本机入口打开页面。", "CSRF_DENIED": "本机会话校验失败，请刷新页面。",
                 "STALE_REVISION": "选择已更新，请刷新后查看最新状态。", "RESEARCH_CHANGED": "缓存依据已变化，请重新选择已有研究；原选择记录保留。",
                 "INVALID_INPUT": "输入格式不正确，请检查选择。", "CACHE_UNAVAILABLE": "本地操作暂不可用；请先读取已保存状态，勿重复派发。",
@@ -54,6 +58,7 @@ def error(code: str, status: int) -> JSONResponse:
         'MAP_CONFIRM_PLACES_FIRST': '请先逐一确认该段起终点的地图对象。',
         'MAP_CHARTER_UNDECIDED': '不自驾时，只有愿意比较包车才查询驾车道路参考；它不证明有车可订。',
         'CITYCODE_REQUIRED': '公交所需城市编码缺失或格式不符；不使用行政区编码替代。'})
+    messages.update(STATUS_MESSAGES)
     return JSONResponse({"error": {"code": code, "message": messages.get(code, "本次操作未提交，请检查当前选择或重新打开研究。"),
                         "request_id": secrets.token_hex(8), "retryable": False, "details": {}}}, status_code=status)
 
@@ -65,9 +70,20 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
     cookie = hmac.digest(config.auth_key, b"preview-session", "sha256").hex()
     csrf = hmac.digest(config.auth_key, b"preview-csrf", "sha256").hex()
     expires, used = time.monotonic() + 300, False
+    local_requests = dict(read=0, mutation=0, bootstrap=0, static=0, other=0)
 
     @app.middleware("http")
     async def authentication(request: Request, call_next: Any) -> Any:
+        if config.local_metrics_path is not None:
+            category = (
+                "read" if request.method in {"GET", "HEAD"} else "mutation"
+            ) if request.url.path.startswith("/api/v1/preview") else (
+                "bootstrap" if request.url.path == "/bootstrap" else "static"
+                if request.url.path == "/" or request.url.path.startswith("/assets/") else "other"
+            )
+            local_requests[category] += 1
+            # Counts only; never ticket, path IDs, headers, query strings or bodies.
+            config.local_metrics_path.write_text(json.dumps(local_requests), encoding="utf8")
         if request.url.path.startswith("/api/v1/preview"):
             if not secrets.compare_digest(request.cookies.get(cookie_name, ""), cookie):
                 return error("AUTH_REQUIRED", 401)

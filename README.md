@@ -9,19 +9,23 @@
 
 ## 当前定位：私人本地研究
 
-当前 P06 在已有采用版上提供有修改意图校验的 AI 改选、结构差异、取消/采用与受限本地诊断；本批小红书和高德调用为0，最多两次模型且不自动重试。见 [P06改选契约](docs/architecture/p06-plan-revision.md)。历史主入口已接入有限真实研究、私人 AI 建议和高德活动段参考；P05.2 将缓存公共地点提及、作者 Evidence、地点身份/范围和 AI 暂定安排分开。地点可先核实，一个身份已检查的 UNKNOWN 项目也能形成带缺口的临时草案；固定条件和独立方案检查保留。保留独立旅行草稿：先建议再选择，确认后收起，以首个活动时间为锚点。历史“五天、不自驾、不接受包车”是测试输入，不进入新旅行默认值。交通未定保持未知，AI提议和来源事实分开；G1仍NOT PASS。见 [P05.2地点发现契约](docs/architecture/p052-place-discovery.md)、[P05.1范围与规划契约](docs/architecture/p051-scope-locked-planning.md)、[历史P05流程](docs/architecture/p05-private-live-planning.md) 和 [历史P04流程](docs/architecture/p04-product-flow.md)。
+当前普通主入口是日常私人工作台：独立新旅行、明确复用历史活动、页面授权与可见预算、研究/安排/改选/地图和本地采用恢复。无需阶段参数或命令行授权，不自动继承历史测试偏好。新旅行无外部额度；只有用户确认用途、接收方和次数后，明确点击操作才派发。追加记录关联旧许可，失败和旧消耗保留。详见 [日常工作台契约](docs/architecture/daily-private-workbench.md)。P06 改选协议和历史门禁保持原义，G1仍NOT PASS；地点线索、作者证据、范围与当前可行性继续分别展示。
 
-已有依赖时，唯一推荐启动方式：
+已有依赖时，唯一推荐启动方式（已运行则直接使用，不重复启动）：
 
 ```powershell
 Set-Location E:\workSpace\travel-agent-project\travel-agent\apps\web
 node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
-node node_modules/vite/bin/vite.js build --outDir ../../.local/p06-web
+node node_modules/vite/bin/vite.js build --outDir ../../.local/workbench-web
 Set-Location E:\workSpace\travel-agent-project\travel-agent
 .venv\Scripts\python.exe -X utf8 scripts\product_preview.py --open
 ```
 
-地址 `http://127.0.0.1:8768/`。已运行时直接使用，不重复启动。沿用 `.local/p04-preview` 活动库，新静态目录为 `.local/p06-web`；原 P01–P05 数据和构建保留。启动、缓存浏览和普通编辑不外连；显式研究、建议和地图动作须有本批许可及余额，额度用完不恢复。服务端读取本机既有 DeepSeek / AMAP_WEB_SERVICE_KEY 配置，密钥不进前端。历史合成许可独立保留。本机 `.local/p06-backup` 保存升级前代码、数据库和静态目录，用于停止自有 8768 服务后的回滚；旧库备份仅供核对，不覆盖当前账本或恢复额度。
+地址 `http://127.0.0.1:8768/`。默认沿用 `.local/p04-preview` 活动库；原数据库、profile和历史静态目录保留。模型/高德继续读取现有本机服务端配置，不探测Key、不进入前端。保存、浏览、复用、刷新和重启为零项目外部调用。
+
+日常使用：新建旅行 → 选择本机已有活动或主动研究 → 确认有限操作许可 → 生成安排/按意图改选/地图核实 → 预览、取消或采用。用途和累计用量可展开查看；关闭许可后仍能本地编辑。来源不足、未配置、未授权、耗尽和上游失败分别说明。地图临时值重启过期，不自动重新查询。
+
+首次空白安装与可配置scope见上述契约；已配置数据库缺失或损坏不会静默建立空库。`.local/p07-backup` 保留本轮升级前一致性备份、代码和构建用于核对；备份不能覆盖当前库恢复旧预算。
 
 下面各阶段命令和结果作为历史记录保留，不是额外推荐入口。
 

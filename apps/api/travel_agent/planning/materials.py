@@ -66,6 +66,12 @@ def references(db: Any, scope: str, sid: str) -> list[dict[str, Any]]:
         for e in [e for option in data["options"] for e in option["evidence"]] + data[
             "other_clues"
         ]:
+            if (
+                "reused_claim_ids" in p
+                and rid not in p.get("own_research_ids", [])
+                and e["claim_id"] not in p["reused_claim_ids"]
+            ):
+                continue
             if e["topic"] in {"ROUTE", "EXPERIENCE", "DURATION", "TRANSPORT", "RISK"}:
                 result[e["claim_id"]] = e
     return sorted(result.values(), key=lambda e: (e["source_id"], e["claim_id"]))

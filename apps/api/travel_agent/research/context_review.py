@@ -449,6 +449,8 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
             )
         with store.db.transaction():
             # Revalidate current snapshot/revision/policy after a potentially long response.
+            if r["mode"] == "RUNTIME":
+                budget.check_job_active(ctx["attempt"]["research_id"])
             fresh, _ = build_input(
                 store, r["attempt_id"], r["account_scope"], json.loads(r["target_json"]), version=r["review_version"]
             )

@@ -43,14 +43,24 @@ class JobService:
                 (self.scope, self.continuation),
             )
         ]
+        ordinary = False
+        try:
+            ordinary = self.budget.state()["gate"].get("purpose") == "PRIVATE_OPERATION"
+            if ordinary:
+                from travel_agent.planning.workbench import DailyBudget
+
+                DailyBudget(self.db, self.continuation).task("RESEARCH")
+        except ValueError:
+            ready = False
         return {
             "enabled": ready
             and self.mode == "CACHED_PRIVATE_PREVIEW"
             and budget["gate"] == "PASS"
             and not budget["closed"]
-            and not jobs
+            and (not any(j["status"] in ACTIVE for j in jobs) if ordinary else not jobs)
             and budget["remaining"]["search"] > 0
-            and budget["remaining"]["model"] >= 2,
+            and (budget["remaining"]["detail"] > 0 if ordinary else True)
+            and budget["remaining"]["model"] >= (3 if ordinary else 2),
             "configured": ready,
             "budget": budget,
             "jobs": jobs,
@@ -116,11 +126,18 @@ class JobService:
                 from travel_agent.planning.private_budget import PrivatePlanningBudget, GRANTS
                 from travel_agent.planning.flow_models import PlanDraft
 
-                if self.continuation not in GRANTS:
+                from travel_agent.planning.workbench import daily
+
+                if self.continuation not in GRANTS and not daily(planning):
                     raise ValueError("PRIVATE_TRIP_NOT_AUTHORIZED")
-                PrivatePlanningBudget(self.db, self.continuation).check_trip(
-                    self.scope, session, bind=True
+                selected_budget = (
+                    PrivatePlanningBudget.for_trip(self.db, session)
+                    if daily(planning)
+                    else PrivatePlanningBudget(self.db, self.continuation)
                 )
+                if selected_budget.identifier != self.continuation:
+                    raise ValueError("OPERATION_SCOPE_MISMATCH")
+                selected_budget.check_trip(self.scope, session, bind=True)
                 draft = PlanDraft.model_validate(planning["draft"])
                 req = ResearchRequest(
                     destination=planning["destination"],

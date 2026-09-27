@@ -46,6 +46,8 @@ def model_command(
             kind,
             "--job",
             identifier,
+            "--workspace",
+            str(database.resolve().parent),
         ]
     return [
         sys.executable,
@@ -131,11 +133,16 @@ def run_job(
                 return
         data = json.loads(j["request_json"])
         budget = BoundedBudget(store, j["continuation_id"])
+        ordinary = budget.state()["gate"].get("purpose") == "PRIVATE_OPERATION"
         summary: dict[str, Any] = {}
         state = "FAILED"
         owned = reader is None
 
         def active() -> None:
+            if ordinary:
+                from travel_agent.planning.workbench import check_active
+
+                check_active(db, budget.state())
             r = con.execute(
                 "SELECT status,cancel_requested FROM preview_jobs WHERE job_id=?", (job_id,)
             ).fetchone()
@@ -222,9 +229,8 @@ def run_job(
                         raise ResearchStopped("ERROR", "CONTEXT_REVIEW_NOT_COMPLETED")
                 # A completed review with no accepted activity is not a transport error.
                 # Continue to the next distinct source within this grant, never re-review it.
-                out["continue_after_pending_review"] = (
-                    data.get("planning_protocol") == 2
-                    and j["continuation_id"] == "p051-scope-locked-planning"
+                out["continue_after_pending_review"] = data.get("planning_protocol") == 2 and (
+                    ordinary or j["continuation_id"] == "p051-scope-locked-planning"
                 )
 
             from travel_agent.domain.source_policy import private_policy
@@ -270,7 +276,9 @@ def run_job(
                 model_batch_id=j["continuation_id"],
                 # This is a batch-wide extraction cap, not a per-source retry cap.
                 # Only the new grant permits two distinct sources; old caps stay immutable.
-                model_max_attempts=2
+                model_max_attempts=budget.state()["limits"]["DETAIL"]
+                if ordinary
+                else 2
                 if data.get("planning_protocol") == 2
                 and j["continuation_id"] == "p051-scope-locked-planning"
                 else 1,

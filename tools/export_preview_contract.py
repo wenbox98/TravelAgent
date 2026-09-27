@@ -63,7 +63,7 @@ def main():
                  "security": [{"PreviewSession": []}], "responses": {"200": {"description": "本机已审核缓存和用户选择", "content": {"application/json": {"schema": {"$ref": f"./domain.schema.json#/$defs/{response}"}}}},
                  "default": {"description": "安全错误；不返回原始异常或正文", "content": {"application/json": {"schema": {"$ref": "./domain.schema.json#/$defs/ErrorResponse"}}}}}}
         if 'Planning' in operation or operation == 'createIndependentTrip':
-            value['summary']='P06 改选协议3：基于采用版快照校验结构与修改意图；预览取消采用零外部调用；旧协议与审核保持原义'
+            value['summary']='日常私人工作台：新旅行无隐含授权；页面有限许可、追加/撤销复用耐久账本；本地复用/修改/恢复零外部调用；历史规则保留'
             value['security']=[{'PreviewMapSession':[]}]
         if body:
             value["requestBody"] = {"required": True, "content": {"application/json": {"schema": {"$ref": f"./domain.schema.json#/$defs/{body}"}}}}
