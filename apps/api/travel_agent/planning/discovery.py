@@ -10,7 +10,7 @@ from travel_agent.research.canonical import canonicalize
 from travel_agent.research.content_store import SourceContentStore
 from travel_agent.research.model_input import outbound_blocks
 from .flow_models import Activity, PlanDraft
-from .private_budget import DISCOVERY_IDENTIFIER, PrivatePlanningBudget
+from .private_budget import DISCOVERY_IDENTIFIER, REVISION_IDENTIFIER, PrivatePlanningBudget
 from .spatial import classify
 
 VERSION = "public-mention-1"
@@ -33,7 +33,7 @@ BLOCKING = set(FLAGS) - {"NEGATIVE_CONTEXT", "HYPOTHETICAL"}
 def contents(db: Any, scope: str, sid: str, p: dict[str, Any]) -> list[dict[str, Any]]:
     budget = PrivatePlanningBudget.for_trip(db, sid)
     gate = budget.check_trip(scope, sid)["gate"]
-    if budget.identifier != DISCOVERY_IDENTIFIER or not gate.get("content_ids"):
+    if budget.identifier not in {DISCOVERY_IDENTIFIER, REVISION_IDENTIFIER} or not gate.get("content_ids"):
         raise ValueError("DISCOVERY_NOT_AUTHORIZED")
     job = db.connection.execute(
         "SELECT research_id FROM preview_jobs WHERE job_id=? AND session_id=? AND account_scope=?",

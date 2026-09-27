@@ -8,12 +8,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api"))
 from travel_agent.preview.models import PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt  # noqa: E402
 from travel_agent.planning.models import MapAction, MapView  # noqa: E402
-from travel_agent.planning.flow_models import PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse  # noqa: E402
+from travel_agent.planning.flow_models import PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse  # noqa: E402
 
 
 def definitions():
     result = {}
-    for model in (PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse):
+    for model in (PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse):
         schema = model.model_json_schema()
         result.update(schema.pop("$defs", {}))
         result[model.__name__] = schema
@@ -63,7 +63,7 @@ def main():
                  "security": [{"PreviewSession": []}], "responses": {"200": {"description": "本机已审核缓存和用户选择", "content": {"application/json": {"schema": {"$ref": f"./domain.schema.json#/$defs/{response}"}}}},
                  "default": {"description": "安全错误；不返回原始异常或正文", "content": {"application/json": {"schema": {"$ref": "./domain.schema.json#/$defs/ErrorResponse"}}}}}}
         if 'Planning' in operation or operation == 'createIndependentTrip':
-            value['summary']='P05.2 独立私人行程：缓存地点提及与已审核Evidence分开；地点核实先于活动采用，UNKNOWN可暂定，固定条件和逐方案检查保留；显式外部动作按批次额度预留'
+            value['summary']='P06 改选协议3：基于采用版快照校验结构与修改意图；预览取消采用零外部调用；旧协议与审核保持原义'
             value['security']=[{'PreviewMapSession':[]}]
         if body:
             value["requestBody"] = {"required": True, "content": {"application/json": {"schema": {"$ref": f"./domain.schema.json#/$defs/{body}"}}}}

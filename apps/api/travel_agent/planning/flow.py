@@ -466,6 +466,7 @@ class PlanningService:
                 raise ValueError("STALE_REVISION")
             p = state["planning"]
             if action.action == "save":
+                p.pop("revision_preview", None)
                 if action.draft is None:
                     raise ValueError("INVALID_INPUT")
                 before = PlanDraft.model_validate(p["draft"])
@@ -689,6 +690,27 @@ class PlanningService:
                 p["research_ids"] = sorted(set(p.get("research_ids", []) + [rid]))
                 p["collapsed"]["activities"] = False
             elif action.action == "adopt":
+                p.pop("last_revision_adoption", None)
+                if p.get("revision_preview"):
+                    from .suggestions import revision_proposal
+
+                    marker = p["revision_preview"]
+                    if (
+                        marker["job_id"] != p["job_id"]
+                        or marker["preview_revision"] != row["revision"]
+                        or marker["draft_hash"] != fingerprint(p["draft"])
+                    ):
+                        raise ValueError("STALE_PROPOSAL")
+                    revision_proposal(self.db, self.scope, p, marker["index"])
+                    p["last_revision_adoption"] = dict(
+                        job_id=p["job_id"], proposal_index=marker["index"]
+                    )
+                if p.get("adopted"):
+                    p.setdefault("adoption_history", []).append(
+                        dict(version=p.get("adopted_version", 0), draft=deepcopy(p["adopted"]))
+                    )
+                p["adopted_version"] = p.get("adopted_version", 0) + 1
+                p.pop("revision_preview", None)
                 if any(a.get("provenance") == "SOURCE_MENTION" for a in p["draft"]["activities"]):
                     from .discovery import checked, verify_activity
 
@@ -700,6 +722,7 @@ class PlanningService:
                 p["adopted"] = deepcopy(p["draft"])
                 p["collapsed"] = dict.fromkeys(["direction", "activities", "conditions"], True)
             elif action.action == "cancel":
+                p.pop("revision_preview", None)
                 p["direction_backup"] = None
                 if p["adopted"]:
                     p["draft"] = deepcopy(p["adopted"])

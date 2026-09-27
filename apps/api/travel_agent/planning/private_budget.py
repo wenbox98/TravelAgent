@@ -36,6 +36,15 @@ GRANTS = {
     CURRENT_IDENTIFIER: CURRENT_LIMITS,
     DISCOVERY_IDENTIFIER: DISCOVERY_LIMITS,
 }
+REVISION_IDENTIFIER = "p06-adopted-revision"
+GRANTS[REVISION_IDENTIFIER] = {
+    "CONNECT": 0,
+    "SEARCH": 0,
+    "DETAIL": 0,
+    "MODEL": 2,
+    "MAP_PLACE": 0,
+    "MAP_ROUTE": 0,
+}
 
 
 class PrivatePlanningBudget(BoundedBudget):
@@ -113,12 +122,37 @@ class PrivatePlanningBudget(BoundedBudget):
                 )
                 if not gate["content_ids"]:
                     raise ValueError("DISCOVERY_SOURCE_UNAVAILABLE")
+            if self.identifier == REVISION_IDENTIFIER:
+                previous = con.execute(
+                    "SELECT gate_json FROM research_continuations WHERE continuation_id=? AND account_scope=?",
+                    (DISCOVERY_IDENTIFIER, scope),
+                ).fetchone()
+                prior = json.loads(previous[0]) if previous else {}
+                session = con.execute(
+                    "SELECT state_json,revision FROM preview_sessions WHERE session_id=? AND account_scope=?",
+                    (prior.get("session_id"), scope),
+                ).fetchone()
+                p = json.loads(session[0]).get("planning", {}) if session else {}
+                if not p.get("adopted") or prior.get("destination") != destination:
+                    raise ValueError("REVISION_PREDECESSOR_REQUIRED")
+                from .revisions import base
+                from travel_agent.preview.projection import fingerprint
+
+                gate.update(
+                    session_id=prior["session_id"],
+                    content_ids=prior["content_ids"],
+                    purpose="ADOPTED_PLAN_REVISION",
+                    original_adopted_hash=fingerprint(base(p["adopted"])),
+                    original_revision=session[1],
+                )
             con.execute(
                 "INSERT INTO research_continuations VALUES(?,?,?,?,?,?,NULL,?,?)",
                 (
                     self.identifier,
                     scope,
-                    CURRENT_IDENTIFIER
+                    DISCOVERY_IDENTIFIER
+                    if self.identifier == REVISION_IDENTIFIER
+                    else CURRENT_IDENTIFIER
                     if self.identifier == DISCOVERY_IDENTIFIER
                     else IDENTIFIER
                     if self.identifier == CURRENT_IDENTIFIER

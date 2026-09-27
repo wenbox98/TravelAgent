@@ -6527,6 +6527,20 @@
           "title": "Adjustment",
           "type": "string"
         },
+        "adjustment_minutes": {
+          "anyOf": [
+            {
+              "maximum": 120,
+              "minimum": 5,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Adjustment Minutes"
+        },
         "inputs": {
           "$ref": "#/$defs/TripInputs"
         },
@@ -7385,6 +7399,68 @@
         "proposals"
       ],
       "title": "ArrangementResponse",
+      "type": "object"
+    },
+    "RevisionProposal": {
+      "additionalProperties": false,
+      "properties": {
+        "reason_code": {
+          "enum": [
+            "LONGER_FIRST",
+            "FEWER"
+          ],
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "activities": {
+          "items": {
+            "$ref": "#/$defs/SuggestedActivity"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Activities",
+          "type": "array"
+        },
+        "citation_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 40,
+          "title": "Citation Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "reason_code",
+        "activities",
+        "citation_ids"
+      ],
+      "title": "RevisionProposal",
+      "type": "object"
+    },
+    "RevisionResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": 3,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/RevisionProposal"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Proposals",
+          "type": "array"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "proposals"
+      ],
+      "title": "RevisionResponse",
       "type": "object"
     }
   }

@@ -20,7 +20,13 @@ from travel_agent.research.bounded import BoundedBudget
 from travel_agent.research.retry import _config
 from travel_agent.research.store import EvidenceStore
 from travel_agent.settings import PROJECT_ROOT
-from .flow_models import PlanDraft, PlanningResponse, ArrangementResponse
+from .flow_models import (
+    PlanDraft,
+    PlanningResponse,
+    ArrangementResponse,
+    RevisionResponse,
+    RevisionProposal,
+)
 
 IDENTIFIER = "p04-planning-synthetic-two"
 _launch_lock = threading.Lock()
@@ -80,6 +86,12 @@ def payload_for(
     from .flow import demo_activities
 
     if not p["demo"] and db is not None:
+        from .private_budget import PrivatePlanningBudget, REVISION_IDENTIFIER
+
+        if PrivatePlanningBudget.for_trip(db, sid).identifier == REVISION_IDENTIFIER:
+            from .revisions import payload as revision_payload
+
+            return revision_payload(db, scope, sid, p)
         from .private_payload import payload
 
         return payload(db, scope, sid, p)
@@ -155,10 +167,40 @@ def model_available(db: Database, scope: str, p: dict[str, Any], sid: str = "") 
                 )
             ):
                 return False
-            if db.connection.execute(
-                "SELECT 1 FROM preview_jobs WHERE continuation_id=? AND research_id LIKE 'planning-%' AND status IN ('FAILED','INTERRUPTED')",
-                (PRIVATE_ID,),
-            ).fetchone():
+            from .private_budget import REVISION_IDENTIFIER
+
+            if PRIVATE_ID == REVISION_IDENTIFIER:
+                from .revisions import base
+
+                first = db.connection.execute(
+                    "SELECT * FROM preview_jobs WHERE continuation_id=? ORDER BY created_at,rowid LIMIT 1",
+                    (PRIVATE_ID,),
+                ).fetchone()
+                if first is None:
+                    if p["draft"]["adjustment"] != "LONGER_FIRST":
+                        return False
+                elif first["status"] in {"COMPLETED", "PARTIAL"}:
+                    if (
+                        p["draft"]["adjustment"] != "FEWER"
+                        or p.get("last_revision_adoption", {}).get("job_id") != first["job_id"]
+                        or fingerprint(base(p["adopted"]))
+                        == json.loads(first["request_json"])["payload"]["base_hash"]
+                    ):
+                        return False
+                else:
+                    gate = budget.state()["gate"]
+                    if (
+                        gate.get("retest_of") != first["job_id"]
+                        or p["draft"]["adjustment"] != "LONGER_FIRST"
+                    ):
+                        return False
+            if (
+                PRIVATE_ID != REVISION_IDENTIFIER
+                and db.connection.execute(
+                    "SELECT 1 FROM preview_jobs WHERE continuation_id=? AND research_id LIKE 'planning-%' AND status IN ('FAILED','INTERRUPTED')",
+                    (PRIVATE_ID,),
+                ).fetchone()
+            ):
                 return False
             if db.connection.execute(
                 "SELECT 1 FROM preview_jobs WHERE continuation_id=? AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
@@ -204,6 +246,17 @@ def create_job(
                 (identifier,),
             ).fetchone()[0]
             slot = "INITIAL_PLAN" if n == 0 else "ADJUST_PLAN"
+        from .private_budget import REVISION_IDENTIFIER
+
+        if identifier == REVISION_IDENTIFIER:
+            n = db.connection.execute(
+                "SELECT count(*) FROM preview_jobs WHERE continuation_id=?", (identifier,)
+            ).fetchone()[0]
+            slot = (
+                "LONGER_FIRST"
+                if n == 0
+                else ("FEWER" if payload["adjustment"] == "FEWER" else "LONGER_FIRST_RETEST")
+            )
         budget_private.reserve_for_trip(scope, sid, "MODEL", slot)
     else:
         BoundedBudget(EvidenceStore(db), IDENTIFIER).reserve_count("MODEL", slot, {"MODEL": 2})
@@ -213,6 +266,8 @@ def create_job(
         "payload": payload,
         "draft": p["draft"],
     }
+    if payload.get("protocol_version") == 3:
+        data.update(base_revision=revision - 1, base_adopted_version=p.get("adopted_version", 0))
     db.connection.execute(
         "INSERT INTO preview_jobs VALUES(?,?,?,?,?,?,?,?,?,?,0,NULL,?,NULL)",
         (
@@ -254,7 +309,71 @@ def job_view(db: Database, scope: str, jid: str) -> dict[str, Any]:
         "accepted_count": summary.get("accepted_count", len(summary.get("proposals", []))),
         "rejected_count": summary.get("rejected_count", 0),
         "generated_count": summary.get("generated_count"),
+        "isolated_count": summary.get("isolated_count", 0),
+        "local_diagnostic": summary.get("local_diagnostic", {}),
+        "rule_version": summary.get("rule_version"),
+        "returned": summary.get("returned", False),
+        "parsed": summary.get("parsed", False),
+        "base_revision": json.loads(row["request_json"]).get("base_revision"),
+        "base_activities": [
+            {k: a.get(k) for k in ("activity_id", "name", "stay_min", "stay_max", "rest_minutes")}
+            for a in json.loads(row["request_json"]).get("payload", {}).get("activities", [])
+        ],
+        "can_preview": can_preview(db, scope, row)
+        if summary.get("protocol_version") == 3
+        else None,
     }
+
+
+def revision_binding(db: Database, scope: str, row: Any, p: dict[str, Any]) -> dict[str, Any]:
+    from .revisions import base
+
+    request = json.loads(row["request_json"])
+    if (
+        not p.get("adopted")
+        or p.get("adopted_version", 0) != request["base_adopted_version"]
+        or fingerprint(base(p["adopted"])) != request["payload"]["base_hash"]
+    ):
+        raise ValueError("STALE_PROPOSAL")
+    context = deepcopy(p)
+    context["draft"] = request["draft"]
+    if payload_for(context, db, scope, row["session_id"]) != request["payload"]:
+        raise ValueError("STALE_PROPOSAL")
+    return dict(request)
+
+
+def can_preview(db: Database, scope: str, row: Any) -> bool:
+    try:
+        from .flow import PlanningService
+        from .revisions import base
+
+        _, state = PlanningService(db, scope).load(row["session_id"])
+        p = state["planning"]
+        revision_binding(db, scope, row, p)
+        return row["status"] in {"COMPLETED", "PARTIAL"} and base(p["draft"]) == base(p["adopted"])
+    except ValueError, KeyError:
+        return False
+
+
+def revision_proposal(
+    db: Database, scope: str, p: dict[str, Any], index: int
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    from .revisions import validate
+
+    row = db.connection.execute(
+        "SELECT * FROM preview_jobs WHERE job_id=? AND account_scope=?", (p["job_id"], scope)
+    ).fetchone()
+    if row is None or row["status"] not in {"COMPLETED", "PARTIAL"}:
+        raise ValueError("STALE_PROPOSAL")
+    request = revision_binding(db, scope, row, p)
+    proposals = json.loads(row["summary_json"])["proposals"]
+    if index >= len(proposals):
+        raise ValueError("STALE_PROPOSAL")
+    item = {k: proposals[index][k] for k in RevisionProposal.model_fields}
+    result = validate(dict(protocol_version=3, proposals=[item]), request["payload"])
+    if result["accepted_count"] != 1:
+        raise ValueError("STALE_PROPOSAL")
+    return request, result["proposals"][0]
 
 
 def validate_response(raw: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -310,6 +429,27 @@ def apply_proposal(
     db: Database, scope: str, p: dict[str, Any], revision: int, index: int
 ) -> dict[str, Any]:
     job = job_view(db, scope, p["job_id"])
+    if job["protocol_version"] == 3:
+        if not job["can_preview"]:
+            raise ValueError("STALE_PROPOSAL")
+        request, proposal = revision_proposal(db, scope, p, index)
+        draft = PlanDraft.model_validate(request["draft"])
+        originals = {a.activity_id: a for a in draft.activities}
+        draft.activities = [
+            originals[item["activity_id"]].model_copy(
+                update={k: item[k] for k in ("day", "stay_min", "stay_max", "rest_minutes")}
+                | {"timing_origin": "AI_PROPOSED"}
+            )
+            for item in proposal["activities"]
+        ]
+        draft.adjustment, draft.adjustment_minutes = "NONE", None
+        p["revision_preview"] = dict(
+            job_id=p["job_id"],
+            index=index,
+            draft_hash=fingerprint(draft.model_dump()),
+            preview_revision=revision + 1,
+        )
+        return draft.model_dump()
     if (
         job["status"] not in {"COMPLETED", "PARTIAL"}
         or job["request_revision"] != revision
@@ -399,6 +539,7 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             ):
                 return
         summary: dict[str, Any] = {}
+        raw: Any = None
         status = "FAILED"
         try:
             provider = provider or configured_provider()
@@ -418,14 +559,25 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             ):
                 raise ValueError("STALE_PROPOSAL")
             modern = data["payload"].get("protocol_version") == 2
+            revision_mode = data["payload"].get("protocol_version") == 3
             raw = provider.structured(
-                "planning_arrangement_v2" if modern else "planning_suggestion",
-                data["payload"],
-                ArrangementResponse.model_json_schema()
+                "planning_revision_v3"
+                if revision_mode
+                else "planning_arrangement_v2"
                 if modern
+                else "planning_suggestion",
+                data["payload"],
+                RevisionResponse.model_json_schema()
+                if revision_mode
+                else ArrangementResponse.model_json_schema()
+                if modern or revision_mode
                 else PlanningResponse.model_json_schema(),
             )
-            if modern:
+            if revision_mode:
+                from .revisions import validate
+
+                summary = validate(raw, data["payload"])
+            elif modern:
                 from .arrangements import validate_arrangements
 
                 summary = validate_arrangements(raw, data["payload"])
@@ -464,6 +616,21 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
         if isinstance(provider, OpenAICompatibleProvider) and provider.last_diagnostic:
             summary["diagnostic"] = provider.last_diagnostic.safe_dict()
         saved_input = json.loads(row["request_json"])["payload"]
+        if saved_input.get("protocol_version") == 3:
+            from .revisions import VERSION as REVISION_VERSION
+            from .revision_diagnostics import retain
+
+            summary.update(
+                protocol_version=3,
+                rule_version=REVISION_VERSION,
+                input_hash=fingerprint(saved_input),
+            )
+            try:
+                summary["local_diagnostic"] = retain(db, row, raw, summary)
+            except OSError, ValueError, TypeError:
+                summary["local_diagnostic"] = dict(
+                    replayable=False, reason="RECORD_UNAVAILABLE", adopted_affected=False
+                )
         if saved_input.get("protocol_version") == 2:
             from .arrangements import VERSION
 
@@ -564,17 +731,23 @@ def shutdown_workers(database: Path) -> None:
     with _launch_lock:
         _closing.add(owner)
         processes = [p for (path, _), p in _workers.items() if path == owner and p is not None]
-    from .private_budget import IDENTIFIER as PRIVATE_ID, CURRENT_IDENTIFIER, DISCOVERY_IDENTIFIER
+    from .private_budget import (
+        IDENTIFIER as PRIVATE_ID,
+        CURRENT_IDENTIFIER,
+        DISCOVERY_IDENTIFIER,
+        REVISION_IDENTIFIER,
+    )
 
     with Database(database) as db:
         db.connection.execute(
-            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1,summary_json=? WHERE continuation_id IN (?,?,?,?) AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
+            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1,summary_json=? WHERE continuation_id IN (?,?,?,?,?) AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
             (
                 '{"reason":"SERVER_STOPPED"}',
                 IDENTIFIER,
                 PRIVATE_ID,
                 CURRENT_IDENTIFIER,
                 DISCOVERY_IDENTIFIER,
+                REVISION_IDENTIFIER,
             ),
         )
     for process in processes:

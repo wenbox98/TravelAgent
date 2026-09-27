@@ -11,11 +11,11 @@ from urllib.parse import urlsplit
 from travel_agent.providers.network_fence import in_amap_transport
 
 
-def install(role: str, metrics_file: Path) -> None:
+def install(role: str, metrics_file: Path, *, model_only: bool = False) -> None:
     metrics = dict(model_http=0, amap_http=0, external_dns=0, external_socket=0, blocked_external=0)
     lock, context = RLock(), local()
     resolved: dict[str, set[str]] = {}
-    model_role = role in {"worker", "extract-worker", "review-worker"}
+    model_role = role == "worker" if model_only else role in {"worker", "extract-worker", "review-worker"}
     amap_paths = {
         "/v5/place/text",
         "/v5/direction/transit/integrated",
@@ -35,7 +35,7 @@ def install(role: str, metrics_file: Path) -> None:
         with lock:
             if (
                 event == "import"
-                and role != "job-worker"
+                and (model_only or role != "job-worker")
                 and (
                     str(values[0]).startswith("xhs_sidecar")
                     or values[0] == "travel_agent.research.live"
@@ -55,6 +55,7 @@ def install(role: str, metrics_file: Path) -> None:
                     metrics["model_http"] += 1
                 elif (
                     role == "serve"
+                    and not model_only
                     and in_amap_transport()
                     and host == "restapi.amap.com"
                     and url.scheme == "https"

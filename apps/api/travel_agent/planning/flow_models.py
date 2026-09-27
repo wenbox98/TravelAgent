@@ -63,6 +63,7 @@ class PlanDraft(StrictModel):
     )
     walking_allowed: bool = False
     adjustment: Literal["NONE", "FEWER", "LONGER_FIRST", "SWAP_FIRST_TWO"] = "NONE"
+    adjustment_minutes: int | None = Field(default=None, ge=5, le=120)
     inputs: TripInputs = Field(default_factory=TripInputs)
     first_day: int = Field(default=1, ge=1, le=90)
     first_period: Literal["UNDECIDED", "MORNING", "AFTERNOON", "EVENING"] = "UNDECIDED"
@@ -180,6 +181,17 @@ class ArrangementResponse(StrictModel):
     protocol_version: Literal[2]
     proposals: list[Arrangement] = Field(min_length=1, max_length=3)
     grounded_activities: list[GroundedActivity] = Field(default_factory=list, max_length=12)
+
+
+class RevisionProposal(StrictModel):
+    reason_code: Literal["LONGER_FIRST", "FEWER"]
+    activities: list[SuggestedActivity] = Field(min_length=1, max_length=12)
+    citation_ids: list[str] = Field(max_length=40)
+
+
+class RevisionResponse(StrictModel):
+    protocol_version: Literal[3]
+    proposals: list[RevisionProposal] = Field(min_length=1, max_length=3)
 
 
 class PlanView(StrictModel):

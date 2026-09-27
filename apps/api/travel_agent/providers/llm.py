@@ -213,6 +213,7 @@ class OpenAICompatibleProvider:
                 fail("POLICY", "POLICY_BLOCKED", "LLM_POLICY_BLOCKED")
             output_format: dict[str, Any] = {"type": self.response_format}
             schema_instruction = ""
+            from travel_agent.planning.revisions import PROMPT as REVISION_PROMPT
             if self.response_format == "json_schema":
                 output_format["json_schema"] = {"name": task, "strict": True, "schema": schema}
             else:
@@ -253,7 +254,8 @@ class OpenAICompatibleProvider:
                            "distinct experiences over generic praise. Keep day/segment durations "
                            "distinct from whole-trip duration; do not reconstruct an unquoted route."
                            if task == "extract_evidence" else ""))
-                        if task not in {"review_evidence_context_v1", "review_evidence_context_v2", "planning_suggestion", "planning_arrangement_v2"}
+                        if task not in {"review_evidence_context_v1", "review_evidence_context_v2", "planning_suggestion", "planning_arrangement_v2", "planning_revision_v3"}
+                        else REVISION_PROMPT if task == "planning_revision_v3"
                         else ARRANGEMENT_PROMPT if task == "planning_arrangement_v2"
                         else PLANNING_PROMPT if task == "planning_suggestion"
                         else CONTEXT_REVIEW_PROMPT_V1 if task == "review_evidence_context_v1" else CONTEXT_REVIEW_PROMPT
@@ -327,6 +329,9 @@ class OpenAICompatibleProvider:
             if task == "planning_arrangement_v2":
                 from travel_agent.planning.arrangements import envelope_schema
                 validation_schema = envelope_schema()
+            if task == "planning_revision_v3":
+                from travel_agent.planning.revisions import envelope_schema as revision_envelope
+                validation_schema = revision_envelope()
             result = validate_structured(output, validation_schema)
             diagnostic.stage, diagnostic.category = "COMPLETE", "SUCCESS"
             return result
