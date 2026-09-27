@@ -5,6 +5,7 @@ import re
 from typing import Any
 from travel_agent.preview.projection import safe_text
 from .flow_models import PlanDraft
+from .guide_context import walking, budget_context
 from .trip_budget import calculate, defaults
 
 PERIODS = {"UNDECIDED": "时段自定", "MORNING": "上午", "AFTERNOON": "午后", "EVENING": "傍晚"}
@@ -25,7 +26,8 @@ LODGING = {
 def project(p: dict[str, Any]) -> dict[str, Any]:
     d = PlanDraft.model_validate(p["draft"])
     b = d.trip_budget.model_copy(deep=True)
-    b.days = d.days
+    context = budget_context(d)
+    b.days = context["days"]
     categories = {(v.category, v.transport_scope) for v in b.lines}
     for v in defaults(d.days, d.inputs.planning_scope == "ACTIVITY_WINDOW"):
         if (v.category, v.transport_scope) not in categories:
@@ -71,6 +73,11 @@ def project(p: dict[str, Any]) -> dict[str, Any]:
         title=d.guide.title,
         reason=d.guide.reason,
         origin=d.guide.origin,
+        walking=walking(d, p.get("request", "")),
+        walking_suggestion="步行仅为待选择的建议，尚未核实路线或取得同意。"
+        if d.guide.walking_requirement == "OPTIONAL"
+        else None,
+        budget_context=context,
         available=bool(d.activities),
         feasibility="UNVERIFIED",
         summary=f"{d.days or '天数未定'}{'天' if d.days else ''} · "
@@ -164,6 +171,8 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         "# " + escaped(p["destination"]) + " · 建议攻略",
         "",
         escaped(guide["summary"]),
+        escaped(guide["walking"]["label"]),
+        escaped(guide["walking_suggestion"]) if guide["walking_suggestion"] else "",
         "",
         "独立开发测试资料，不是长期偏好。" if guide["test_input"] else "本次私人旅行建议。",
         "",
@@ -196,7 +205,12 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         "## 参考预算",
         "",
         "口径：" + escaped(guide["budget"]["meaning"]),
-        f"人数：{p['draft']['trip_budget']['people'] or '未知'}；房间：{guide['lodging']['rooms'] or '未知'}；晚数：{guide['lodging']['nights'] if guide['lodging']['nights'] is not None else '未知'}。",
+        "已知条件：" + "、".join(guide["budget_context"]["known_conditions"]),
+        "待补充条件："
+        + (
+            "、".join(guide["budget_context"]["pending_conditions"])
+            or "人数、天数与房晚条件已明确；实际价格仍待核实"
+        ),
     ]
     for v in guide["budget"]["lines"]:
         lines.append(

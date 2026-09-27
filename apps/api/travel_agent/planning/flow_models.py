@@ -78,7 +78,8 @@ class PlanDraft(StrictModel):
     transport: Literal["UNKNOWN", "PUBLIC_TRANSIT", "SELF_DRIVE", "LOCAL_SERVICE", "WALKING"] = (
         "UNKNOWN"
     )
-    walking_allowed: bool = False
+    walking_allowed: bool | None = False
+    walking_origin: Literal["UNKNOWN", "USER_EXPLICIT"] = "UNKNOWN"
     adjustment: Literal["NONE", "FEWER", "LONGER_FIRST", "SWAP_FIRST_TWO"] = "NONE"
     adjustment_minutes: int | None = Field(default=None, ge=5, le=120)
     inputs: TripInputs = Field(default_factory=TripInputs)

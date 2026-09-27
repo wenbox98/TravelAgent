@@ -6688,9 +6688,25 @@
           "type": "string"
         },
         "walking_allowed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": false,
-          "title": "Walking Allowed",
-          "type": "boolean"
+          "title": "Walking Allowed"
+        },
+        "walking_origin": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "USER_EXPLICIT"
+          ],
+          "title": "Walking Origin",
+          "type": "string"
         },
         "adjustment": {
           "default": "NONE",
@@ -8087,6 +8103,16 @@
     "GuideProposal": {
       "additionalProperties": false,
       "properties": {
+        "walking_requirement": {
+          "default": "NONE",
+          "enum": [
+            "NONE",
+            "OPTIONAL",
+            "REQUIRED"
+          ],
+          "title": "Walking Requirement",
+          "type": "string"
+        },
         "title": {
           "maxLength": 80,
           "minLength": 1,
@@ -8257,6 +8283,16 @@
     "GuideContent": {
       "additionalProperties": false,
       "properties": {
+        "walking_requirement": {
+          "default": "NONE",
+          "enum": [
+            "NONE",
+            "OPTIONAL",
+            "REQUIRED"
+          ],
+          "title": "Walking Requirement",
+          "type": "string"
+        },
         "title": {
           "default": "可修改的旅行建议",
           "maxLength": 80,

@@ -49,6 +49,7 @@ STATUS_MESSAGES = {
     "BUDGET_REFERENCE_UNAVAILABLE": "没有可用报价依据；可以填写预算目标。",
     "GUIDE_REFERENCE_UNAVAILABLE": "所选资料已经变化，不能继续导出为可用来源。",
     "GUIDE_ADOPT_FIRST": "请先采用一版建议，再导出。",
+    "GUIDE_WALKING_CONFLICT": "步行意愿与当前方案存在冲突，请先修改建议或交通选择。",
     "GUIDE_MODE_REQUIRED": "请在新的建议型旅行中使用此操作；历史版保持原义。",
 }
 

@@ -263,6 +263,7 @@ class PlanningService:
                 and (not body.demo or body.demo == SYNTHETIC)
             ):
                 draft.planning_mode = "ADVISORY"
+                draft.walking_allowed = None
                 draft.start_constraint = draft.end_constraint = "FLEXIBLE"
             from .spatial import parse_intent
 
@@ -270,7 +271,12 @@ class PlanningService:
             if not body.demo:
                 if re.search(r"公共交通|公交", body.request):
                     draft.transport, draft.inputs.mode = "PUBLIC_TRANSIT", "TRANSIT"
-                draft.walking_allowed = "步行" in body.request
+                if draft.planning_mode == "ADVISORY":
+                    from .guide_context import from_request
+
+                    from_request(draft, body.request)
+                else:
+                    draft.walking_allowed = "步行" in body.request
                 match = re.search(
                     r"(?:上午)?(\d{1,2})(?:点|[:：](\d{2})).{0,8}(?:开始|第一|首)", body.request
                 )
@@ -599,6 +605,13 @@ class PlanningService:
                 draft = action.draft
                 if enabled(p):
                     from .trip_budget import preserve_edits
+                    from .guide_context import walking
+
+                    if (
+                        draft.transport == "WALKING"
+                        and walking(draft, p.get("request", ""))["state"] == "DECLINED"
+                    ):
+                        raise ValueError("GUIDE_WALKING_CONFLICT")
 
                     check_transition(before, draft)
                     draft.trip_budget = preserve_edits(before.trip_budget, draft.trip_budget)

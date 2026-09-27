@@ -31,3 +31,13 @@ TripBudget用整数分计算人数×天数、房间×晚数、一次性或每日
 `GET /api/v1/preview/planning/{session_id}/guide-export`沿用本机认证与同源防护，读取采用版，重验卡片/引用后生成转义Markdown。不导出全文、原模型输入、私址、诊断或临时地图值。刷新重启不派发外部请求，导出不是重新生成建议。
 
 范围：关键词资料库继续可用，向量仍NOT_IMPLEMENTED；G1保持历史NOT PASS；不新增供应商、酒店抓取、自动预订或复杂求解器。
+
+## P09.1 / 1.3 最小契约调整
+
+PlanDraft.walking_allowed 改为 bool|null；walking_origin 记录 UNKNOWN/USER_EXPLICIT。新建议旅行默认 null。guide_context.walking 只将可证明的明确拒绝保留为 DECLINED；旧未勾选 false 不推断禁止，原快照不回填。柔性“不想多走路”不产生绝对限制。普通页面三态选择、保存及 worker 共用语义；交通选择与明确拒绝冲突时阻止保存或采用。
+
+GuideProposal/GuideContent 增加 walking_requirement NONE/OPTIONAL/REQUIRED。UNKNOWN 只允许 NONE/OPTIONAL，采用不会把待选择的建议改为用户同意；DECLINED 不允许依赖步行。引用、范围、事实、预约与逐方案独立校验保持有效。
+
+guide_context.budget_context 从当前旅行生成已知/待补条件，供 payload、计算、页面和 Markdown 共用。模型不重抄人数/天数/房晚；实际价格未知不能被误作人数未知。模型输出 schema 将 quantity 限定为 1，程序按 unit 乘 people/days/rooms/nights 一次；普通用户/历史 BudgetLine 数量契约保留。ONCE 表示整个条目的一次性总额，未选活动关联费用由现有计算器排除。
+
+规则版本 advisory-guide-1.3，仍为协议 v4。旧回答与原判定不变；原输入回放、修正输入复核和新请求保持区分。SQLite 仍为 16，无迁移、无预算回填。

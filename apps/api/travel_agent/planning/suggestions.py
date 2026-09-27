@@ -604,7 +604,7 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             modern = data["payload"].get("protocol_version") == 2
             revision_mode = data["payload"].get("protocol_version") == 3
             advisory_mode = data["payload"].get("protocol_version") == 4
-            from .guide_models import GuideResponse
+            from .advisory import response_schema as guide_response_schema
 
             raw = provider.structured(
                 "planning_advisory_v4"
@@ -615,7 +615,7 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
                 if modern
                 else "planning_suggestion",
                 data["payload"],
-                GuideResponse.model_json_schema()
+                guide_response_schema()
                 if advisory_mode
                 else RevisionResponse.model_json_schema()
                 if revision_mode

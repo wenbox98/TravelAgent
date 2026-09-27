@@ -13,6 +13,7 @@ watch(()=>props.plan.session_id,()=>{editing.value=false;composing.value=false;e
 const money=(v:{min_fen:number|null;max_fen:number|null})=>v.min_fen===null?'未知':`${(v.min_fen/100).toFixed(2)}–${((v.max_fen??v.min_fen)/100).toFixed(2)} 元`
 const sign=(v:number)=>`${v>0?'+':''}${(v/100).toFixed(2)}`
 const number=(e:Event)=>{const s=(e.target as HTMLInputElement).value;return s===''?null:Number(s)}
+function walking(e:Event){const value=(e.target as HTMLSelectElement).value;form.value.walking_allowed=value==='UNKNOWN'?null:value==='ALLOWED';form.value.walking_origin='USER_EXPLICIT';save()}
 function save(){emit('action','save',{draft:copy(form.value)})}
 function reorder(index:number,offset:number){const to=index+offset;if(to<0||to>=selected.value.length)return;[selected.value[index],selected.value[to]]=[selected.value[to],selected.value[index]]}
 function price(line:BudgetLine,key:'min_fen'|'max_fen',e:Event){const n=number(e);line.unit_amount[key]=n===null?null:Math.round(n*100);if(line.unit_amount.min_fen===null||line.unit_amount.max_fen===null)return;if(line.unit_amount.min_fen>line.unit_amount.max_fen)return;line.basis='USER_BUDGET_TARGET';line.status='ESTIMATED';save()}
@@ -25,9 +26,11 @@ async function download(){error.value='';try{const v=await request<{filename:str
   <section class="card advisory-guide">
     <div class="guide-title"><div><p class="eyebrow">先选玩法，时间留有弹性</p><h2>建议攻略</h2></div><button class="quiet" :disabled="busy" @click="editing=!editing">{{editing?'收起条件':'修改本次条件'}}</button></div>
     <p>{{guide.summary}}。{{form.inputs.activity_start ? (form.start_constraint==='LOCKED'?'首项锁定 ':'首项大约 ')+form.inputs.activity_start : '首项钟点未定也可以先看建议。'}}</p>
+    <p>{{guide.walking.label}}。{{guide.walking_suggestion}}</p>
     <p v-for="note in form.hard_notes||[]" :key="note" class="notice">{{note}}。可展开项目确认预约；未确认前不能判断是否衔接。</p><fieldset v-if="editing" :disabled="busy"><legend>本次条件（可以没想好）</legend><div class="grid">
       <label>玩几天<input :value="form.days??''" type="number" min="1" max="90" placeholder="未定" @change="form.days=number($event);save()" /></label>
       <label>交通意向<select v-model="form.transport" @change="save"><option value="UNKNOWN">还没想好</option><option value="PUBLIC_TRANSIT">公共交通</option><option value="WALKING">步行</option><option value="SELF_DRIVE">自己驾驶</option><option value="LOCAL_SERVICE">比较当地服务</option></select></label>
+<label>步行意愿<select :value="guide.walking.state" @change="walking"><option value="UNKNOWN">没想好，允许先给待选择的建议</option><option value="ALLOWED">明确允许步行</option><option value="DECLINED">明确不接受步行</option></select></label>
       <label>首项大概钟点（可留空）<input type="time" :value="form.inputs.activity_start||''" @change="time" /></label>
       <label>首项时间性质<select v-model="form.start_constraint" @change="save"><option value="FLEXIBLE">弹性偏好</option><option value="LOCKED">明确必须遵守</option></select></label>
       <label>必须返回时间（仅有硬要求时填）<input type="time" :value="form.return_deadline||''" @change="form.return_deadline=($event.target as HTMLInputElement).value||null;save()" /></label>
@@ -64,7 +67,7 @@ async function download(){error.value='';try{const v=await request<{filename:str
       <label>住宿晚数<input :value="form.trip_budget.nights??''" type="number" min="0" @change="form.trip_budget.nights=number($event);save()" /></label>
       <label>住宿取舍<select v-model="form.guide.lodging.strategy" @change="save"><option value="UNDECIDED">尚未决定</option><option value="NEAR_ACTIVITIES">靠近活动集中区域</option><option value="NEXT_DAY_AREA">衔接次日活动</option><option value="FEWER_MOVES">减少换酒店</option><option value="NOT_APPLICABLE">不住宿</option></select></label>
     </div></fieldset></details>
-    <h3>旅行花费参考</h3><p>已计入部分：<strong>{{money(guide.budget.known_total)}}</strong>。这是预算草案，不是全程报价。</p><p v-if="guide.budget.per_person">每人项目小计 {{money(guide.budget.per_person)}}；房间总价单列，不自动平摊。</p><p v-if="guide.budget_difference">与采用版相比：已计入部分 {{sign(guide.budget_difference.min_fen)}}—{{sign(guide.budget_difference.max_fen)}} 元；未知项目未折算。</p><p v-if="guide.budget.target_note" class="notice">{{guide.budget.target_note}}</p>
+    <h3>旅行花费参考</h3><p>已知条件：{{guide.budget_context.known_conditions.join("、")||"尚未填写"}}。</p><p>待补充条件：{{guide.budget_context.pending_conditions.join("、")||"人数、天数与房晚条件已明确；实际价格仍待核实"}}。</p><p>已计入部分：<strong>{{money(guide.budget.known_total)}}</strong>。这是预算草案，不是全程报价。</p><p v-if="guide.budget.per_person">每人项目小计 {{money(guide.budget.per_person)}}；房间总价单列，不自动平摊。</p><p v-if="guide.budget_difference">与采用版相比：已计入部分 {{sign(guide.budget_difference.min_fen)}}—{{sign(guide.budget_difference.max_fen)}} 元；未知项目未折算。</p><p v-if="guide.budget.target_note" class="notice">{{guide.budget.target_note}}</p>
     <ul class="budget-list"><li v-for="line in guide.budget.lines" :key="line.line_id"><strong>{{line.label}}</strong>：{{line.basis_label}} · {{line.unit_label}} × {{line.quantity}} · 本次 {{money(line.total)}}<small>{{line.note}}</small><details v-if="line.conditions.length"><summary>计价条件</summary><p v-for="c in line.conditions" :key="c">{{c}}</p></details></li></ul>
     <p v-if="guide.budget.missing_categories.length">尚未计入类别：{{guide.budget.missing_categories.join('、')}}</p>
     <p v-if="guide.budget.paid_fen">用户记录已付 {{(guide.budget.paid_fen/100).toFixed(2)}} 元，包含在明细中，不重复加价。</p>

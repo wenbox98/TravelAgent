@@ -116,6 +116,7 @@ class LodgingAdvice(StrictModel):
 
 
 class GuideContent(StrictModel):
+    walking_requirement: Literal["NONE", "OPTIONAL", "REQUIRED"] = "NONE"
     title: str = Field(default="可修改的旅行建议", max_length=80)
     reason: str = Field(default="先选想做的项目，再决定节奏。", max_length=240)
     dining: list[DiningAdvice] = Field(default_factory=list, max_length=12)
@@ -157,6 +158,7 @@ class GuideActivity(StrictModel):
 
 
 class GuideProposal(StrictModel):
+    walking_requirement: Literal["NONE", "OPTIONAL", "REQUIRED"] = "NONE"
     title: str = Field(min_length=1, max_length=80)
     reason: str = Field(min_length=1, max_length=240)
     activities: list[GuideActivity] = Field(min_length=1, max_length=12)
