@@ -62,6 +62,7 @@ class FlowMapService(RoutePreviewService):
                 name=a.name[:80],
                 region=a.region,
                 evidence_ids=a.evidence_ids,
+                provenance="EVIDENCE_FRAGMENT" if a.evidence_ids else "USER_INPUT",
             )
             for a in draft.activities
         ]
@@ -186,3 +187,102 @@ class FlowMapService(RoutePreviewService):
                 for p in all_places(TripInputs.model_validate(current["draft"]))
             }
         return view
+
+
+class PrivateFlowMapService(FlowMapService):
+    """The same place/leg lifecycle, with real adapter and this trip's grant."""
+
+    def _quota(self, db: Any) -> dict[str, Any]:
+        from .private_budget import PrivatePlanningBudget
+
+        try:
+            summary = PrivatePlanningBudget(db).summary()
+            used = {k: summary["used"][k] for k in ("map_place", "map_route")}
+            left = {k: summary["remaining"][k] for k in used}
+        except ValueError:
+            used = dict(map_place=0, map_route=0)
+            left = dict(used)
+        return {
+            "used": used,
+            "remaining": left,
+            "total_used": sum(used.values()),
+            "total_limit": 10,
+        }
+
+    def _reserve(self, db: Any, kind: str, payload: str, sid: str, option: str) -> None:
+        from .private_budget import PrivatePlanningBudget
+
+        PrivatePlanningBudget(db).reserve_for_trip(self.scope, sid, kind, payload)
+
+    def _view(self, db: Any, sid: str) -> dict[str, Any]:
+        from .private_budget import PrivatePlanningBudget
+
+        view = RoutePreviewService._view(self, db, sid)
+        try:
+            PrivatePlanningBudget(db).check_trip(self.scope, sid)
+            authorized = True
+        except ValueError:
+            authorized = False
+        view["configured"] = self.adapter.configured and authorized
+        view["configuration_status"] = (
+            "CONFIGURED_NOT_VERIFIED" if view["configured"] else "AMAP_LIVE_BLOCKED_NOT_CONFIGURED"
+        )
+        if not authorized:
+            view["message"] = "本次旅行尚无可用查询许可；历史额度保留。"
+        return view
+
+    def mutate(self, action: MapAction, key: str) -> dict[str, Any]:
+        from travel_agent.persistence.database import Database
+        from .private_budget import PrivatePlanningBudget
+        from .materials import references, candidate_from_name
+
+        if isinstance(self.adapter, SyntheticMapAdapter) or action.action not in {
+            "resolve",
+            "confirm_place",
+            "route",
+        }:
+            raise ValueError("INVALID_INPUT")
+        with Database(self.database) as db:
+            PrivatePlanningBudget(db).check_trip(self.scope, action.session_id)
+            _, state = PlanningService(db, self.scope).load(action.session_id)
+            p = state["planning"]
+            draft = PlanDraft.model_validate(p["draft"])
+            if draft.inputs.origin or draft.inputs.destination or draft.inputs.endpoints_private:
+                raise ValueError("PRIVATE_ENDPOINT_NOT_AUTHORIZED")
+            refs = {e["claim_id"]: e for e in references(db, self.scope, action.session_id)}
+            for a in draft.activities:
+                if a.provenance != "SOURCE_REFERENCE" or not set(a.evidence_ids) <= refs.keys():
+                    raise ValueError("ACTIVITY_SUPPORT_REQUIRED")
+                candidate_from_name(a.name, [refs[i] for i in a.evidence_ids], p["destination"])
+                if a.region != p["destination"]:
+                    raise ValueError("ACTIVITY_SUPPORT_REQUIRED")
+            if action.action == "route":
+                adopted = PlanDraft.model_validate(p["adopted"]) if p["adopted"] else None
+                if not adopted or [(a.activity_id, a.day) for a in adopted.activities] != [
+                    (a.activity_id, a.day) for a in draft.activities
+                ]:
+                    raise ValueError("MAP_ADOPT_ORDER_FIRST")
+                allowed = (
+                    {"TRANSIT"}
+                    if draft.transport == "PUBLIC_TRANSIT"
+                    else {"WALKING"}
+                    if draft.transport == "WALKING"
+                    else {"DRIVING"}
+                    if draft.transport == "SELF_DRIVE" and draft.driving != "NO"
+                    else set()
+                )
+                if draft.walking_allowed:
+                    allowed.add("WALKING")
+                if draft.inputs.mode not in allowed:
+                    raise ValueError("MAP_MODE_REQUIRED")
+        result = RoutePreviewService.mutate(self, action, key)
+        with self.lock, Database(self.database) as db:
+            _, _, current = self._context(db, action.session_id)
+            from .models import TripInputs
+
+            if action.session_id in self.memory:
+                self.memory[action.session_id]["input_hashes"] = {
+                    a.place_id: fingerprint(a.model_dump())
+                    for a in all_places(TripInputs.model_validate(current["draft"]))
+                }
+        return result

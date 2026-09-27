@@ -1,0 +1,111 @@
+"""Trip-scoped reviewed references and conservative public activity projection."""
+
+import re
+from typing import Any
+
+from travel_agent.preview.projection import fingerprint
+from travel_agent.preview.service import PreviewService
+from .flow_models import Activity
+
+_SEQUENCE = re.compile(r"\s*(?:→|->|➡|➜|—>|👉)\s*")
+_DAY = re.compile(
+    r"^\s*(?:Day\s*\d+|D\s*\d+|第[一二三四五六七八九十\d]+天|路线|行程)\s*[：:]?\s*", re.I
+)
+_BAD_NAME = re.compile(
+    r"[。！？?！：:；;\n]|\d+(?:点|小时|分钟)|路线|行程|攻略|建议|可以|不去|不要|不推荐|上午|下午|晚上|车程|入住"
+)
+
+
+def scope_gaps(city_area_requested: bool, rows: list[dict[str, Any]]) -> list[str]:
+    if city_area_requested and any(
+        re.search(r"从.{0,16}市区出发", text)
+        for e in rows
+        for text in [e["text"], *e["conditions"]]
+    ):
+        return [
+            "资料包含从市区出发的外围行程线索；这些活动是否符合本次市区范围尚未核实，不能当作中心城区安排。"
+        ]
+    return []
+
+
+def place_name(text: str) -> str | None:
+    text = re.sub(r"^[\s\d.、)（(\-•●]+", "", text).strip()
+    text = re.sub(r"[（(][^（）()]*[）)]", "", text).strip()
+    return (
+        text
+        if 2 <= len(text) <= 30
+        and not _BAD_NAME.search(text)
+        and re.fullmatch(r"[\w\u4e00-\u9fff·\- ]+", text)
+        else None
+    )
+
+
+def references(db: Any, scope: str, sid: str) -> list[dict[str, Any]]:
+    from .flow import PlanningService
+
+    row, state = PlanningService(db, scope).load(sid)
+    p = state["planning"]
+    if p["demo"] or row["mode"] != "CACHED_PRIVATE_PREVIEW":
+        return []
+    service = PreviewService(db, scope, row["mode"])
+    result: dict[str, dict[str, Any]] = {}
+    # Only explicitly attached compatible researches. No global source fallback.
+    ids = sorted(
+        set(p.get("research_ids", []) + ([row["research_id"]] if row["research_id"] else []))
+    )
+    from travel_agent.preview.projection import project
+
+    for rid in ids:
+        q, evidence = service._cache(rid)
+        import json
+
+        if json.loads(q["request_json"]).get("destination") != p["destination"]:
+            continue
+        data = project(evidence, scope=scope, research_id=rid, now=db.clock())
+        for e in [e for option in data["options"] for e in option["evidence"]] + data[
+            "other_clues"
+        ]:
+            if e["topic"] in {"ROUTE", "EXPERIENCE", "DURATION", "TRANSPORT", "RISK"}:
+                result[e["claim_id"]] = e
+    return sorted(result.values(), key=lambda e: (e["source_id"], e["claim_id"]))
+
+
+def candidate_from_name(name: str, rows: list[dict[str, Any]], region: str) -> Activity:
+    if place_name(name) != name or not rows or any(name not in e["text"] for e in rows):
+        raise ValueError("ACTIVITY_SUPPORT_REQUIRED")
+    if any(re.search(r"不去|不要去|不推荐|禁止|不能去", e["text"]) for e in rows):
+        raise ValueError("ACTIVITY_CONTEXT_NEGATIVE")
+    ids = sorted({e["claim_id"] for e in rows})
+    return Activity(
+        activity_id="activity-" + fingerprint([name, ids])[:24],
+        name=name,
+        region=region,
+        description="来源中的地点/体验线索；当前运营待核实",
+        evidence_ids=ids,
+        conditions=list(dict.fromkeys(c for e in rows for c in e["conditions"])),
+        reference_kinds=sorted({e["reference_kind"] for e in rows}),
+        provenance="SOURCE_REFERENCE",
+    )
+
+
+def activities(rows: list[dict[str, Any]], region: str) -> list[Activity]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for e in rows:
+        if e["topic"] not in {"ROUTE", "EXPERIENCE"}:
+            continue
+        text = _DAY.sub("", e["text"])
+        parts = _SEQUENCE.split(text)
+        if len(parts) == 1:
+            marked = re.findall(r"(?:📍|地点[：:]|【)([^\n，。】]{2,30})", text)
+            parts = marked or ([text] if e["topic"] == "ROUTE" else [])
+        for part in parts:
+            name = place_name(part)
+            if name:
+                grouped.setdefault(name, []).append(e)
+    output = []
+    for name, support in grouped.items():
+        try:
+            output.append(candidate_from_name(name, support, region))
+        except ValueError:
+            continue
+    return output[:12]

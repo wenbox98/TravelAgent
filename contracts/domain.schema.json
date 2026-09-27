@@ -5960,7 +5960,10 @@
           "type": "integer"
         },
         "total_limit": {
-          "const": 16,
+          "enum": [
+            10,
+            16
+          ],
           "title": "Total Limit",
           "type": "integer"
         }
@@ -6280,6 +6283,20 @@
           "title": "Region",
           "type": "string"
         },
+        "description": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Description",
+          "type": "string"
+        },
+        "reference_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Reference Kinds",
+          "type": "array"
+        },
         "evidence_ids": {
           "items": {
             "type": "string"
@@ -6440,6 +6457,22 @@
           "title": "Transport",
           "type": "string"
         },
+        "walking_allowed": {
+          "default": false,
+          "title": "Walking Allowed",
+          "type": "boolean"
+        },
+        "adjustment": {
+          "default": "NONE",
+          "enum": [
+            "NONE",
+            "FEWER",
+            "LONGER_FIRST",
+            "SWAP_FIRST_TWO"
+          ],
+          "title": "Adjustment",
+          "type": "string"
+        },
         "inputs": {
           "$ref": "#/$defs/TripInputs"
         },
@@ -6510,7 +6543,10 @@
             "use_proposal",
             "confirm_direction",
             "cancel_direction",
-            "add_source"
+            "add_source",
+            "research",
+            "adopt_research",
+            "use_activities"
           ],
           "title": "Action",
           "type": "string"
@@ -6573,6 +6609,14 @@
           ],
           "default": null,
           "title": "Option Id"
+        },
+        "activity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Activity Ids",
+          "type": "array"
         }
       },
       "required": [
@@ -6622,6 +6666,11 @@
           ],
           "default": null,
           "title": "Demo"
+        },
+        "validation_trip": {
+          "default": false,
+          "title": "Validation Trip",
+          "type": "boolean"
         }
       },
       "required": [
@@ -6763,6 +6812,74 @@
           "default": "UNVERIFIED",
           "title": "Feasibility",
           "type": "string"
+        },
+        "validation_trip": {
+          "default": false,
+          "title": "Validation Trip",
+          "type": "boolean"
+        },
+        "activity_candidates": {
+          "items": {
+            "$ref": "#/$defs/Activity"
+          },
+          "title": "Activity Candidates",
+          "type": "array"
+        },
+        "references": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "References",
+          "type": "array"
+        },
+        "research_job": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Job"
+        },
+        "private_budget": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Private Budget"
+        },
+        "research_available": {
+          "default": false,
+          "title": "Research Available",
+          "type": "boolean"
+        },
+        "private_model_available": {
+          "default": false,
+          "title": "Private Model Available",
+          "type": "boolean"
+        },
+        "model_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Reason"
         }
       },
       "required": [
@@ -6815,7 +6932,6 @@
           "type": "integer"
         },
         "model_limit": {
-          "const": 2,
           "default": 2,
           "title": "Model Limit",
           "type": "integer"
@@ -6972,12 +7088,52 @@
           "minItems": 1,
           "title": "Proposals",
           "type": "array"
+        },
+        "grounded_activities": {
+          "items": {
+            "$ref": "#/$defs/GroundedActivity"
+          },
+          "maxItems": 12,
+          "title": "Grounded Activities",
+          "type": "array"
         }
       },
       "required": [
         "proposals"
       ],
       "title": "PlanningResponse",
+      "type": "object"
+    },
+    "GroundedActivity": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_key": {
+          "pattern": "^candidate-[0-9]{1,2}$",
+          "title": "Candidate Key",
+          "type": "string"
+        },
+        "place_name": {
+          "maxLength": 30,
+          "minLength": 2,
+          "title": "Place Name",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidate_key",
+        "place_name",
+        "evidence_ids"
+      ],
+      "title": "GroundedActivity",
       "type": "object"
     }
   }

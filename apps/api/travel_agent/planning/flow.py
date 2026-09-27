@@ -2,6 +2,8 @@
 
 from copy import deepcopy
 import json
+import re
+from math import ceil
 from typing import Any
 
 from travel_agent.persistence.database import Database
@@ -53,10 +55,26 @@ def timeline(
         gaps.append(f"硬约束保留：最晚 {deadline} 返回；活动结束不等于到家，返程和接驳仍未知。")
     previous_day = None
     previous = None
-    end: list[int] | None = None
+    end: list[float] | None = None
 
-    def fmt(n: int) -> str:
-        return (f"+{n // 1440}天 " if n >= 1440 else "") + f"{n % 1440 // 60:02d}:{n % 60:02d}"
+    def fmt(n: float) -> str:
+        seconds = ceil(n * 60)
+        minutes, second = divmod(seconds, 60)
+        return (
+            (f"+{minutes // 1440}天 " if minutes >= 1440 else "")
+            + f"{minutes % 1440 // 60:02d}:{minutes % 60:02d}"
+            + (f":{second:02d}" if second else "")
+        )
+
+    def clock_minute(value: str, day: int) -> int:
+        h, m = map(int, value.split(":"))
+        result = h * 60 + m
+        if day == draft.first_day and draft.inputs.activity_start and draft.inputs.activity_end:
+            sh, sm = map(int, draft.inputs.activity_start.split(":"))
+            eh, em = map(int, draft.inputs.activity_end.split(":"))
+            if eh * 60 + em <= sh * 60 + sm and result < sh * 60 + sm:
+                result += 1440
+        return result
 
     for activity in draft.activities:
         first = previous_day != activity.day
@@ -72,7 +90,7 @@ def timeline(
             else None
         )
         arrival = (
-            [n + previous.rest_minutes + int(movement) for n in end]
+            [n + previous.rest_minutes + movement for n in end]
             if end
             and previous
             and not first
@@ -81,14 +99,17 @@ def timeline(
             else None
         )
         if activity.locked_start and arrival:
-            h, m = map(int, activity.locked_start.split(":"))
-            if arrival[0] > h * 60 + m:
+            locked_minute = clock_minute(activity.locked_start, activity.day)
+            if arrival[0] > locked_minute:
                 gaps.append(
                     f"时间冲突：按当前条件抵达 {activity.name} 已晚于锁定预约，预约未移动。"
                 )
+            elif arrival[1] > locked_minute:
+                gaps.append(
+                    f"可能迟到：{activity.name} 按停留区间上限可能错过锁定预约，请缩短前项或留足余量。"
+                )
         if start:
-            h, m = map(int, start.split(":"))
-            base = h * 60 + m
+            base = clock_minute(start, activity.day)
             end = (
                 None
                 if activity.stay_min is None
@@ -119,9 +140,15 @@ def timeline(
                 gaps.append(
                     f"时间冲突：{activity.name} 按当前停留建议已晚于返回硬约束；尚未计返程。"
                 )
+            elif end[1] > dh * 60 + dm:
+                gaps.append(f"可能超时：{activity.name} 的停留上限可能超过返回硬约束；尚未计返程。")
         if end and draft.inputs.activity_end:
             h, m = map(int, draft.inputs.activity_end.split(":"))
             window_end = h * 60 + m
+            if draft.inputs.activity_start:
+                sh, sm = map(int, draft.inputs.activity_start.split(":"))
+                if window_end <= sh * 60 + sm:
+                    window_end += 1440
             if end[0] > window_end:
                 gaps.append(
                     f"时间冲突：{activity.name} 按当前停留安排超出活动结束窗口；可修改活动，不能改写锁定预约。"
@@ -200,6 +227,16 @@ class PlanningService:
             state = json.loads(row[0])
             parsed, _ = parse_preferences(body.request)
             draft = PlanDraft(days=parsed.get("days"), driving=parsed.get("driving", "UNKNOWN"))
+            if not body.demo:
+                if re.search(r"公共交通|公交", body.request):
+                    draft.transport, draft.inputs.mode = "PUBLIC_TRANSIT", "TRANSIT"
+                draft.walking_allowed = "步行" in body.request
+                match = re.search(
+                    r"(?:上午)?(\d{1,2})(?:点|[:：](\d{2})).{0,8}(?:开始|第一|首)", body.request
+                )
+                if match and int(match[1]) < 24:
+                    draft.inputs.activity_start = f"{int(match[1]):02d}:{int(match[2] or 0):02d}"
+                    draft.anchor_origin = "USER_CONFIRMED"
             if body.demo:
                 draft.days = 2 if body.demo != "REGIONAL" else None
                 draft.transport = "PUBLIC_TRANSIT" if body.demo == "CITY" else "UNKNOWN"
@@ -211,6 +248,9 @@ class PlanningService:
                 "request": body.request,
                 "travel_kind": body.travel_kind,
                 "demo": body.demo,
+                "validation_trip": body.validation_trip,
+                "research_ids": sorted(matches),
+                "research_job_id": None,
                 "draft": draft.model_dump(),
                 "adopted": None,
                 "collapsed": {"activities": True, "conditions": True},
@@ -261,8 +301,35 @@ class PlanningService:
                 else "可比较自己开车/租车、到集散地后接当地服务、其他不自己驾驶方式；都未落实具体服务。",
             )
         from .suggestions import job_view, model_available
+        from .materials import references, activities, scope_gaps
+        from .private_budget import PrivatePlanningBudget, IDENTIFIER
+        from travel_agent.preview.jobs import JobService
 
         job = job_view(self.db, self.scope, p["job_id"]) if p["job_id"] else None
+        refs = references(self.db, self.scope, sid)
+        area_gaps = scope_gaps(p["travel_kind"] == "CITY" and "市区" in p["request"], refs)
+        gaps += area_gaps
+        candidates = [a.model_dump() for a in activities(refs, p["destination"])]
+        if job and job.get("activity_catalog"):
+            valid = {e["claim_id"] for e in refs}
+            candidates += [a for a in job["activity_catalog"] if set(a["evidence_ids"]) <= valid]
+        candidates = list({a["activity_id"]: a for a in candidates}.values())
+        private_budget, research_available = None, False
+        jobs = JobService(self.db, self.scope, row["mode"], IDENTIFIER)
+        research_job = jobs.get(p["research_job_id"]) if p.get("research_job_id") else None
+        try:
+            budget = PrivatePlanningBudget(self.db)
+            budget.check_trip(self.scope, sid)
+            private_budget = budget.summary()
+            from travel_agent.preview.worker import configured_provider
+
+            budget.check_provider(configured_provider())
+            research_available = jobs.index(True)["enabled"] and (
+                len(candidates) < 2 or bool(area_gaps)
+            )
+        except ValueError, RuntimeError:
+            pass
+        available = model_available(self.db, self.scope, p, sid)
         old = p["adopted"]
         differences = [k for k in p["draft"] if old is not None and p["draft"][k] != old.get(k)]
         return {
@@ -280,15 +347,25 @@ class PlanningService:
             "timeline": rows,
             "gaps": gaps,
             "differences": differences,
-            "evidence_count": view["evidence_count"],
+            "evidence_count": len(refs) if not p["demo"] else view["evidence_count"],
             "direction_change_pending": p.get("direction_backup") is not None,
             "cache_message": "合成活动测试，非真实攻略或地图。"
             if p["demo"]
             else "当前目的地有已审核缓存；原条件和引用保留。"
-            if view["evidence_count"]
+            if refs
             else "当前目的地没有匹配的已审核资料；可自行添加活动或比较规划类别，具体事实待研究。",
             "job": job,
-            "model_available": model_available(self.db, self.scope, p),
+            "model_available": available,
+            "validation_trip": p.get("validation_trip", False),
+            "activity_candidates": candidates,
+            "references": refs,
+            "research_job": research_job,
+            "private_budget": private_budget,
+            "research_available": research_available,
+            "private_model_available": available and not p["demo"],
+            "model_reason": None
+            if available
+            else "需要当前旅行已审核的活动依据、已配置服务和本批剩余额度；不会自动重试。",
             "provenance": {
                 "preferences": "TEST_INPUT" if p["demo"] else "CURRENT_TRIP_USER_INPUT",
                 "same_return": "PRODUCT_DEFAULT_MODIFIABLE",
@@ -316,6 +393,10 @@ class PlanningService:
                 view = PreviewService(self.db, self.scope, row["mode"]).get(sid)
                 options = {o["option_id"]: o for o in view["options"]}
                 allowed = {e["claim_id"] for o in view["options"] for e in o["evidence"]}
+                if not p["demo"]:
+                    from .materials import references
+
+                    allowed = {e["claim_id"] for e in references(self.db, self.scope, sid)}
                 if any(not set(a.evidence_ids) <= allowed for a in draft.activities):
                     raise ValueError("INVALID_INPUT")
                 originals = {a.activity_id: a for a in before.activities}
@@ -330,6 +411,8 @@ class PlanningService:
                         a.provenance = "USER_INPUT"
                         a.evidence_ids = []
                         a.conditions = []
+                        a.reference_kinds = []
+                        a.description = "用户输入，来源支持待核实"
                     if original is None or (
                         a.stay_min,
                         a.stay_max,
@@ -354,17 +437,22 @@ class PlanningService:
                     p["collapsed"]["direction"] = p.get("direction_backup") is None
                     if draft.direction in options:
                         o = options[draft.direction]
-                        draft.activities = [
-                            Activity(
-                                activity_id="source-" + fingerprint(e["claim_id"])[:20],
-                                name=e["text"][:120],
-                                evidence_ids=[e["claim_id"]],
-                                conditions=e["conditions"],
-                                provenance="SOURCE_REFERENCE",
-                            )
-                            for e in o["evidence"]
-                            if e["claim_id"] in o["route_evidence_ids"]
-                        ][:12]
+                        if not p["demo"]:
+                            from .materials import activities
+
+                            draft.activities = activities(o["evidence"], p["destination"])
+                        else:
+                            draft.activities = [
+                                Activity(
+                                    activity_id="source-" + fingerprint(e["claim_id"])[:20],
+                                    name=e["text"][:120],
+                                    evidence_ids=[e["claim_id"]],
+                                    conditions=e["conditions"],
+                                    provenance="SOURCE_REFERENCE",
+                                )
+                                for e in o["evidence"]
+                                if e["claim_id"] in o["route_evidence_ids"]
+                            ][:12]
                     elif draft.direction not in {None, "relaxed", "varied"}:
                         raise ValueError("OPTION_UNAVAILABLE")
                 if len({a.activity_id.lower() for a in draft.activities}) != len(draft.activities):
@@ -378,21 +466,65 @@ class PlanningService:
                 if not option or view["stale"]:
                     raise ValueError("OPTION_UNAVAILABLE")
                 present = {i for a in p["draft"]["activities"] for i in a["evidence_ids"]}
-                added = [
-                    Activity(
-                        activity_id="source-" + fingerprint(e["claim_id"])[:20],
-                        name=e["text"][:120],
-                        evidence_ids=[e["claim_id"]],
-                        conditions=e["conditions"],
-                        provenance="SOURCE_REFERENCE",
-                    ).model_dump()
-                    for e in option["evidence"]
-                    if e["claim_id"] in option["route_evidence_ids"]
-                    and e["claim_id"] not in present
-                ]
+                if not p["demo"]:
+                    from .materials import activities
+
+                    added = [
+                        a.model_dump()
+                        for a in activities(option["evidence"], p["destination"])
+                        if a.activity_id not in {a["activity_id"] for a in p["draft"]["activities"]}
+                    ]
+                else:
+                    added = [
+                        Activity(
+                            activity_id="source-" + fingerprint(e["claim_id"])[:20],
+                            name=e["text"][:120],
+                            evidence_ids=[e["claim_id"]],
+                            conditions=e["conditions"],
+                            provenance="SOURCE_REFERENCE",
+                        ).model_dump()
+                        for e in option["evidence"]
+                        if e["claim_id"] in option["route_evidence_ids"]
+                        and e["claim_id"] not in present
+                    ]
                 if len(p["draft"]["activities"]) + len(added) > 12:
                     raise ValueError("INVALID_INPUT")
                 p["draft"]["activities"].extend(added)
+                p["collapsed"]["activities"] = False
+            elif action.action == "use_activities":
+                catalog = {a["activity_id"]: a for a in self.get(sid)["activity_candidates"]}
+                if (
+                    not action.activity_ids
+                    or len(set(action.activity_ids)) != len(action.activity_ids)
+                    or not set(action.activity_ids) <= catalog.keys()
+                ):
+                    raise ValueError("OPTION_UNAVAILABLE")
+                p["draft"]["activities"] = [deepcopy(catalog[i]) for i in action.activity_ids]
+                p["collapsed"]["activities"] = False
+            elif action.action == "research":
+                from travel_agent.preview.jobs import JobService
+                from .private_budget import IDENTIFIER
+
+                if not self.get(sid)["research_available"]:
+                    raise ValueError("LIVE_RESEARCH_UNAVAILABLE")
+                job = JobService(self.db, self.scope, row["mode"], IDENTIFIER).create(
+                    sid, row["revision"], p["destination"], key + "-research", ready=True
+                )
+                p["research_job_id"] = job["job_id"]
+            elif action.action == "adopt_research":
+                from travel_agent.preview.jobs import JobService
+                from .private_budget import IDENTIFIER
+
+                research_service = JobService(self.db, self.scope, row["mode"], IDENTIFIER)
+                if (
+                    not p.get("research_job_id")
+                    or not research_service.get(p["research_job_id"])["can_adopt"]
+                ):
+                    raise ValueError("NEW_MATERIAL_UNAVAILABLE")
+                rid = self.db.connection.execute(
+                    "SELECT research_id FROM preview_jobs WHERE job_id=?", (p["research_job_id"],)
+                ).fetchone()[0]
+                p["research_ids"] = sorted(set(p.get("research_ids", []) + [rid]))
                 p["collapsed"]["activities"] = False
             elif action.action == "adopt":
                 p["direction_backup"] = None
@@ -418,6 +550,13 @@ class PlanningService:
 
                 p["job_id"] = create_job(self.db, self.scope, sid, row["revision"] + 1, p, key)
             elif action.action == "cancel_job":
+                if p.get("research_job_id"):
+                    from travel_agent.preview.jobs import JobService
+                    from .private_budget import IDENTIFIER
+
+                    JobService(self.db, self.scope, row["mode"], IDENTIFIER).cancel(
+                        p["research_job_id"]
+                    )
                 if p["job_id"]:
                     self.db.connection.execute(
                         "UPDATE preview_jobs SET cancel_requested=1,status='CANCELED' WHERE job_id=? AND status IN ('QUEUED','RUNNING')",

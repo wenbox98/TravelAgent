@@ -39,7 +39,7 @@ class JobService:
             self.get(r[0])
             for r in self.db.connection.execute(
                 "SELECT job_id FROM preview_jobs WHERE account_scope=? "
-                "AND continuation_id=? ORDER BY created_at DESC LIMIT 10",
+                "AND continuation_id=? AND research_id NOT LIKE 'planning-%' ORDER BY created_at DESC LIMIT 10",
                 (self.scope, self.continuation),
             )
         ]
@@ -108,6 +108,43 @@ class JobService:
                 "original_interest": confirmed,
                 "original_research_id": v["research_id"],
             }
+            saved = con.execute(
+                "SELECT state_json FROM preview_sessions WHERE session_id=?", (session,)
+            ).fetchone()
+            planning = json.loads(saved[0]).get("planning")
+            if planning:
+                from travel_agent.planning.private_budget import PrivatePlanningBudget, IDENTIFIER
+                from travel_agent.planning.flow_models import PlanDraft
+
+                if self.continuation != IDENTIFIER:
+                    raise ValueError("PRIVATE_TRIP_NOT_AUTHORIZED")
+                PrivatePlanningBudget(self.db).check_trip(self.scope, session, bind=True)
+                draft = PlanDraft.model_validate(planning["draft"])
+                req = ResearchRequest(
+                    destination=planning["destination"],
+                    days=draft.days,
+                    no_self_drive=draft.driving == "NO",
+                ).to_dict()
+                prefs = dict(
+                    prefs,
+                    days=draft.days,
+                    driving=draft.driving,
+                    budget_cny_fen=None,
+                    traveler_count=None,
+                )
+                focus = "市区 游玩" if planning["travel_kind"] == "CITY" else "旅行"
+                if draft.transport == "PUBLIC_TRANSIT":
+                    focus += " 公共交通"
+                if draft.walking_allowed or draft.transport == "WALKING":
+                    focus += " 步行"
+                data.update(
+                    request=req,
+                    preferences=prefs,
+                    focus=focus,
+                    original_interest=None,
+                    city_area_requested=planning["travel_kind"] == "CITY"
+                    and "市区" in planning["request"],
+                )
             jid = "job-" + uuid4().hex
             research = "research-" + uuid4().hex
             con.execute(

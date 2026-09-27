@@ -36,7 +36,17 @@ def configured_provider() -> OpenAICompatibleProvider:
     return provider
 
 
-def model_command(database: Path, kind: str, identifier: str) -> list[str]:
+def model_command(
+    database: Path, kind: str, identifier: str, *, product: bool = False
+) -> list[str]:
+    if product:
+        return [
+            sys.executable,
+            str(PROJECT_ROOT / "scripts/product_preview.py"),
+            kind,
+            "--job",
+            identifier,
+        ]
     return [
         sys.executable,
         str(PROJECT_ROOT / "scripts/live_workbench.py"),
@@ -57,6 +67,7 @@ def supervised_review(
     target: dict[str, Any],
     *,
     evaluation: bool = False,
+    product: bool = False,
 ) -> dict[str, Any]:
     budget.check_provider(provider)
     rid = reserve_review(store, budget, attempt, scope, target, evaluation=evaluation)
@@ -66,7 +77,7 @@ def supervised_review(
         provider=provider,
         deadline=180,
         context_review=True,
-        command=model_command(store.db.path, "review-worker", rid),
+        command=model_command(store.db.path, "review-worker", rid, product=product),
     )
 
 
@@ -102,6 +113,7 @@ def run_job(
     provider: Any = None,
     extract_dispatch: Any = None,
     review_dispatch: Any = None,
+    product: bool = False,
 ) -> None:
     """Injection is for authored offline tests; production command accepts no provider/URL/path from UI."""
     with Database(database) as db:
@@ -181,7 +193,7 @@ def run_job(
                     provider=provider,
                     deadline=180,
                     finish_report=False,
-                    command=model_command(database, "extract-worker", attempt),
+                    command=model_command(database, "extract-worker", attempt, product=product),
                 )
 
             def after(out: dict[str, Any]) -> None:
@@ -191,16 +203,38 @@ def run_job(
                         store, budget, out["attempt_id"], j["account_scope"], data["preferences"]
                     )
                 else:
-                    supervised_review(
+                    reviewed = supervised_review(
                         store,
                         provider,
                         budget,
                         out["attempt_id"],
                         j["account_scope"],
                         data["preferences"],
+                        product=product,
                     )
+                    if reviewed.get("status") not in {"COMPLETED"}:
+                        raise ResearchStopped("ERROR", "CONTEXT_REVIEW_NOT_COMPLETED")
 
             from travel_agent.domain.source_policy import private_policy
+
+            def activity_target(evidence: Any) -> bool:
+                from travel_agent.preview.projection import project
+                from travel_agent.planning.materials import activities, scope_gaps
+
+                projected = project(
+                    evidence, scope=j["account_scope"], research_id=j["research_id"], now=db.clock()
+                )
+                refs = list(
+                    {
+                        e["claim_id"]: e
+                        for e in [e for o in projected["options"] for e in o["evidence"]]
+                        + projected["other_clues"]
+                    }.values()
+                )
+                return (
+                    not scope_gaps(data.get("city_area_requested", False), refs)
+                    and len(activities(refs, data["request"]["destination"])) >= 2
+                )
 
             policy = store._latest_policy(
                 "private-local-research-" + j["account_scope"]
@@ -215,6 +249,7 @@ def run_job(
                 continuation=Permits(),
                 extraction_dispatch=dispatch,
                 after_extraction=after,
+                activity_target=activity_target if product else None,
             )
             service.planner = FocusedPlanner(data["focus"])
             report = service.run(
@@ -222,7 +257,7 @@ def run_job(
                 research_id=j["research_id"],
                 revision=0,
                 account_scope=j["account_scope"],
-                budget=ResearchBudget(1, 1),
+                budget=ResearchBudget(1, budget.state()["limits"]["DETAIL"]),
             )
             accepted = {c["claim_id"] for b in report.evidence for c in b["claims"]} - before
             counts = [o.get("counts", {}) for o in service.extraction_attempts]
@@ -239,7 +274,7 @@ def run_job(
                 "VERIFICATION_REQUIRED"
                 if report.stop_reason == "VERIFICATION_REQUIRED"
                 else "FAILED"
-                if report.stop_reason in {"ERROR", "NEED_LOGIN"}
+                if report.stop_reason in {"ERROR", "NEED_LOGIN"} and not accepted
                 else "PARTIAL"
                 if accepted and report.gaps
                 else "COMPLETED"
@@ -255,7 +290,14 @@ def run_job(
                     summary["browser_sessions"] = reader.browser.sessions_created
                     summary["network"] = {
                         k: asdict(reader.observer.snapshot(None if k == "TOTAL" else k))
-                        for k in ("TOTAL", "LOGIN", "SEARCH", "DETAIL_1", "OUTSIDE_WINDOW")
+                        for k in (
+                            "TOTAL",
+                            "LOGIN",
+                            "SEARCH",
+                            "DETAIL_1",
+                            "DETAIL_2",
+                            "OUTSIDE_WINDOW",
+                        )
                     }
                     summary["profile_preserved"] = reader.profile.exists()
                 except Exception:
@@ -312,8 +354,11 @@ def extract_worker(store: EvidenceStore, provider: OpenAICompatibleProvider, att
     budget = BoundedBudget(store, a["batch_id"])
     budget.check_provider(provider)
     budget.check_permit("MODEL", "extract:" + a["source_id"])
-    research=store.db.connection.execute('SELECT research_id FROM research_runs WHERE run_id=?',(a['run_id'],)).fetchone()[0]
+    research = store.db.connection.execute(
+        "SELECT research_id FROM research_runs WHERE run_id=?", (a["run_id"],)
+    ).fetchone()[0]
     ExtractionRecovery(store, EvidenceExtractor(provider, protocol_version=3)).run_reserved(
-        attempt, research_gaps=("ROUTES", "DURATION", "TRANSPORT"),
-        dispatch_guard=lambda:budget.check_job_active(research)
+        attempt,
+        research_gaps=("ROUTES", "DURATION", "TRANSPORT"),
+        dispatch_guard=lambda: budget.check_job_active(research),
     )

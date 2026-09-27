@@ -11,6 +11,8 @@ class Activity(StrictModel):
     activity_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     name: str = Field(min_length=1, max_length=120)
     region: str = Field(default="", max_length=80)
+    description: str = Field(default="", max_length=200)
+    reference_kinds: list[str] = Field(default_factory=list, max_length=8)
     evidence_ids: list[str] = Field(default_factory=list, max_length=20)
     conditions: list[str] = Field(default_factory=list, max_length=30)
     provenance: Literal["USER_INPUT", "SOURCE_REFERENCE", "SYNTHETIC_TEST", "PRODUCT_DEFAULT"]
@@ -46,6 +48,8 @@ class PlanDraft(StrictModel):
     transport: Literal["UNKNOWN", "PUBLIC_TRANSIT", "SELF_DRIVE", "LOCAL_SERVICE", "WALKING"] = (
         "UNKNOWN"
     )
+    walking_allowed: bool = False
+    adjustment: Literal["NONE", "FEWER", "LONGER_FIRST", "SWAP_FIRST_TWO"] = "NONE"
     inputs: TripInputs = Field(default_factory=TripInputs)
     first_day: int = Field(default=1, ge=1, le=90)
     first_period: Literal["UNDECIDED", "MORNING", "AFTERNOON", "EVENING"] = "UNDECIDED"
@@ -64,6 +68,7 @@ class PlanCreate(StrictModel):
     request: str = Field(default="", max_length=500)
     travel_kind: Literal["CITY", "REGIONAL"] = "CITY"
     demo: Literal["CITY", "REGIONAL", "OTHER_CITY"] | None = None
+    validation_trip: bool = False
 
     @field_validator("destination", "request")
     @classmethod
@@ -83,6 +88,9 @@ class PlanAction(StrictModel):
         "confirm_direction",
         "cancel_direction",
         "add_source",
+        "research",
+        "adopt_research",
+        "use_activities",
     ]
     expected_revision: int = Field(ge=0)
     draft: PlanDraft | None = None
@@ -90,6 +98,13 @@ class PlanAction(StrictModel):
     collapsed: bool = False
     proposal_index: int = Field(default=0, ge=0, le=2)
     option_id: str | None = Field(default=None, max_length=100)
+    activity_ids: list[str] = Field(default_factory=list, max_length=12)
+
+
+class GroundedActivity(StrictModel):
+    candidate_key: str = Field(pattern=r"^candidate-[0-9]{1,2}$")
+    place_name: str = Field(min_length=2, max_length=30)
+    evidence_ids: list[str] = Field(min_length=1, max_length=8)
 
 
 class SuggestedActivity(StrictModel):
@@ -120,6 +135,7 @@ class Suggestion(StrictModel):
 
 class PlanningResponse(StrictModel):
     proposals: list[Suggestion] = Field(min_length=1, max_length=3)
+    grounded_activities: list[GroundedActivity] = Field(default_factory=list, max_length=12)
 
 
 class PlanView(StrictModel):
@@ -144,10 +160,18 @@ class PlanView(StrictModel):
     model_available: bool
     provenance: dict[str, str]
     feasibility: Literal["UNVERIFIED"] = "UNVERIFIED"
+    validation_trip: bool = False
+    activity_candidates: list[Activity] = Field(default_factory=list)
+    references: list[dict[str, Any]] = Field(default_factory=list)
+    research_job: dict[str, Any] | None = None
+    private_budget: dict[str, Any] | None = None
+    research_available: bool = False
+    private_model_available: bool = False
+    model_reason: str | None = None
 
 
 class PlanIndex(StrictModel):
     trips: list[dict[str, Any]]
     current: PlanView | None
     model_used: int
-    model_limit: Literal[2] = 2
+    model_limit: int = 2

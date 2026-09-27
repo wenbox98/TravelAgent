@@ -9,18 +9,19 @@
 
 ## 当前定位：私人本地研究
 
-P04 当前主入口已改为独立旅行草稿：先建议再选择，确认后收起，以首个活动时间为锚点。历史“五天、不自驾、不接受包车”是测试输入，不进入新旅行默认值。交通未定保持未知，AI提议和来源事实分开；G1仍NOT PASS。见 [P04流程与契约](docs/architecture/p04-product-flow.md)。
+P05 当前主入口接入有限真实研究、私人 AI 建议和高德活动段参考；保留独立旅行草稿：先建议再选择，确认后收起，以首个活动时间为锚点。历史“五天、不自驾、不接受包车”是测试输入，不进入新旅行默认值。交通未定保持未知，AI提议和来源事实分开；G1仍NOT PASS。见 [P05流程与契约](docs/architecture/p05-private-live-planning.md) 和 [历史P04流程](docs/architecture/p04-product-flow.md)。
 
 已有依赖时，唯一推荐启动方式：
 
 ```powershell
 Set-Location E:\workSpace\travel-agent-project\travel-agent\apps\web
-npm.cmd run build -- --outDir ../../.local/p04-web
+pnpm exec vue-tsc --noEmit
+pnpm exec vite build --outDir ../../.local/p05-web
 Set-Location E:\workSpace\travel-agent-project\travel-agent
 .venv\Scripts\python.exe -X utf8 scripts\product_preview.py --open
 ```
 
-地址 `http://127.0.0.1:8768/`。已运行时直接使用，不重复启动。原P03数据库/静态目录保留，当前独立使用 `.local/p04-preview` / `.local/p04-web`。本批真实地图和小红书请求关闭；模型仅限已授权的两个自编合成场景，额度用完不自动恢复。普通私人草稿仍可本地编辑。停止当前P04后，以原 `scripts/route_preview.py --open` 可回滚历史P03页面；不要同时占用8768。
+地址 `http://127.0.0.1:8768/`。已运行时直接使用，不重复启动。沿用 `.local/p04-preview` 活动库，新静态目录为 `.local/p05-web`；原 P01–P04 数据和构建保留。启动、缓存浏览和普通编辑不外连；显式研究、建议和地图动作须有本批许可及余额，额度用完不恢复。服务端读取本机既有 DeepSeek / AMAP_WEB_SERVICE_KEY 配置，密钥不进前端。历史合成许可独立保留。本机 `.local/p05-backup` 保存升级前代码、数据库和静态目录，用于停止自有 8768 服务后的回滚；不要同时启动多个 8768 服务。
 
 下面各阶段命令和结果作为历史记录保留，不是额外推荐入口。
 

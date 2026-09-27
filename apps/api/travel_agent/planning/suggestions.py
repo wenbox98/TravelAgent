@@ -73,9 +73,16 @@ def model_used(db: Database) -> int:
     )
 
 
-def payload_for(p: dict[str, Any]) -> dict[str, Any]:
+def payload_for(
+    p: dict[str, Any], db: Any = None, scope: str = "", sid: str = ""
+) -> dict[str, Any]:
     """Allowlisted synthetic data only. Never serialize UI request/private endpoints."""
     from .flow import demo_activities
+
+    if not p["demo"] and db is not None:
+        from .private_payload import payload
+
+        return payload(db, scope, sid, p)
 
     if p["demo"] not in {"CITY", "REGIONAL"}:
         raise ValueError("PLANNING_SYNTHETIC_ONLY")
@@ -119,8 +126,32 @@ def payload_for(p: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def model_available(db: Database, scope: str, p: dict[str, Any]) -> bool:
+def model_available(db: Database, scope: str, p: dict[str, Any], sid: str = "") -> bool:
+    budget: BoundedBudget
     try:
+        if not p["demo"]:
+            from .private_budget import PrivatePlanningBudget, IDENTIFIER as PRIVATE_ID
+
+            budget = PrivatePlanningBudget(db)
+            payload_for(p, db, scope, sid)
+            n = db.connection.execute(
+                "SELECT count(*) FROM preview_jobs WHERE continuation_id=? AND research_id LIKE 'planning-%'",
+                (PRIVATE_ID,),
+            ).fetchone()[0]
+            if n >= 2 or budget.summary()["remaining"]["model"] <= 0:
+                return False
+            if db.connection.execute(
+                "SELECT 1 FROM preview_jobs WHERE continuation_id=? AND research_id LIKE 'planning-%' AND status IN ('FAILED','INTERRUPTED')",
+                (PRIVATE_ID,),
+            ).fetchone():
+                return False
+            if db.connection.execute(
+                "SELECT 1 FROM preview_jobs WHERE continuation_id=? AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
+                (PRIVATE_ID,),
+            ).fetchone():
+                return False
+            budget.check_provider(configured_provider())
+            return True
         payload_for(p)
         budget = BoundedBudget(EvidenceStore(db), IDENTIFIER)
         s = budget.state()
@@ -140,15 +171,21 @@ def model_available(db: Database, scope: str, p: dict[str, Any]) -> bool:
 def create_job(
     db: Database, scope: str, sid: str, revision: int, p: dict[str, Any], key: str
 ) -> str:
-    if not model_available(db, scope, p):
+    if not model_available(db, scope, p, sid):
         raise ValueError("PLANNING_UNAVAILABLE")
-    payload = payload_for(p)
-    budget = BoundedBudget(EvidenceStore(db), IDENTIFIER)
-    budget.reserve_count("MODEL", p["demo"], {"MODEL": 2})
+    payload = payload_for(p, db, scope, sid)
     jid = "planning-" + uuid4().hex
+    identifier, slot = IDENTIFIER, p["demo"]
+    if not p["demo"]:
+        from .private_budget import PrivatePlanningBudget, IDENTIFIER as PRIVATE_ID
+
+        identifier, slot = PRIVATE_ID, jid
+        PrivatePlanningBudget(db).reserve_for_trip(scope, sid, "MODEL", slot)
+    else:
+        BoundedBudget(EvidenceStore(db), IDENTIFIER).reserve_count("MODEL", slot, {"MODEL": 2})
     data = {
         "task": "planning_suggestion",
-        "slot": p["demo"],
+        "slot": slot,
         "payload": payload,
         "draft": p["draft"],
     }
@@ -156,7 +193,7 @@ def create_job(
         "INSERT INTO preview_jobs VALUES(?,?,?,?,?,?,?,?,?,?,0,NULL,?,NULL)",
         (
             jid,
-            IDENTIFIER,
+            identifier,
             sid,
             scope,
             revision,
@@ -173,8 +210,8 @@ def create_job(
 
 def job_view(db: Database, scope: str, jid: str) -> dict[str, Any]:
     row = db.connection.execute(
-        "SELECT * FROM preview_jobs WHERE job_id=? AND account_scope=? AND continuation_id=?",
-        (jid, scope, IDENTIFIER),
+        "SELECT * FROM preview_jobs WHERE job_id=? AND account_scope=? AND research_id LIKE 'planning-%'",
+        (jid, scope),
     ).fetchone()
     if row is None:
         raise ValueError("JOB_UNAVAILABLE")
@@ -187,6 +224,7 @@ def job_view(db: Database, scope: str, jid: str) -> dict[str, Any]:
         "reason": summary.get("reason"),
         "provenance": "AI_PROPOSED",
         "diagnostic": summary.get("diagnostic", {}),
+        "activity_catalog": summary.get("activity_catalog", []),
     }
 
 
@@ -201,6 +239,9 @@ def validate_response(raw: dict[str, Any], payload: dict[str, Any]) -> dict[str,
             or not set(proposal["citation_ids"]) <= set(payload["allowed_citation_ids"])
         ):
             raise ValueError("PLANNING_UNKNOWN_REFERENCE")
+        days = [a["day"] for a in proposal["activities"]]
+        if days != sorted(days) or days[0] != payload["first_day"]:
+            raise ValueError("PLANNING_INVALID_TIME")
         for activity in proposal["activities"]:
             if activity["stay_max"] < activity["stay_min"] or (
                 payload["days"] and activity["day"] > payload["days"]
@@ -246,9 +287,23 @@ def apply_proposal(
         or index >= len(job["proposals"])
     ):
         raise ValueError("STALE_PROPOSAL")
+    if not p["demo"]:
+        stored = db.connection.execute(
+            "SELECT session_id,request_json FROM preview_jobs WHERE job_id=? AND account_scope=?",
+            (p["job_id"], scope),
+        ).fetchone()
+        if (
+            stored is None
+            or payload_for(p, db, scope, stored["session_id"])
+            != json.loads(stored["request_json"])["payload"]
+        ):
+            raise ValueError("STALE_PROPOSAL")
     draft = PlanDraft.model_validate(p["draft"])
     proposal = job["proposals"][index]
     old = {a.activity_id: a for a in draft.activities}
+    from .flow_models import Activity
+
+    old.update({a["activity_id"]: Activity.model_validate(a) for a in job["activity_catalog"]})
     arranged = []
     for item in proposal["activities"]:
         a = deepcopy(old[item["activity_id"]])
@@ -272,7 +327,8 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
     with Database(database) as db:
         with db.transaction() as con:
             row = con.execute(
-                "SELECT * FROM preview_jobs WHERE job_id=? AND continuation_id=?", (jid, IDENTIFIER)
+                "SELECT * FROM preview_jobs WHERE job_id=? AND research_id LIKE 'planning-%'",
+                (jid,),
             ).fetchone()
             if (
                 row is None
@@ -287,7 +343,7 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
         status = "FAILED"
         try:
             provider = provider or configured_provider()
-            budget = BoundedBudget(EvidenceStore(db), IDENTIFIER)
+            budget = BoundedBudget(EvidenceStore(db), row["continuation_id"])
             if isinstance(provider, OpenAICompatibleProvider):
                 budget.check_provider(provider)
             data = json.loads(row["request_json"])
@@ -298,13 +354,24 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             live, state = PlanningService(db, row["account_scope"]).load(row["session_id"])
             if (
                 live["revision"] != row["request_revision"]
-                or payload_for(state["planning"]) != data["payload"]
+                or payload_for(state["planning"], db, row["account_scope"], row["session_id"])
+                != data["payload"]
             ):
                 raise ValueError("STALE_PROPOSAL")
             raw = provider.structured(
                 "planning_suggestion", data["payload"], PlanningResponse.model_json_schema()
             )
-            summary = validate_response(raw, data["payload"])
+            if data["payload"]["purpose"] == "PRIVATE_PLANNING":
+                from .private_payload import ground
+
+                raw, validation_payload, catalog = ground(raw, data["payload"])
+                summary = validate_response(raw, validation_payload)
+                summary["activity_catalog"] = catalog
+            else:
+                summary = validate_response(raw, data["payload"])
+            current, _ = PlanningService(db, row["account_scope"]).load(row["session_id"])
+            if current["revision"] != row["request_revision"]:
+                raise ValueError("STALE_PROPOSAL")
             status = "COMPLETED"
         except Exception as exc:
             summary = {
@@ -331,7 +398,7 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             )
 
 
-def launch(database: Path, jid: str) -> None:
+def launch(database: Path, jid: str, *, research: bool = False) -> None:
     owner = str(database.resolve())
     identity = (owner, jid)
     with _launch_lock:
@@ -344,7 +411,7 @@ def launch(database: Path, jid: str) -> None:
         command = [
             sys.executable,
             str(PROJECT_ROOT / "scripts/product_preview.py"),
-            "worker",
+            "job-worker" if research else "worker",
             "--job",
             jid,
         ]
@@ -363,7 +430,7 @@ def launch(database: Path, jid: str) -> None:
                     ('{"reason":"WORKER_NOT_STARTED"}', jid),
                 )
             return
-        end = monotonic() + 180
+        end = monotonic() + (1200 if research else 180)
         while process.poll() is None:
             with Database(database) as db:
                 row = db.connection.execute(
@@ -380,7 +447,15 @@ def launch(database: Path, jid: str) -> None:
                         "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1,summary_json=? WHERE job_id=? AND status IN ('QUEUED','RUNNING')",
                         ('{"reason":"CANCELED_OR_TOTAL_DEADLINE"}', jid),
                     )
-                    _stop_process(process)
+                    if research:
+                        # The reader observes cancellation between API calls and closes
+                        # its browser in finally; no asyncio task.cancel into Playwright.
+                        try:
+                            process.wait(timeout=200)
+                        except subprocess.TimeoutExpired:
+                            _stop_process(process)
+                    else:
+                        _stop_process(process)
                     return
             sleep(0.25)
         with Database(database) as db:
@@ -409,10 +484,15 @@ def shutdown_workers(database: Path) -> None:
     with _launch_lock:
         _closing.add(owner)
         processes = [p for (path, _), p in _workers.items() if path == owner and p is not None]
+    from .private_budget import IDENTIFIER as PRIVATE_ID
+
     with Database(database) as db:
         db.connection.execute(
-            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1,summary_json=? WHERE continuation_id=? AND status IN ('QUEUED','RUNNING')",
-            ('{"reason":"SERVER_STOPPED"}', IDENTIFIER),
+            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1,summary_json=? WHERE continuation_id IN (?,?) AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
+            ('{"reason":"SERVER_STOPPED"}', IDENTIFIER, PRIVATE_ID),
         )
     for process in processes:
-        _stop_process(process)
+        try:
+            process.wait(timeout=200)
+        except subprocess.TimeoutExpired:
+            _stop_process(process)

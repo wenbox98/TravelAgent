@@ -1,7 +1,6 @@
-"""Unified P04 entry; protected copy of P03, fixed two-request synthetic grant."""
+"""Unified private planning entry; bounded grants, same workspace, reversible static build."""
 
 import argparse
-import json
 import os
 import secrets
 import sys
@@ -20,13 +19,25 @@ def main() -> None:
     from travel_agent.main import create_app
     import uvicorn
 
-    parser = argparse.ArgumentParser(description="本机旅行草案；本批无小红书和高德请求")
+    parser = argparse.ArgumentParser(description="本机私人旅行规划；仅显式操作使用已登记额度")
     parser.add_argument(
-        "action", nargs="?", default="serve", choices=["serve", "authorize-synthetic", "worker"]
+        "action",
+        nargs="?",
+        default="serve",
+        choices=[
+            "serve",
+            "authorize-synthetic",
+            "authorize-private",
+            "worker",
+            "job-worker",
+            "extract-worker",
+            "review-worker",
+        ],
     )
     parser.add_argument("--port", type=int, default=8768)
     parser.add_argument("--open", action="store_true")
     parser.add_argument("--job", default="")
+    parser.add_argument("--destination", default="")
     args = parser.parse_args()
     workspace = PROJECT_ROOT / ".local/p04-preview"
     database = workspace / "preview.sqlite3"
@@ -38,6 +49,7 @@ def main() -> None:
 
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as envkey:
             for name in (
+                "AMAP_WEB_SERVICE_KEY",
                 "LLM_API_KEY",
                 "LLM_MODEL",
                 "LLM_BASE_URL",
@@ -52,7 +64,7 @@ def main() -> None:
                         os.environ[name] = value
                     except FileNotFoundError:
                         pass
-    if args.action != "worker":
+    if not args.action.endswith("worker"):
         prepare_workspace(PROJECT_ROOT / ".local/p03-preview/preview.sqlite3", workspace)
     if args.action == "authorize-synthetic":
         with Database(database) as db:
@@ -60,87 +72,36 @@ def main() -> None:
         print("已登记原服务的两次合成验收许可；旧额度与失败记录不变。")
         return
 
-    metrics = dict(
-        model_http=0,
-        model_dns=0,
-        model_socket=0,
-        blocked_external=0,
-        xhs_connect=0,
-        xhs_search=0,
-        xhs_detail=0,
-        xhs_browser=0,
-        amap_http=0,
-    )
-    metrics_file = workspace / f"metrics-{os.getpid()}.json"
-    allowed_transport = False
-    resolved: set[str] = set()
+    from travel_agent.planning.private_budget import PrivatePlanningBudget, IDENTIFIER as PRIVATE_ID
 
-    def guard(event: str, values: tuple) -> None:
-        nonlocal allowed_transport
-        if event == "import" and (
-            str(values[0]).startswith("xhs_sidecar") or values[0] == "travel_agent.research.live"
-        ):
-            raise PermissionError("P04_XHS_DISABLED")
-        if event == "urllib.Request":
-            from urllib.parse import urlsplit
+    if args.action == "authorize-private":
+        with Database(database) as db:
+            PrivatePlanningBudget(db).initialize(scope, args.destination, configured_provider())
+        print("本批私人规划许可已登记，旧批次和失败记录保留。")
+        return
+    from travel_agent.planning.network import install
 
-            url = urlsplit(values[0])
-            allowed_transport = (
-                args.action == "worker"
-                and url.scheme == "https"
-                and url.netloc == "api.deepseek.com"
-                and url.path in {"/chat/completions", "/v1/chat/completions"}
-                and metrics["model_http"] == 0
-            )
-            if allowed_transport:
-                metrics["model_http"] += 1
-            else:
-                metrics["blocked_external"] += 1
-                metrics_file.write_text(json.dumps(metrics), encoding="utf-8")
-                raise PermissionError("P04_HTTP_DENIED")
-        if event in {"socket.connect", "socket.getaddrinfo", "socket.sendto"}:
-            address = (
-                values[1]
-                if event == "socket.connect"
-                else values[0]
-                if event == "socket.getaddrinfo"
-                else values[-1]
-            )
-            host = address[0] if isinstance(address, tuple) else address
-            if host in {"127.0.0.1", "::1", "localhost"}:
-                return
-            if (
-                not allowed_transport
-                or (event == "socket.getaddrinfo" and host != "api.deepseek.com")
-                or event == "socket.sendto"
-            ):
-                metrics["blocked_external"] += 1
-                metrics_file.write_text(json.dumps(metrics), encoding="utf-8")
-                raise PermissionError("P04_EXTERNAL_DENIED")
-            if event == "socket.connect" and (
-                not isinstance(address, tuple) or address[1] != 443 or host not in resolved
-            ):
-                raise PermissionError("P04_DESTINATION_DENIED")
-            metrics["model_dns" if event == "socket.getaddrinfo" else "model_socket"] += 1
-        if event in {"urllib.Request", "socket.connect", "socket.getaddrinfo", "socket.sendto"}:
-            metrics_file.write_text(json.dumps(metrics), encoding="utf-8")
-
-    # Bind socket targets to actual provider DNS without an extra DNS/network probe.
-    import socket
-
-    original_getaddrinfo = socket.getaddrinfo
-
-    def getaddrinfo(*a, **kw):
-        result = original_getaddrinfo(*a, **kw)
-        if a and a[0] == "api.deepseek.com":
-            resolved.update(r[4][0] for r in result)
-        return result
-
-    socket.getaddrinfo = getaddrinfo
-    metrics_file.write_text(json.dumps(metrics), encoding="utf-8")
-    sys.addaudithook(guard)
+    audit = PROJECT_ROOT / ".local/p05-audit"
+    audit.mkdir(exist_ok=True)
+    install(args.action, audit / f"metrics-{os.getpid()}.json")
     if args.action == "worker":
         run_worker(database, args.job)
+        return
+    if args.action == "job-worker":
+        from travel_agent.preview.worker import run_job
+
+        sys.path.insert(0, str(PROJECT_ROOT / "integrations/xhs-sidecar"))
+        run_job(database, args.job, product=True)
+        return
+    if args.action in {"extract-worker", "review-worker"}:
+        from travel_agent.preview.worker import extract_worker
+        from travel_agent.research.context_review import run_review
+        from travel_agent.research.store import EvidenceStore
+
+        with Database(database) as db:
+            (extract_worker if args.action == "extract-worker" else run_review)(
+                EvidenceStore(db), configured_provider(), args.job
+            )
         return
     # Exactly one owner of the independent working copy. Never stop other apps.
     lock = (workspace / "serve.lock").open("a+b")
@@ -161,8 +122,8 @@ def main() -> None:
         raise SystemExit("P04_ALREADY_RUNNING") from None
     with Database(database) as db:
         db.connection.execute(
-            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1 WHERE continuation_id=? AND status IN ('QUEUED','RUNNING')",
-            (IDENTIFIER,),
+            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1 WHERE continuation_id IN (?,?) AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
+            (IDENTIFIER, PRIVATE_ID),
         )
     keyfile = workspace / "preview-auth.key"
     if not keyfile.exists():
@@ -174,7 +135,7 @@ def main() -> None:
         "CACHED_PRIVATE_PREVIEW",
         keyfile.read_bytes(),
         product_flow=True,
-        static_dir=PROJECT_ROOT / ".local/p04-web",
+        static_dir=PROJECT_ROOT / ".local/p05-web",
     )
     url = f"http://127.0.0.1:{args.port}/bootstrap?ticket={config.ticket}"
     (workspace / "entry.url").write_text(url, encoding="utf-8")

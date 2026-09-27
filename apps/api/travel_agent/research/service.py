@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any, Literal, Protocol
 
-from travel_agent.domain.models import SourcePolicy
+from travel_agent.domain.models import SourcePolicy, EvidenceBundle
 from travel_agent.domain.source_policy import is_private
 from travel_agent.providers.diagnostics import Diagnostic
 
@@ -55,6 +55,7 @@ class ResearchService:
                  model_batch_id: str | None = None, model_max_attempts: int = 4,
                  after_extraction: Callable[[dict[str, Any]], None] | None = None,
                  continuation: Any = None,
+                 activity_target: Callable[[tuple[EvidenceBundle, ...]], bool] | None = None,
                  extraction_dispatch: Callable[[str, tuple[str, ...]], dict[str, Any]] | None = None) -> None:
         self.store, self.reader, self.extractor, self.policy = store, reader, extractor, policy
         self.selector = selector or CandidateSelector()
@@ -66,6 +67,7 @@ class ResearchService:
         self.evaluator, self.planner = SufficiencyEvaluator(clock=store.db.clock), QueryPlanner()
         self.model_batch_id, self.model_max_attempts = model_batch_id, model_max_attempts
         self.after_extraction = after_extraction
+        self.activity_target = activity_target
         self.continuation, self.extraction_dispatch = continuation, extraction_dispatch
         self.extraction_attempts: list[dict[str, Any]] = []
 
@@ -140,6 +142,8 @@ class ResearchService:
             return finish("SOURCE_UNAVAILABLE")
         if not gaps:
             return finish("EVIDENCE_SUFFICIENT")
+        if self.activity_target and self.activity_target(evidence):
+            return finish("ACTIVITY_CANDIDATES_READY")
         if budget.max_search_operations == 0 or budget.max_feed_details == 0:
             return finish("BUDGET_EXHAUSTED")
         now = datetime.now(timezone.utc)
@@ -259,6 +263,8 @@ class ResearchService:
                             gaps = self.evaluator.gaps(request, evidence)
                             if not gaps and "IMAGE_INFORMATION_REQUIRED" not in extra_gaps:
                                 return finish("EVIDENCE_SUFFICIENT")
+                            if self.activity_target and self.activity_target(evidence):
+                                return finish("ACTIVITY_CANDIDATES_READY")
                             continue
                         else:
                             extracted = self.extractor.extract(

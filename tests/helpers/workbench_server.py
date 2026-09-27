@@ -41,10 +41,10 @@ def main():
     from test_workbench_pipeline import Reader, GRANT
 
     original = worker.model_command
-    worker.model_command = lambda db, kind, identifier: [
+    worker.model_command = lambda db, kind, identifier, **kwargs: [
         sys.executable,
         str(ROOT / "tests/helpers/loopback_entry.py"),
-        *original(db, kind, identifier)[1:],
+        *original(db, kind, identifier, **kwargs)[1:],
     ]
     threads = []
 

@@ -131,6 +131,6 @@ onMounted(load)
     <section v-else-if="!busy && mode" class="card empty"><h2>先选一份已有研究</h2><p>页面将从数据库中的已审核证据生成草案。未给预算或人数，也能先看。</p></section>
     <RoutePanel v-if="routeCheckAvailable && view" :session="view" />
     </template>
-    <footer>G0 仅保留历史验收；G1 仍 NOT PASS。此页面不是完整旅行产品或发布验收。缓存显示不会探测小红书或模型；{{ routeCheckAvailable ? '地图仅作显式分段参考，报价未接入。' : '本页地图与报价未接入。' }}</footer>
+    <footer>G0 仅保留历史验收；G1 仍 NOT PASS。此页面不是完整旅行产品或发布验收。缓存显示不会探测小红书或模型；{{ routeCheckAvailable || productFlow ? '地图仅作显式分段参考，报价未接入。' : '本页地图与报价未接入。' }}</footer>
   </main>
 </template>

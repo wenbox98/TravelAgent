@@ -5,7 +5,8 @@ from travel_agent.preview.api import PreviewConfig, error
 from .flow import PlanningService, timeline
 from .flow_models import PlanAction, PlanCreate, PlanIndex, PlanView, PlanDraft
 from .suggestions import launch
-from .flow_maps import FlowMapService, SyntheticMapAdapter
+from .flow_maps import FlowMapService, SyntheticMapAdapter, PrivateFlowMapService
+from travel_agent.providers.amap import AmapAdapter
 from .models import MapAction, MapView
 
 
@@ -18,7 +19,7 @@ def movement_references(draft: PlanDraft, legs: list[dict[str, Any]]) -> dict[st
         leg["leg_id"]: leg["duration_seconds"] / 60
         for leg in legs
         if mode is not None
-        and leg["mode"] == mode
+        and (leg["mode"] == mode or (draft.walking_allowed and leg["mode"] == "WALKING"))
         and not leg["stale"]
         and leg["status"] == "OK"
         and leg["duration_seconds"] is not None
@@ -27,10 +28,19 @@ def movement_references(draft: PlanDraft, legs: list[dict[str, Any]]) -> dict[st
 
 def install_flow(app: FastAPI, config: PreviewConfig) -> None:
     maps = FlowMapService(config.database, config.account_scope, config.mode, SyntheticMapAdapter())
+    private_maps = PrivateFlowMapService(
+        config.database, config.account_scope, config.mode, AmapAdapter.from_env()
+    )
     app.state.flow_maps = maps
+    app.state.private_flow_maps = private_maps
+
+    def selected_maps(sid: str) -> FlowMapService:
+        with Database(config.database) as db:
+            _, state = PlanningService(db, config.account_scope).load(sid)
+        return maps if state["planning"]["demo"] else private_maps
 
     def present(view: dict[str, Any]) -> dict[str, Any]:
-        legs = maps.get(view["session_id"])["legs"]
+        legs = selected_maps(view["session_id"]).get(view["session_id"])["legs"]
         draft = PlanDraft.model_validate(view["draft"])
         rows, gaps = timeline(draft, movement_references(draft, legs))
         view["timeline"] = rows
@@ -39,12 +49,14 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
 
     @app.get("/api/v1/preview/planning-maps/{session_id}", response_model=MapView)
     def read_maps(session_id: str) -> Any:
-        return maps.get(session_id)
+        return selected_maps(session_id).get(session_id)
 
     @app.post("/api/v1/preview/planning-maps", response_model=MapView)
     def change_maps(body: MapAction, request: Request) -> Any:
         try:
-            return maps.mutate(body, request.headers.get("idempotency-key", ""))
+            return selected_maps(body.session_id).mutate(
+                body, request.headers.get("idempotency-key", "")
+            )
         except ValueError as exc:
             return error(
                 str(exc)
@@ -55,6 +67,7 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
                     "MAP_CONFIRM_PLACES_FIRST",
                     "MAP_OBJECT_TYPE_MISMATCH",
                     "MAP_REGIONAL_REFERENCE_REQUIRED",
+                    "MAP_ADOPT_ORDER_FIRST",
                 }
                 else "INVALID_INPUT",
                 409,
@@ -92,6 +105,12 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
             if body.action == "suggest" and view["job"] and view["job"]["status"] == "QUEUED":
                 # Worker acquires QUEUED exactly once, including repeated HTTP keys.
                 launch(config.database, view["job"]["job_id"])
+            if (
+                body.action == "research"
+                and view["research_job"]
+                and view["research_job"]["status"] == "QUEUED"
+            ):
+                launch(config.database, view["research_job"]["job_id"], research=True)
             return present(view)
         except ValueError as exc:
             code = (

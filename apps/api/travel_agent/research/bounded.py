@@ -154,7 +154,7 @@ class BoundedBudget:
 
     def summary(self) -> dict[str, Any]:
         s = self.state()
-        used = {k.lower(): 0 for k in LIMITS}
+        used = {k.lower(): 0 for k in s["limits"]}
         for r in self.store.db.connection.execute(
             "SELECT kind,count(*) FROM continuation_operations "
             "WHERE continuation_id=? GROUP BY kind",
