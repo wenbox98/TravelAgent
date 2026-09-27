@@ -5961,6 +5961,7 @@
         },
         "total_limit": {
           "enum": [
+            8,
             10,
             16
           ],
@@ -6283,6 +6284,44 @@
           "title": "Region",
           "type": "string"
         },
+        "region_origin": {
+          "default": "REQUEST_FILTER",
+          "enum": [
+            "REQUEST_FILTER",
+            "USER_INPUT"
+          ],
+          "title": "Region Origin",
+          "type": "string"
+        },
+        "spatial_status": {
+          "default": "UNKNOWN",
+          "enum": [
+            "MATCH",
+            "MISMATCH",
+            "UNKNOWN"
+          ],
+          "title": "Spatial Status",
+          "type": "string"
+        },
+        "spatial_basis": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "maxItems": 20,
+          "title": "Spatial Basis",
+          "type": "array"
+        },
+        "source_locations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Source Locations",
+          "type": "array"
+        },
         "description": {
           "default": "",
           "maxLength": 200,
@@ -6408,6 +6447,9 @@
     "PlanDraft": {
       "additionalProperties": false,
       "properties": {
+        "spatial": {
+          "$ref": "#/$defs/SpatialIntent"
+        },
         "direction": {
           "anyOf": [
             {
@@ -7134,6 +7176,188 @@
         "evidence_ids"
       ],
       "title": "GroundedActivity",
+      "type": "object"
+    },
+    "SpatialIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "intent": {
+          "default": "UNDECIDED",
+          "enum": [
+            "UNDECIDED",
+            "CITY_CORE",
+            "CITY_AND_SURROUNDINGS",
+            "REGIONAL"
+          ],
+          "title": "Intent",
+          "type": "string"
+        },
+        "origin": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "USER_EXPLICIT",
+            "TEST_INPUT",
+            "PRODUCT_PROPOSED"
+          ],
+          "title": "Origin",
+          "type": "string"
+        }
+      },
+      "title": "SpatialIntent",
+      "type": "object"
+    },
+    "Arrangement": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "activities": {
+          "items": {
+            "$ref": "#/$defs/SuggestedActivity"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Activities",
+          "type": "array"
+        },
+        "citation_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 40,
+          "title": "Citation Ids",
+          "type": "array"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "unknowns": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Unknowns",
+          "type": "array"
+        },
+        "impacts": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Impacts",
+          "type": "array"
+        },
+        "unresolved_suggestions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnresolvedSuggestions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "title",
+        "reason",
+        "activities",
+        "citation_ids",
+        "assumptions",
+        "unknowns",
+        "impacts"
+      ],
+      "title": "Arrangement",
+      "type": "object"
+    },
+    "UnresolvedSuggestions": {
+      "additionalProperties": false,
+      "properties": {
+        "transport": {
+          "anyOf": [
+            {
+              "enum": [
+                "UNKNOWN",
+                "PUBLIC_TRANSIT",
+                "SELF_DRIVE",
+                "LOCAL_SERVICE",
+                "WALKING"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transport"
+        },
+        "first_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Start"
+        }
+      },
+      "title": "UnresolvedSuggestions",
+      "type": "object"
+    },
+    "ArrangementResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": 2,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/Arrangement"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Proposals",
+          "type": "array"
+        },
+        "grounded_activities": {
+          "items": {
+            "$ref": "#/$defs/GroundedActivity"
+          },
+          "maxItems": 12,
+          "title": "Grounded Activities",
+          "type": "array"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "proposals"
+      ],
+      "title": "ArrangementResponse",
       "type": "object"
     }
   }

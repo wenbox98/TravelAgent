@@ -192,11 +192,11 @@ class FlowMapService(RoutePreviewService):
 class PrivateFlowMapService(FlowMapService):
     """The same place/leg lifecycle, with real adapter and this trip's grant."""
 
-    def _quota(self, db: Any) -> dict[str, Any]:
+    def _quota(self, db: Any, sid: str = "") -> dict[str, Any]:
         from .private_budget import PrivatePlanningBudget
 
         try:
-            summary = PrivatePlanningBudget(db).summary()
+            summary = PrivatePlanningBudget.for_trip(db, sid).summary()
             used = {k: summary["used"][k] for k in ("map_place", "map_route")}
             left = {k: summary["remaining"][k] for k in used}
         except ValueError:
@@ -206,23 +206,24 @@ class PrivateFlowMapService(FlowMapService):
             "used": used,
             "remaining": left,
             "total_used": sum(used.values()),
-            "total_limit": 10,
+            "total_limit": sum(used.values()) + sum(left.values()) or 8,
         }
 
     def _reserve(self, db: Any, kind: str, payload: str, sid: str, option: str) -> None:
         from .private_budget import PrivatePlanningBudget
 
-        PrivatePlanningBudget(db).reserve_for_trip(self.scope, sid, kind, payload)
+        PrivatePlanningBudget.for_trip(db, sid).reserve_for_trip(self.scope, sid, kind, payload)
 
     def _view(self, db: Any, sid: str) -> dict[str, Any]:
         from .private_budget import PrivatePlanningBudget
 
         view = RoutePreviewService._view(self, db, sid)
         try:
-            PrivatePlanningBudget(db).check_trip(self.scope, sid)
+            PrivatePlanningBudget.for_trip(db, sid).check_trip(self.scope, sid)
             authorized = True
         except ValueError:
             authorized = False
+        view["budget"] = self._quota(db, sid)
         view["configured"] = self.adapter.configured and authorized
         view["configuration_status"] = (
             "CONFIGURED_NOT_VERIFIED" if view["configured"] else "AMAP_LIVE_BLOCKED_NOT_CONFIGURED"
@@ -243,7 +244,9 @@ class PrivateFlowMapService(FlowMapService):
         }:
             raise ValueError("INVALID_INPUT")
         with Database(self.database) as db:
-            PrivatePlanningBudget(db).check_trip(self.scope, action.session_id)
+            PrivatePlanningBudget.for_trip(db, action.session_id).check_trip(
+                self.scope, action.session_id
+            )
             _, state = PlanningService(db, self.scope).load(action.session_id)
             p = state["planning"]
             draft = PlanDraft.model_validate(p["draft"])
@@ -253,7 +256,19 @@ class PrivateFlowMapService(FlowMapService):
             for a in draft.activities:
                 if a.provenance != "SOURCE_REFERENCE" or not set(a.evidence_ids) <= refs.keys():
                     raise ValueError("ACTIVITY_SUPPORT_REQUIRED")
-                candidate_from_name(a.name, [refs[i] for i in a.evidence_ids], p["destination"])
+                supported = candidate_from_name(
+                    a.name,
+                    [refs[i] for i in a.evidence_ids],
+                    p["destination"],
+                    draft.spatial.intent,
+                )
+                if (
+                    action.action == "route"
+                    and p.get("protocol_version") == 2
+                    and draft.spatial.intent == "CITY_CORE"
+                    and supported.spatial_status != "MATCH"
+                ):
+                    raise ValueError("MAP_SCOPE_UNVERIFIED")
                 if a.region != p["destination"]:
                     raise ValueError("ACTIVITY_SUPPORT_REQUIRED")
             if action.action == "route":

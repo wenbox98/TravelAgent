@@ -7,10 +7,19 @@ from travel_agent.preview.projection import safe_text
 from .models import TripInputs
 
 
+class SpatialIntent(StrictModel):
+    intent: Literal["UNDECIDED", "CITY_CORE", "CITY_AND_SURROUNDINGS", "REGIONAL"] = "UNDECIDED"
+    origin: Literal["UNKNOWN", "USER_EXPLICIT", "TEST_INPUT", "PRODUCT_PROPOSED"] = "UNKNOWN"
+
+
 class Activity(StrictModel):
     activity_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     name: str = Field(min_length=1, max_length=120)
     region: str = Field(default="", max_length=80)
+    region_origin: Literal["REQUEST_FILTER", "USER_INPUT"] = "REQUEST_FILTER"
+    spatial_status: Literal["MATCH", "MISMATCH", "UNKNOWN"] = "UNKNOWN"
+    spatial_basis: list[dict[str, str]] = Field(default_factory=list, max_length=20)
+    source_locations: list[str] = Field(default_factory=list, max_length=20)
     description: str = Field(default="", max_length=200)
     reference_kinds: list[str] = Field(default_factory=list, max_length=8)
     evidence_ids: list[str] = Field(default_factory=list, max_length=20)
@@ -42,6 +51,7 @@ class Activity(StrictModel):
 
 
 class PlanDraft(StrictModel):
+    spatial: SpatialIntent = Field(default_factory=SpatialIntent)
     direction: str | None = Field(default=None, max_length=100)
     days: int | None = Field(default=None, ge=1, le=90)
     driving: Literal["UNKNOWN", "YES", "NO"] = "UNKNOWN"
@@ -135,6 +145,35 @@ class Suggestion(StrictModel):
 
 class PlanningResponse(StrictModel):
     proposals: list[Suggestion] = Field(min_length=1, max_length=3)
+    grounded_activities: list[GroundedActivity] = Field(default_factory=list, max_length=12)
+
+
+class UnresolvedSuggestions(StrictModel):
+    transport: (
+        Literal["UNKNOWN", "PUBLIC_TRANSIT", "SELF_DRIVE", "LOCAL_SERVICE", "WALKING"] | None
+    ) = None
+    first_start: str | None = None
+
+    @field_validator("first_start")
+    @classmethod
+    def time(cls, value: str | None) -> str | None:
+        return TripInputs.time(value)
+
+
+class Arrangement(StrictModel):
+    title: str = Field(min_length=1, max_length=80)
+    reason: str = Field(min_length=1, max_length=240)
+    activities: list[SuggestedActivity] = Field(min_length=1, max_length=12)
+    citation_ids: list[str] = Field(max_length=40)
+    assumptions: list[str] = Field(min_length=1, max_length=8)
+    unknowns: list[str] = Field(min_length=1, max_length=8)
+    impacts: list[str] = Field(max_length=8)
+    unresolved_suggestions: UnresolvedSuggestions | None = None
+
+
+class ArrangementResponse(StrictModel):
+    protocol_version: Literal[2]
+    proposals: list[Arrangement] = Field(min_length=1, max_length=3)
     grounded_activities: list[GroundedActivity] = Field(default_factory=list, max_length=12)
 
 

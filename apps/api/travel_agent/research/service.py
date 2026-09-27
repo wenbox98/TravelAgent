@@ -82,7 +82,13 @@ class ResearchService:
         # Lookup precedes even connect. Empty budgets are a genuinely offline mode.
         evidence = self.store.lookup(research_id, request.destination, account_scope) if not policy_error else ()
         cached = len(evidence)
-        gaps = self.evaluator.gaps(request, evidence)
+        def assess(current_evidence: tuple[EvidenceBundle, ...]) -> tuple[ResearchGap, ...]:
+            result = self.evaluator.gaps(request, current_evidence)
+            if self.activity_target is not None and not self.activity_target(current_evidence):
+                result += (ResearchGap("ACTIVITY_SCOPE", "当前范围内的可用活动仍不足", ("ROUTE",)),)
+            return result
+
+        gaps = assess(evidence)
         attempted = {bundle["source_id"] for bundle in evidence}
         if self.continuation is not None:
             attempted.update(row[0] for row in self.store.db.connection.execute(
@@ -247,7 +253,7 @@ class ResearchService:
                             if outcome["status"] in {"PENDING_REVIEW", "NO_ACCEPTED_EVIDENCE"}:
                                 diagnostic = "CONTEXT_REVIEW_REQUIRED" if outcome["status"] == "PENDING_REVIEW" else "NO_ACCEPTED_EVIDENCE"
                                 if self.continuation is not None and outcome["status"] == "NO_ACCEPTED_EVIDENCE":
-                                    gaps = self.evaluator.gaps(request, evidence)
+                                    gaps = assess(evidence)
                                     continue
                                 return finish("SOURCE_UNAVAILABLE")
                             if outcome["status"] not in {"SUCCEEDED", "PARTIAL_SUCCESS"}:
@@ -260,7 +266,7 @@ class ResearchService:
                             for b in evidence:
                                 for code in b["missing_fields"]:
                                     extra_gaps[code] = self._material_gap(code)
-                            gaps = self.evaluator.gaps(request, evidence)
+                            gaps = assess(evidence)
                             if not gaps and "IMAGE_INFORMATION_REQUIRED" not in extra_gaps:
                                 return finish("EVIDENCE_SUFFICIENT")
                             if self.activity_target and self.activity_target(evidence):
@@ -296,7 +302,7 @@ class ResearchService:
                     evidence = self.store.lookup(research_id, request.destination, account_scope)
                     for gap_code in extracted.gaps:
                         extra_gaps[gap_code] = self._material_gap(gap_code)
-                    gaps = self.evaluator.gaps(request, evidence)
+                    gaps = assess(evidence)
                     if not gaps and "IMAGE_INFORMATION_REQUIRED" not in extra_gaps:
                         return finish("EVIDENCE_SUFFICIENT")
                 if not selected:

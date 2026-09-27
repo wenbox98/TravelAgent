@@ -66,7 +66,7 @@ def fake_grant(s, monkeypatch):
 
 
 def response(payload):
-    return {
+    result = {
         "proposals": [
             {
                 "title": "合成轻松安排",
@@ -90,6 +90,13 @@ def response(payload):
             }
         ]
     }
+    if payload.get("protocol_version") == 2:
+        result["protocol_version"] = 2
+        for p in result["proposals"]:
+            p.pop("transport")
+            p.pop("first_start")
+            p["citation_ids"] = list(payload["allowed_citation_ids"])
+    return result
 
 
 def test_three_independent_scenarios_no_long_term_defaults(service):

@@ -11,9 +11,12 @@ from .private_budget import PrivatePlanningBudget
 
 
 def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
-    PrivatePlanningBudget(db).check_trip(scope, sid)
+    PrivatePlanningBudget.for_trip(db, sid).check_trip(scope, sid)
     draft = PlanDraft.model_validate(p["draft"])
     refs = references(db, scope, sid)
+    if p.get("protocol_version") == 2 and draft.activities:
+        needed = {identifier for a in draft.activities for identifier in a.evidence_ids}
+        refs = [e for e in refs if e["claim_id"] in needed]
     selected: list[dict[str, Any]] = []
     lengths: dict[str, int] = {}
     for e in refs:
@@ -49,7 +52,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         ):
             raise ValueError("PLANNING_REFERENCE_UNAVAILABLE")
         supported = candidate_from_name(
-            a.name, [allowed[i] for i in a.evidence_ids], p["destination"]
+            a.name, [allowed[i] for i in a.evidence_ids], p["destination"], draft.spatial.intent
         )
         if (
             supported.activity_id,
@@ -58,10 +61,29 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
             supported.reference_kinds,
         ) != (a.activity_id, a.region, a.conditions, a.reference_kinds):
             raise ValueError("PLANNING_REFERENCE_UNAVAILABLE")
+        if (
+            p.get("protocol_version") == 2
+            and draft.spatial.intent == "CITY_CORE"
+            and supported.spatial_status != "MATCH"
+        ):
+            raise ValueError("PLANNING_SCOPE_UNVERIFIED")
+        a.spatial_status, a.spatial_basis, a.source_locations = (
+            supported.spatial_status,
+            supported.spatial_basis,
+            supported.source_locations,
+        )
         catalog[a.activity_id] = a
     if not selected:
         raise ValueError("PLANNING_REFERENCE_UNAVAILABLE")
+    if (
+        p.get("protocol_version") == 2
+        and draft.spatial.intent == "CITY_CORE"
+        and len(draft.activities) < 2
+    ):
+        raise ValueError("ACTIVITY_SELECTION_REQUIRED")
     return {
+        "protocol_version": p.get("protocol_version", 1),
+        "spatial_intent": draft.spatial.intent,
         "purpose": "PRIVATE_PLANNING",
         "city_area_requested": p["travel_kind"] == "CITY" and "市区" in p["request"],
         "area_unknowns": scope_gaps(p["travel_kind"] == "CITY" and "市区" in p["request"], refs),
@@ -93,6 +115,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
                     "rest_minutes",
                     "evidence_ids",
                     "conditions",
+                    "spatial_status",
                 )
             }
             for a in draft.activities

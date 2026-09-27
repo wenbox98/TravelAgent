@@ -176,6 +176,8 @@ def test_rejected_policy_pending_refs_not_usable_for_model(private):
 def test_same_call_names_require_exact_supported_positive_references(private):
     v = create(private, "合成青谷")
     _, state = private.load(v["session_id"])
+    # Legacy response remains readable; V2 catalogue isolation has its own regression.
+    state["planning"]["protocol_version"] = 1
     payload = payload_for(state["planning"], private.db, "owner", v["session_id"])
     e = payload["references"][0]
     from travel_agent.planning.materials import activities
@@ -404,7 +406,8 @@ def test_failed_transport_proposal_keeps_draft_and_no_retry_offer(private):
 
     run_worker(private.db.path, v["job"]["job_id"], WrongTransport())
     result = private.get(v["session_id"])
-    assert result["job"]["reason"] == "PLANNING_LOCKED_TRANSPORT"
+    assert result["job"]["reason"] == "PLANNING_ALL_REJECTED"
+    assert result["job"]["decisions"][0]["reason"] == "PLANNING_LOCKED_TRANSPORT"
     assert result["draft"] == v["draft"] and not result["model_available"]
 
 
@@ -419,10 +422,9 @@ def test_city_area_outbound_context_cannot_satisfy_early_stop_target():
 
 def test_city_scope_gap_keeps_research_available_when_budget_allows(private, monkeypatch):
     v = create(private, "合成青谷", request="市区一天公共交通")
-    assert len(v["activity_candidates"]) >= 2 and not v["research_available"]
-    monkeypatch.setattr("travel_agent.planning.materials.scope_gaps", lambda *_: ["区域待核实"])
-    result = private.get(v["session_id"])
-    assert result["research_available"] and "区域待核实" in result["gaps"]
+    assert len(v["activity_candidates"]) >= 2 and v["research_available"]
+    assert all(a["spatial_status"] == "UNKNOWN" for a in v["activity_candidates"])
+    assert any("范围" in gap for gap in v["gaps"])
 
 
 def test_second_source_error_does_not_discard_first_independent_result(private):

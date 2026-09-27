@@ -113,12 +113,14 @@ class JobService:
             ).fetchone()
             planning = json.loads(saved[0]).get("planning")
             if planning:
-                from travel_agent.planning.private_budget import PrivatePlanningBudget, IDENTIFIER
+                from travel_agent.planning.private_budget import PrivatePlanningBudget, GRANTS
                 from travel_agent.planning.flow_models import PlanDraft
 
-                if self.continuation != IDENTIFIER:
+                if self.continuation not in GRANTS:
                     raise ValueError("PRIVATE_TRIP_NOT_AUTHORIZED")
-                PrivatePlanningBudget(self.db).check_trip(self.scope, session, bind=True)
+                PrivatePlanningBudget(self.db, self.continuation).check_trip(
+                    self.scope, session, bind=True
+                )
                 draft = PlanDraft.model_validate(planning["draft"])
                 req = ResearchRequest(
                     destination=planning["destination"],
@@ -132,7 +134,12 @@ class JobService:
                     budget_cny_fen=None,
                     traveler_count=None,
                 )
-                focus = "市区 游玩" if planning["travel_kind"] == "CITY" else "旅行"
+                focus = {
+                    "CITY_CORE": "市区 市内 游玩",
+                    "CITY_AND_SURROUNDINGS": "城市与周边 游玩",
+                    "REGIONAL": "区域旅行",
+                    "UNDECIDED": "游玩",
+                }[draft.spatial.intent]
                 if draft.transport == "PUBLIC_TRANSIT":
                     focus += " 公共交通"
                 if draft.walking_allowed or draft.transport == "WALKING":
@@ -142,8 +149,9 @@ class JobService:
                     preferences=prefs,
                     focus=focus,
                     original_interest=None,
-                    city_area_requested=planning["travel_kind"] == "CITY"
-                    and "市区" in planning["request"],
+                    city_area_requested=draft.spatial.intent == "CITY_CORE",
+                    spatial_intent=draft.spatial.intent,
+                    planning_protocol=planning.get("protocol_version", 1),
                 )
             jid = "job-" + uuid4().hex
             research = "research-" + uuid4().hex

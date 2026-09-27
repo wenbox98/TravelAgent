@@ -145,6 +145,12 @@ def run_job(
         class Permits:
             def reserve(self, kind: str, fingerprint: str) -> None:
                 active()
+                if (
+                    kind == "DETAIL"
+                    and data.get("planning_protocol") == 2
+                    and budget.summary()["remaining"]["model"] < 3
+                ):
+                    raise ResearchStopped("BUDGET_EXHAUSTED", "PLANNING_MODEL_RESERVED")
                 budget.reserve(kind, fingerprint)
 
         try:
@@ -231,6 +237,17 @@ def run_job(
                         + projected["other_clues"]
                     }.values()
                 )
+                if data.get("planning_protocol") == 2:
+                    candidates = activities(
+                        refs,
+                        data["request"]["destination"],
+                        data.get("spatial_intent", "UNDECIDED"),
+                    )
+                    return (
+                        sum(a.spatial_status == "MATCH" for a in candidates) >= 2
+                        if data.get("spatial_intent") == "CITY_CORE"
+                        else len(candidates) >= 2
+                    )
                 return (
                     not scope_gaps(data.get("city_area_requested", False), refs)
                     and len(activities(refs, data["request"]["destination"])) >= 2
@@ -245,13 +262,22 @@ def run_job(
                 EvidenceExtractor(provider, protocol_version=3),
                 policy,
                 model_batch_id=j["continuation_id"],
-                model_max_attempts=1,
+                # This is a batch-wide extraction cap, not a per-source retry cap.
+                # Only the new grant permits two distinct sources; old caps stay immutable.
+                model_max_attempts=2
+                if data.get("planning_protocol") == 2
+                and j["continuation_id"] == "p051-scope-locked-planning"
+                else 1,
                 continuation=Permits(),
                 extraction_dispatch=dispatch,
                 after_extraction=after,
                 activity_target=activity_target if product else None,
             )
             service.planner = FocusedPlanner(data["focus"])
+            if product and data.get("planning_protocol") == 2:
+                from travel_agent.planning.spatial import ScopedSelector
+
+                service.selector = ScopedSelector(data.get("spatial_intent", "UNDECIDED"))
             report = service.run(
                 ResearchRequest(**data["request"]),
                 research_id=j["research_id"],
