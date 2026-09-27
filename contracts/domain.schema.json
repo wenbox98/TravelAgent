@@ -5165,7 +5165,8 @@
           "default": "USER_INPUT",
           "enum": [
             "EVIDENCE_FRAGMENT",
-            "USER_INPUT"
+            "USER_INPUT",
+            "SOURCE_MENTION"
           ],
           "title": "Provenance",
           "type": "string"
@@ -5873,7 +5874,8 @@
           "default": "USER_INPUT",
           "enum": [
             "EVIDENCE_FRAGMENT",
-            "USER_INPUT"
+            "USER_INPUT",
+            "SOURCE_MENTION"
           ],
           "title": "Provenance",
           "type": "string"
@@ -5926,7 +5928,8 @@
         "source": {
           "enum": [
             "USER_INPUT",
-            "REVIEWED_SOURCE_FRAGMENT"
+            "REVIEWED_SOURCE_FRAGMENT",
+            "SOURCE_MENTION"
           ],
           "title": "Source",
           "type": "string"
@@ -6344,6 +6347,14 @@
           "title": "Evidence Ids",
           "type": "array"
         },
+        "discovery_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Discovery Ids",
+          "type": "array"
+        },
         "conditions": {
           "items": {
             "type": "string"
@@ -6356,6 +6367,7 @@
           "enum": [
             "USER_INPUT",
             "SOURCE_REFERENCE",
+            "SOURCE_MENTION",
             "SYNTHETIC_TEST",
             "PRODUCT_DEFAULT"
           ],
@@ -6588,7 +6600,9 @@
             "add_source",
             "research",
             "adopt_research",
-            "use_activities"
+            "use_activities",
+            "discover_places",
+            "use_leads"
           ],
           "title": "Action",
           "type": "string"
@@ -6922,6 +6936,19 @@
           ],
           "default": null,
           "title": "Model Reason"
+        },
+        "discovery_available": {
+          "default": false,
+          "title": "Discovery Available",
+          "type": "boolean"
+        },
+        "place_leads": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Place Leads",
+          "type": "array"
         }
       },
       "required": [

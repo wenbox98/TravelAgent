@@ -149,6 +149,8 @@ class RoutePreviewService:
                     "confirmed": confirmed,
                     "source": "USER_INPUT"
                     if p.provenance == "USER_INPUT"
+                    else "SOURCE_MENTION"
+                    if p.provenance == "SOURCE_MENTION"
                     else "REVIEWED_SOURCE_FRAGMENT",
                 }
             )

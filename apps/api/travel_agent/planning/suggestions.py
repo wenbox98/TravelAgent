@@ -141,6 +141,20 @@ def model_available(db: Database, scope: str, p: dict[str, Any], sid: str = "") 
             ).fetchone()[0]
             if n >= 2 or budget.summary()["remaining"]["model"] <= 0:
                 return False
+            from .private_budget import DISCOVERY_IDENTIFIER
+
+            if (
+                PRIVATE_ID == DISCOVERY_IDENTIFIER
+                and n == 1
+                and (
+                    p["draft"].get("adjustment", "NONE") == "NONE"
+                    or not p.get("adopted")
+                    or not any(
+                        a.get("timing_origin") == "AI_PROPOSED" for a in p["adopted"]["activities"]
+                    )
+                )
+            ):
+                return False
             if db.connection.execute(
                 "SELECT 1 FROM preview_jobs WHERE continuation_id=? AND research_id LIKE 'planning-%' AND status IN ('FAILED','INTERRUPTED')",
                 (PRIVATE_ID,),
@@ -182,6 +196,14 @@ def create_job(
 
         budget_private = PrivatePlanningBudget.for_trip(db, sid)
         identifier, slot = budget_private.identifier, jid
+        from .private_budget import DISCOVERY_IDENTIFIER
+
+        if identifier == DISCOVERY_IDENTIFIER:
+            n = db.connection.execute(
+                "SELECT count(*) FROM preview_jobs WHERE continuation_id=? AND research_id LIKE 'planning-%'",
+                (identifier,),
+            ).fetchone()[0]
+            slot = "INITIAL_PLAN" if n == 0 else "ADJUST_PLAN"
         budget_private.reserve_for_trip(scope, sid, "MODEL", slot)
     else:
         BoundedBudget(EvidenceStore(db), IDENTIFIER).reserve_count("MODEL", slot, {"MODEL": 2})
@@ -542,12 +564,18 @@ def shutdown_workers(database: Path) -> None:
     with _launch_lock:
         _closing.add(owner)
         processes = [p for (path, _), p in _workers.items() if path == owner and p is not None]
-    from .private_budget import IDENTIFIER as PRIVATE_ID, CURRENT_IDENTIFIER
+    from .private_budget import IDENTIFIER as PRIVATE_ID, CURRENT_IDENTIFIER, DISCOVERY_IDENTIFIER
 
     with Database(database) as db:
         db.connection.execute(
-            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1,summary_json=? WHERE continuation_id IN (?,?,?) AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
-            ('{"reason":"SERVER_STOPPED"}', IDENTIFIER, PRIVATE_ID, CURRENT_IDENTIFIER),
+            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1,summary_json=? WHERE continuation_id IN (?,?,?,?) AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
+            (
+                '{"reason":"SERVER_STOPPED"}',
+                IDENTIFIER,
+                PRIVATE_ID,
+                CURRENT_IDENTIFIER,
+                DISCOVERY_IDENTIFIER,
+            ),
         )
     for process in processes:
         try:

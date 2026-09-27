@@ -360,7 +360,25 @@ class PlanningService:
         private_budget, research_available = None, False
         budget = PrivatePlanningBudget.for_trip(self.db, sid)
         jobs = JobService(self.db, self.scope, row["mode"], budget.identifier)
-        research_job = jobs.get(p["research_job_id"]) if p.get("research_job_id") else None
+        research_job = (
+            self.research_service(sid, p).get(p["research_job_id"])
+            if p.get("research_job_id")
+            else None
+        )
+        from .discovery import checked, contents
+
+        leads, discovery_available = [], False
+        if not p["demo"]:
+            try:
+                discovery_available = bool(contents(self.db, self.scope, sid, p))
+                leads = list(checked(self.db, self.scope, sid, p).values())
+            except ValueError:
+                if p.get("discovery"):
+                    gaps.append("地点来源已过期或不再获准使用，旧草稿保留，不能继续派发或采用。")
+        if any(a.provenance == "SOURCE_MENTION" for a in draft.activities):
+            gaps.append(
+                "部分项目仅来自原文地点提及；身份曾确认不等于市区范围、可游玩性或当前开放已核实。"
+            )
         try:
             budget.check_trip(self.scope, sid)
             private_budget = budget.summary()
@@ -410,7 +428,9 @@ class PlanningService:
             "private_model_available": available and not p["demo"],
             "model_reason": None
             if available
-            else "需要当前旅行已审核的活动依据、已配置服务和本批剩余额度；不会自动重试。",
+            else "需要可用来源活动或已检查身份的公共地点、已配置服务和对应剩余额度；首次及改选各一次，不会自动重试。",
+            "place_leads": leads,
+            "discovery_available": discovery_available,
             "provenance": {
                 "preferences": "TEST_INPUT" if p["demo"] else "CURRENT_TRIP_USER_INPUT",
                 "same_return": "PRODUCT_DEFAULT_MODIFIABLE",
@@ -419,6 +439,21 @@ class PlanningService:
             },
             "feasibility": "UNVERIFIED",
         }
+
+    def research_service(self, sid: str, p: dict[str, Any]) -> Any:
+        from travel_agent.preview.jobs import JobService
+        from .private_budget import PrivatePlanningBudget
+
+        job = self.db.connection.execute(
+            "SELECT continuation_id FROM preview_jobs WHERE job_id=? AND session_id=? AND account_scope=?",
+            (p.get("research_job_id"), sid, self.scope),
+        ).fetchone()
+        return JobService(
+            self.db,
+            self.scope,
+            "CACHED_PRIVATE_PREVIEW",
+            job[0] if job else PrivatePlanningBudget.for_trip(self.db, sid).identifier,
+        )
 
     def mutate(self, sid: str, action: PlanAction, key: str) -> dict[str, Any]:
         with self.db.transaction():
@@ -447,31 +482,43 @@ class PlanningService:
                 originals = {a.activity_id: a for a in before.activities}
                 for a in draft.activities:
                     original = originals.get(a.activity_id)
-                    if original is None or (a.name, a.region, a.evidence_ids, a.conditions) != (
+                    if original is None or (
+                        a.name,
+                        a.region,
+                        a.evidence_ids,
+                        a.conditions,
+                        a.discovery_ids,
+                    ) != (
                         original.name,
                         original.region,
                         original.evidence_ids,
                         original.conditions,
+                        original.discovery_ids,
                     ):
                         a.provenance = "USER_INPUT"
                         a.evidence_ids = []
+                        a.discovery_ids = []
                         a.conditions = []
                         a.reference_kinds = []
                         a.description = "用户输入，来源支持待核实"
+                    elif original:
+                        a.provenance = original.provenance
+                        a.reference_kinds = original.reference_kinds
+                        a.description = original.description
                     a.region_origin = original.region_origin if original else "USER_INPUT"
                     a.spatial_status = (
                         original.spatial_status
-                        if original and a.provenance == "SOURCE_REFERENCE"
+                        if original and a.provenance in {"SOURCE_REFERENCE", "SOURCE_MENTION"}
                         else "UNKNOWN"
                     )
                     a.spatial_basis = (
                         original.spatial_basis
-                        if original and a.provenance == "SOURCE_REFERENCE"
+                        if original and a.provenance in {"SOURCE_REFERENCE", "SOURCE_MENTION"}
                         else []
                     )
                     a.source_locations = (
                         original.source_locations
-                        if original and a.provenance == "SOURCE_REFERENCE"
+                        if original and a.provenance in {"SOURCE_REFERENCE", "SOURCE_MENTION"}
                         else []
                     )
                     if original is None or (
@@ -571,6 +618,37 @@ class PlanningService:
                     raise ValueError("INVALID_INPUT")
                 p["draft"]["activities"].extend(added)
                 p["collapsed"]["activities"] = False
+            elif action.action == "discover_places":
+                from .discovery import discover
+
+                if not p.get("discovery"):
+                    p["discovery"] = dict(
+                        version=1,
+                        leads=discover(self.db, self.scope, sid, p),
+                        prior_adopted=deepcopy(p["adopted"]),
+                    )
+                p["collapsed"]["activities"] = False
+            elif action.action == "use_leads":
+                from .discovery import checked, as_activity
+
+                leads = checked(self.db, self.scope, sid, p)
+                if (
+                    not action.activity_ids
+                    or len(set(action.activity_ids)) != len(action.activity_ids)
+                    or not set(action.activity_ids) <= leads.keys()
+                ):
+                    raise ValueError("OPTION_UNAVAILABLE")
+                p["draft"]["activities"] = [
+                    as_activity(leads[i]).model_dump() for i in action.activity_ids
+                ]
+                for lead in p["discovery"]["leads"]:
+                    lead["scope_acceptance"] = (
+                        "USER_ACCEPTED_FOR_THIS_TRIP"
+                        if lead["lead_id"] in action.activity_ids
+                        else "UNDECIDED"
+                    )
+                p["draft"]["adjustment"] = "NONE"
+                p["collapsed"]["activities"] = False
             elif action.action == "use_activities":
                 catalog = {a["activity_id"]: a for a in self.get(sid)["activity_candidates"]}
                 if (
@@ -599,15 +677,7 @@ class PlanningService:
                 ).create(sid, row["revision"], p["destination"], key + "-research", ready=True)
                 p["research_job_id"] = job["job_id"]
             elif action.action == "adopt_research":
-                from travel_agent.preview.jobs import JobService
-                from .private_budget import PrivatePlanningBudget
-
-                research_service = JobService(
-                    self.db,
-                    self.scope,
-                    row["mode"],
-                    PrivatePlanningBudget.for_trip(self.db, sid).identifier,
-                )
+                research_service = self.research_service(sid, p)
                 if (
                     not p.get("research_job_id")
                     or not research_service.get(p["research_job_id"])["can_adopt"]
@@ -619,6 +689,13 @@ class PlanningService:
                 p["research_ids"] = sorted(set(p.get("research_ids", []) + [rid]))
                 p["collapsed"]["activities"] = False
             elif action.action == "adopt":
+                if any(a.get("provenance") == "SOURCE_MENTION" for a in p["draft"]["activities"]):
+                    from .discovery import checked, verify_activity
+
+                    leads = checked(self.db, self.scope, sid, p)
+                    for a in PlanDraft.model_validate(p["draft"]).activities:
+                        if a.provenance == "SOURCE_MENTION":
+                            verify_activity(a, leads)
                 p["direction_backup"] = None
                 p["adopted"] = deepcopy(p["draft"])
                 p["collapsed"] = dict.fromkeys(["direction", "activities", "conditions"], True)
@@ -643,15 +720,7 @@ class PlanningService:
                 p["job_id"] = create_job(self.db, self.scope, sid, row["revision"] + 1, p, key)
             elif action.action == "cancel_job":
                 if p.get("research_job_id"):
-                    from travel_agent.preview.jobs import JobService
-                    from .private_budget import PrivatePlanningBudget
-
-                    JobService(
-                        self.db,
-                        self.scope,
-                        row["mode"],
-                        PrivatePlanningBudget.for_trip(self.db, sid).identifier,
-                    ).cancel(p["research_job_id"])
+                    self.research_service(sid, p).cancel(p["research_job_id"])
                 if p["job_id"]:
                     self.db.connection.execute(
                         "UPDATE preview_jobs SET cancel_requested=1,status='CANCELED' WHERE job_id=? AND status IN ('QUEUED','RUNNING')",

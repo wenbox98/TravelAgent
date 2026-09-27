@@ -12,7 +12,7 @@ class PlaceInput(StrictModel):
     name: str = Field(min_length=1, max_length=80)
     region: str = Field(default="", max_length=80)
     evidence_ids: list[str] = Field(default_factory=list, max_length=20)
-    provenance: Literal["EVIDENCE_FRAGMENT", "USER_INPUT"] = "USER_INPUT"
+    provenance: Literal["EVIDENCE_FRAGMENT", "USER_INPUT", "SOURCE_MENTION"] = "USER_INPUT"
     object_type: Literal[
         "UNKNOWN", "AREA", "TOWN", "STATION", "SCENIC", "ENTRANCE", "PARKING", "VISITOR_CENTER"
     ] = "UNKNOWN"
@@ -137,7 +137,7 @@ class MapPlace(PlaceInput):
     status: str
     candidates: list[MapCandidate]
     confirmed: MapConfirmed | None
-    source: Literal["USER_INPUT", "REVIEWED_SOURCE_FRAGMENT"]
+    source: Literal["USER_INPUT", "REVIEWED_SOURCE_FRAGMENT", "SOURCE_MENTION"]
 
 
 class MapLeg(StrictModel):

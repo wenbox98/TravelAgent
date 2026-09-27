@@ -23,8 +23,11 @@ class Activity(StrictModel):
     description: str = Field(default="", max_length=200)
     reference_kinds: list[str] = Field(default_factory=list, max_length=8)
     evidence_ids: list[str] = Field(default_factory=list, max_length=20)
+    discovery_ids: list[str] = Field(default_factory=list, max_length=12)
     conditions: list[str] = Field(default_factory=list, max_length=30)
-    provenance: Literal["USER_INPUT", "SOURCE_REFERENCE", "SYNTHETIC_TEST", "PRODUCT_DEFAULT"]
+    provenance: Literal[
+        "USER_INPUT", "SOURCE_REFERENCE", "SOURCE_MENTION", "SYNTHETIC_TEST", "PRODUCT_DEFAULT"
+    ]
     day: int = Field(default=1, ge=1, le=90)
     stay_min: int | None = Field(default=None, ge=0, le=720)
     stay_max: int | None = Field(default=None, ge=0, le=720)
@@ -101,6 +104,8 @@ class PlanAction(StrictModel):
         "research",
         "adopt_research",
         "use_activities",
+        "discover_places",
+        "use_leads",
     ]
     expected_revision: int = Field(ge=0)
     draft: PlanDraft | None = None
@@ -207,6 +212,8 @@ class PlanView(StrictModel):
     research_available: bool = False
     private_model_available: bool = False
     model_reason: str | None = None
+    discovery_available: bool = False
+    place_leads: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PlanIndex(StrictModel):

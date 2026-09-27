@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from travel_agent.preview.projection import fingerprint, safe_text
 from .flow_models import Arrangement, GroundedActivity
 
-VERSION = "locked-arrangement-2.1"
+VERSION = "locked-arrangement-2.2"
 
 
 def envelope_schema() -> dict[str, Any]:
@@ -55,10 +55,16 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
     ):
         raise Rejected("PLANNING_UNKNOWN_REFERENCE", "activities")
     if data.get("spatial_intent") == "CITY_CORE" and any(
-        allowed[i].get("spatial_status") != "MATCH" for i in ids
+        allowed[i].get("spatial_status")
+        not in ({"MATCH", "UNKNOWN"} if data.get("discovery_mode") else {"MATCH"})
+        for i in ids
     ):
         raise Rejected("PLANNING_SCOPE_UNVERIFIED", "activities", "MATCH", "UNKNOWN")
-    needed = {e for i in ids for e in allowed[i].get("evidence_ids", [])}
+    needed = {
+        e
+        for i in ids
+        for e in [*allowed[i].get("evidence_ids", []), *allowed[i].get("discovery_ids", [])]
+    }
     if not needed <= set(p["citation_ids"]):
         raise Rejected("PLANNING_UNKNOWN_REFERENCE", "citation_ids")
     days = [a["day"] for a in p["activities"]]
@@ -120,6 +126,15 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
         raise Rejected("PLANNING_LOCKED_TRANSPORT", "unresolved_suggestions.transport")
     texts = [p["title"], p["reason"], *p["assumptions"], *p["unknowns"], *p["impacts"]]
     for value in texts:
+        if data.get("discovery_mode"):
+            for clause in re.split(r"[。；;，,]", value):
+                # A missing opening time is a gap, not an asserted opening time.
+                # Match assertions, never exempt an entire mixed clause as 'unknown'.
+                if re.search(
+                    r"建于|始建|历史悠久|展出(?:精美|珍贵|了|有)|正在展出|馆藏(?:丰富|精美|珍贵|包括|包含)|特色(?:是|为)|以.{1,12}闻名|开放时间\s*(?:为|是|[:：]|\d)|门票(?:为|是|免费)",
+                    clause,
+                ):
+                    raise Rejected("PLANNING_UNSUPPORTED_FACT", "text")
         factual = re.sub(r"(?:不|无法|不能|并非|不作).{0,2}保证", "", value)
         if re.search(
             r"保证|已预订|已核实|\d+\s*(?:元|公里|km)|(?:车程|公交|驾车|接驳).{0,8}\d+\s*分钟",

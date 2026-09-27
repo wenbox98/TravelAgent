@@ -13,6 +13,9 @@ from .private_budget import PrivatePlanningBudget
 def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     PrivatePlanningBudget.for_trip(db, sid).check_trip(scope, sid)
     draft = PlanDraft.model_validate(p["draft"])
+    discovery_mode = bool(draft.activities) and all(
+        a.provenance == "SOURCE_MENTION" for a in draft.activities
+    )
     refs = references(db, scope, sid)
     if p.get("protocol_version") == 2 and draft.activities:
         needed = {identifier for a in draft.activities for identifier in a.evidence_ids}
@@ -42,9 +45,15 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         selected.append(
             {k: e[k] for k in ("claim_id", "text", "conditions", "reference_kind", "topic")}
         )
+    if discovery_mode:
+        from .discovery import model_references
+
+        selected = model_references(db, scope, sid, p, draft)
     allowed = {e["claim_id"]: e for e in selected}
     catalog = {a.activity_id: a for a in activities(refs, p["destination"])}
     for a in draft.activities:
+        if discovery_mode:
+            continue
         if (
             a.provenance != "SOURCE_REFERENCE"
             or not a.evidence_ids
@@ -78,11 +87,12 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     if (
         p.get("protocol_version") == 2
         and draft.spatial.intent == "CITY_CORE"
-        and len(draft.activities) < 2
+        and not draft.activities
     ):
         raise ValueError("ACTIVITY_SELECTION_REQUIRED")
     return {
         "protocol_version": p.get("protocol_version", 1),
+        "discovery_mode": discovery_mode,
         "spatial_intent": draft.spatial.intent,
         "purpose": "PRIVATE_PLANNING",
         "city_area_requested": p["travel_kind"] == "CITY" and "市区" in p["request"],
@@ -114,6 +124,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
                     "stay_max",
                     "rest_minutes",
                     "evidence_ids",
+                    "discovery_ids",
                     "conditions",
                     "spatial_status",
                 )
@@ -123,7 +134,12 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         "references": selected,
         "allowed_citation_ids": sorted(allowed),
         "known_map_values": [],
-        "instructions": "仅安排已提供活动，保留锁定预约、首项时间、交通和硬截止。停留与休息为AI建议，交通耗时/开放/预约/票价未知，不得编造。遵循adjustment改选。若活动为空，可从ROUTE/EXPERIENCE引用逐字选择短公共地点名，以grounded_activities提供candidate-N及证据ID，再在proposals引用candidate-N。不得新增来源中不存在的地点。不要把作者计划当历史经历或当前保证。",
+        "instructions": (
+            "当前输入仅证明公共名称被原文提及，引用ID是发现依据，不是获准的作者事实。只给顺序、建议停留/休息和节奏取舍；不得添加地点历史、展览、特色、开放或预约事实。范围UNKNOWN的选项仅为临时草案。不要解释地点体验。"
+            if discovery_mode
+            else ""
+        )
+        + "仅安排已提供活动，保留锁定预约、首项时间、交通和硬截止。停留与休息为AI建议，交通耗时/开放/预约/票价未知，不得编造。遵循adjustment改选。若活动为空，可从ROUTE/EXPERIENCE引用逐字选择短公共地点名，以grounded_activities提供candidate-N及证据ID，再在proposals引用candidate-N。不得新增来源中不存在的地点。不要把作者计划当历史经历或当前保证。",
     }
 
 

@@ -62,10 +62,32 @@ class FlowMapService(RoutePreviewService):
                 name=a.name[:80],
                 region=a.region,
                 evidence_ids=a.evidence_ids,
-                provenance="EVIDENCE_FRAGMENT" if a.evidence_ids else "USER_INPUT",
+                provenance="SOURCE_MENTION"
+                if a.discovery_ids
+                else "EVIDENCE_FRAGMENT"
+                if a.evidence_ids
+                else "USER_INPUT",
             )
             for a in draft.activities
         ]
+        if p.get("discovery"):
+            from .discovery import checked
+
+            try:
+                leads = checked(db, self.scope, sid, p)
+            except ValueError:
+                leads = {}
+            present = {a.place_id for a in inputs.places}
+            inputs.places += [
+                PlaceInput(
+                    place_id=lead["lead_id"],
+                    name=lead["public_name"],
+                    region=lead["destination"],
+                    provenance="SOURCE_MENTION",
+                )
+                for lead in leads.values()
+                if not lead["quarantined"] and lead["lead_id"] not in present
+            ]
         previous = db.connection.execute(
             "SELECT * FROM route_preview_inputs WHERE session_id=? AND account_scope=?",
             (sid, self.scope),
@@ -218,6 +240,20 @@ class PrivateFlowMapService(FlowMapService):
         from .private_budget import PrivatePlanningBudget
 
         view = RoutePreviewService._view(self, db, sid)
+        _, state = PlanningService(db, self.scope).load(sid)
+        draft = PlanDraft.model_validate(state["planning"]["draft"])
+        if state["planning"].get("discovery"):
+            pairs = {
+                a.activity_id.lower() + "--" + b.activity_id.lower()
+                for a, b in zip(draft.activities, draft.activities[1:])
+                if a.day == b.day
+            }
+            view["legs"] = [leg for leg in view["legs"] if leg["leg_id"] in pairs]
+            from .time_check import check_time
+
+            view["time_check"] = check_time(
+                draft.inputs, view["legs"], checked_scope="LOCAL_DAY_SEGMENT"
+            )
         try:
             PrivatePlanningBudget.for_trip(db, sid).check_trip(self.scope, sid)
             authorized = True
@@ -232,7 +268,7 @@ class PrivateFlowMapService(FlowMapService):
             view["message"] = "本次旅行尚无可用查询许可；历史额度保留。"
         return view
 
-    def mutate(self, action: MapAction, key: str) -> dict[str, Any]:
+    def mutate(self, action: MapAction, key: str, *, _suggested: bool = False) -> dict[str, Any]:
         from travel_agent.persistence.database import Database
         from .private_budget import PrivatePlanningBudget
         from .materials import references, candidate_from_name
@@ -250,10 +286,37 @@ class PrivateFlowMapService(FlowMapService):
             _, state = PlanningService(db, self.scope).load(action.session_id)
             p = state["planning"]
             draft = PlanDraft.model_validate(p["draft"])
+            from .discovery import checked, verify_activity
+
+            leads = checked(db, self.scope, action.session_id, p)
+            target_lead = leads.get(action.place_id or "")
+            if target_lead and target_lead["quarantined"]:
+                raise ValueError("DISCOVERY_QUARANTINED")
+            if target_lead and action.action == "confirm_place":
+                candidates = (
+                    self.memory.get(action.session_id, {})
+                    .get("places", {})
+                    .get(action.place_id, {})
+                    .get("candidates", [])
+                )
+                match = next(
+                    (c for c in candidates if c["candidate_id"] == action.candidate_id), None
+                )
+                if (
+                    not match
+                    or match["name"] != target_lead["public_name"]
+                    or match["cityname"].removesuffix("市") != p["destination"].removesuffix("市")
+                ):
+                    raise ValueError("DISCOVERY_IDENTITY_MISMATCH")
             if draft.inputs.origin or draft.inputs.destination or draft.inputs.endpoints_private:
                 raise ValueError("PRIVATE_ENDPOINT_NOT_AUTHORIZED")
             refs = {e["claim_id"]: e for e in references(db, self.scope, action.session_id)}
             for a in draft.activities:
+                if action.action != "route" and a.activity_id != action.place_id:
+                    continue
+                if a.provenance == "SOURCE_MENTION":
+                    verify_activity(a, leads)
+                    continue
                 if a.provenance != "SOURCE_REFERENCE" or not set(a.evidence_ids) <= refs.keys():
                     raise ValueError("ACTIVITY_SUPPORT_REQUIRED")
                 supported = candidate_from_name(
@@ -272,6 +335,13 @@ class PrivateFlowMapService(FlowMapService):
                 if a.region != p["destination"]:
                     raise ValueError("ACTIVITY_SUPPORT_REQUIRED")
             if action.action == "route":
+                pairs = {
+                    a.activity_id.lower() + "--" + b.activity_id.lower()
+                    for a, b in zip(draft.activities, draft.activities[1:])
+                    if a.day == b.day
+                }
+                if action.leg_id not in pairs:
+                    raise ValueError("INVALID_INPUT")
                 adopted = PlanDraft.model_validate(p["adopted"]) if p["adopted"] else None
                 if not adopted or [(a.activity_id, a.day) for a in adopted.activities] != [
                     (a.activity_id, a.day) for a in draft.activities
@@ -292,6 +362,40 @@ class PrivateFlowMapService(FlowMapService):
                     raise ValueError("MAP_MODE_REQUIRED")
         result = RoutePreviewService.mutate(self, action, key)
         with self.lock, Database(self.database) as db:
+            if target_lead and action.action == "confirm_place":
+                place = next(
+                    (v for v in result["places"] if v["place_id"] == action.place_id), None
+                )
+                confirmed = place and place.get("confirmed")
+                if confirmed and confirmed["candidate_id"] == action.candidate_id:
+                    row, saved = PlanningService(db, self.scope).load(action.session_id)
+                    marker = fingerprint([key, action.candidate_id])
+                    for lead in saved["planning"]["discovery"]["leads"]:
+                        if (
+                            lead["lead_id"] == action.place_id
+                            and lead.get("identity_revision") != marker
+                        ):
+                            # Persist the input decision only, never a provider identifier, coordinate or response.
+                            lead.update(
+                                identity_status="CHECKED"
+                                if action.relation == "SAME_OBJECT"
+                                else "REGIONAL_REFERENCE",
+                                identity_origin="PROGRAM_SUGGESTED_MATCH"
+                                if _suggested
+                                else "USER_CONFIRMED_PUBLIC_IDENTITY",
+                                identity_revision=marker,
+                            )
+                            import json
+
+                            db.connection.execute(
+                                "UPDATE preview_sessions SET state_json=?,revision=revision+1,updated_at=? WHERE session_id=? AND revision=?",
+                                (
+                                    json.dumps(saved, ensure_ascii=False),
+                                    db.stamp(),
+                                    action.session_id,
+                                    row["revision"],
+                                ),
+                            )
             _, _, current = self._context(db, action.session_id)
             from .models import TripInputs
 
@@ -300,4 +404,35 @@ class PrivateFlowMapService(FlowMapService):
                     a.place_id: fingerprint(a.model_dump())
                     for a in all_places(TripInputs.model_validate(current["draft"]))
                 }
+            result = self._view(db, action.session_id)
+        if target_lead and action.action == "resolve":
+            place = next((v for v in result["places"] if v["place_id"] == action.place_id), None)
+            choices = place["candidates"] if place else []
+            import re
+
+            exact = [
+                c
+                for c in choices
+                if c["name"] == target_lead["public_name"]
+                and c["cityname"].removesuffix("市")
+                == target_lead["destination"].removesuffix("市")
+                and (
+                    (re.search(r"[街路]$", c["name"]) and re.search(r"道路|交通地名", c["type"]))
+                    or (c["object_type"] == "SCENIC" and re.search(r"公园|广场$", c["name"]))
+                )
+            ]
+            if place and len(choices) == len(exact) == 1 and not place.get("confirmed"):
+                return self.mutate(
+                    MapAction(
+                        action="confirm_place",
+                        session_id=action.session_id,
+                        expected_revision=result["revision"],
+                        expected_preview_revision=result["preview_revision"],
+                        place_id=action.place_id,
+                        candidate_id=exact[0]["candidate_id"],
+                        relation="SAME_OBJECT",
+                    ),
+                    key + "-exact",
+                    _suggested=True,
+                )
         return result

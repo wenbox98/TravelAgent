@@ -63,7 +63,7 @@ def main():
                  "security": [{"PreviewSession": []}], "responses": {"200": {"description": "本机已审核缓存和用户选择", "content": {"application/json": {"schema": {"$ref": f"./domain.schema.json#/$defs/{response}"}}}},
                  "default": {"description": "安全错误；不返回原始异常或正文", "content": {"application/json": {"schema": {"$ref": "./domain.schema.json#/$defs/ErrorResponse"}}}}}}
         if 'Planning' in operation or operation == 'createIndependentTrip':
-            value['summary']='P05.1 独立私人行程：读取/草稿/采用零外部调用；逐活动范围、新安排协议独立接纳、固定条件由程序持有；显式研究、建议及地图受分批额度约束，历史结果保留'
+            value['summary']='P05.2 独立私人行程：缓存地点提及与已审核Evidence分开；地点核实先于活动采用，UNKNOWN可暂定，固定条件和逐方案检查保留；显式外部动作按批次额度预留'
             value['security']=[{'PreviewMapSession':[]}]
         if body:
             value["requestBody"] = {"required": True, "content": {"application/json": {"schema": {"$ref": f"./domain.schema.json#/$defs/{body}"}}}}

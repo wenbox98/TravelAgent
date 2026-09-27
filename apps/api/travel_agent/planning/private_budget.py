@@ -22,7 +22,20 @@ CURRENT_LIMITS = {
     "MAP_PLACE": 5,
     "MAP_ROUTE": 3,
 }
-GRANTS = {IDENTIFIER: LIMITS, CURRENT_IDENTIFIER: CURRENT_LIMITS}
+DISCOVERY_IDENTIFIER = "p052-cached-discovery-planning"
+DISCOVERY_LIMITS = {
+    "CONNECT": 0,
+    "SEARCH": 0,
+    "DETAIL": 0,
+    "MODEL": 3,
+    "MAP_PLACE": 6,
+    "MAP_ROUTE": 2,
+}
+GRANTS = {
+    IDENTIFIER: LIMITS,
+    CURRENT_IDENTIFIER: CURRENT_LIMITS,
+    DISCOVERY_IDENTIFIER: DISCOVERY_LIMITS,
+}
 
 
 class PrivatePlanningBudget(BoundedBudget):
@@ -73,18 +86,41 @@ class PrivatePlanningBudget(BoundedBudget):
                 ):
                     raise ValueError("BOUNDED_GRANT_IMMUTABLE")
                 return
-            gate = {
+            gate: dict[str, Any] = {
                 "status": "PASS",
                 "purpose": "PRIVATE_DEVELOPMENT_VALIDATION",
                 "destination": destination,
                 "session_id": None,
             }
+            if self.identifier == DISCOVERY_IDENTIFIER:
+                previous = con.execute(
+                    "SELECT gate_json FROM research_continuations WHERE continuation_id=? AND account_scope=?",
+                    (CURRENT_IDENTIFIER, scope),
+                ).fetchone()
+                prior = json.loads(previous[0]) if previous else {}
+                if not prior.get("session_id") or prior.get("destination") != destination:
+                    raise ValueError("DISCOVERY_PREDECESSOR_REQUIRED")
+                gate.update(
+                    session_id=prior["session_id"],
+                    purpose="CACHED_PUBLIC_MENTIONS_AND_PLANNING",
+                    content_ids=[
+                        r[0]
+                        for r in con.execute(
+                            "SELECT DISTINCT a.content_id FROM extraction_attempts a JOIN source_contents c ON c.content_id=a.content_id WHERE a.batch_id=? AND c.account_scope=?",
+                            (CURRENT_IDENTIFIER, scope),
+                        )
+                    ],
+                )
+                if not gate["content_ids"]:
+                    raise ValueError("DISCOVERY_SOURCE_UNAVAILABLE")
             con.execute(
                 "INSERT INTO research_continuations VALUES(?,?,?,?,?,?,NULL,?,?)",
                 (
                     self.identifier,
                     scope,
-                    IDENTIFIER
+                    CURRENT_IDENTIFIER
+                    if self.identifier == DISCOVERY_IDENTIFIER
+                    else IDENTIFIER
                     if self.identifier == CURRENT_IDENTIFIER
                     else "P05_EXPLICIT_USER_AUTHORIZATION",
                     json.dumps(config, sort_keys=True),

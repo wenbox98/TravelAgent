@@ -9,19 +9,19 @@
 
 ## 当前定位：私人本地研究
 
-当前主入口接入有限真实研究、私人 AI 建议和高德活动段参考；P05.1 增加逐活动范围判断、程序保留固定条件、独立方案接纳和分钟级参考展示。保留独立旅行草稿：先建议再选择，确认后收起，以首个活动时间为锚点。历史“五天、不自驾、不接受包车”是测试输入，不进入新旅行默认值。交通未定保持未知，AI提议和来源事实分开；G1仍NOT PASS。见 [P05.1范围与规划契约](docs/architecture/p051-scope-locked-planning.md)、[历史P05流程](docs/architecture/p05-private-live-planning.md) 和 [历史P04流程](docs/architecture/p04-product-flow.md)。
+当前主入口接入有限真实研究、私人 AI 建议和高德活动段参考；P05.2 将缓存公共地点提及、作者 Evidence、地点身份/范围和 AI 暂定安排分开。地点可先核实，一个身份已检查的 UNKNOWN 项目也能形成带缺口的临时草案；固定条件和独立方案检查保留。保留独立旅行草稿：先建议再选择，确认后收起，以首个活动时间为锚点。历史“五天、不自驾、不接受包车”是测试输入，不进入新旅行默认值。交通未定保持未知，AI提议和来源事实分开；G1仍NOT PASS。见 [P05.2地点发现契约](docs/architecture/p052-place-discovery.md)、[P05.1范围与规划契约](docs/architecture/p051-scope-locked-planning.md)、[历史P05流程](docs/architecture/p05-private-live-planning.md) 和 [历史P04流程](docs/architecture/p04-product-flow.md)。
 
 已有依赖时，唯一推荐启动方式：
 
 ```powershell
 Set-Location E:\workSpace\travel-agent-project\travel-agent\apps\web
-pnpm exec vue-tsc --noEmit
-pnpm exec vite build --outDir ../../.local/p051-web
+node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+node node_modules/vite/bin/vite.js build --outDir ../../.local/p052-web
 Set-Location E:\workSpace\travel-agent-project\travel-agent
 .venv\Scripts\python.exe -X utf8 scripts\product_preview.py --open
 ```
 
-地址 `http://127.0.0.1:8768/`。已运行时直接使用，不重复启动。沿用 `.local/p04-preview` 活动库，新静态目录为 `.local/p051-web`；原 P01–P05 数据和构建保留。启动、缓存浏览和普通编辑不外连；显式研究、建议和地图动作须有本批许可及余额，额度用完不恢复。服务端读取本机既有 DeepSeek / AMAP_WEB_SERVICE_KEY 配置，密钥不进前端。历史合成许可独立保留。本机 `.local/p051-backup` 保存升级前代码、数据库和静态目录，用于停止自有 8768 服务后的回滚；旧库备份仅供核对，不覆盖当前账本或恢复额度。
+地址 `http://127.0.0.1:8768/`。已运行时直接使用，不重复启动。沿用 `.local/p04-preview` 活动库，新静态目录为 `.local/p052-web`；原 P01–P05 数据和构建保留。启动、缓存浏览和普通编辑不外连；显式研究、建议和地图动作须有本批许可及余额，额度用完不恢复。服务端读取本机既有 DeepSeek / AMAP_WEB_SERVICE_KEY 配置，密钥不进前端。历史合成许可独立保留。本机 `.local/p052-backup` 保存升级前代码、数据库和静态目录，用于停止自有 8768 服务后的回滚；旧库备份仅供核对，不覆盖当前账本或恢复额度。
 
 下面各阶段命令和结果作为历史记录保留，不是额外推荐入口。
 

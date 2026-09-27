@@ -38,7 +38,7 @@ def main() -> None:
     parser.add_argument("--open", action="store_true")
     parser.add_argument("--job", default="")
     parser.add_argument("--destination", default="")
-    parser.add_argument("--batch", choices=["p05", "p051"], default="p051")
+    parser.add_argument("--batch", choices=["p05", "p051", "p052"], default="p052")
     args = parser.parse_args()
     workspace = PROJECT_ROOT / ".local/p04-preview"
     database = workspace / "preview.sqlite3"
@@ -77,18 +77,22 @@ def main() -> None:
         PrivatePlanningBudget,
         IDENTIFIER as PRIVATE_ID,
         CURRENT_IDENTIFIER,
+        DISCOVERY_IDENTIFIER,
     )
 
     if args.action == "authorize-private":
         with Database(database) as db:
             PrivatePlanningBudget(
-                db, CURRENT_IDENTIFIER if args.batch == "p051" else PRIVATE_ID
+                db,
+                {"p05": PRIVATE_ID, "p051": CURRENT_IDENTIFIER, "p052": DISCOVERY_IDENTIFIER}[
+                    args.batch
+                ],
             ).initialize(scope, args.destination, configured_provider())
         print("本批私人规划许可已登记，旧批次和失败记录保留。")
         return
     from travel_agent.planning.network import install
 
-    audit = PROJECT_ROOT / ".local/p051-audit"
+    audit = PROJECT_ROOT / ".local/p052-audit"
     audit.mkdir(exist_ok=True)
     install(args.action, audit / f"metrics-{os.getpid()}.json")
     if args.action == "worker":
@@ -129,8 +133,8 @@ def main() -> None:
         raise SystemExit("P04_ALREADY_RUNNING") from None
     with Database(database) as db:
         db.connection.execute(
-            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1 WHERE continuation_id IN (?,?,?) AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
-            (IDENTIFIER, PRIVATE_ID, CURRENT_IDENTIFIER),
+            "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1 WHERE continuation_id IN (?,?,?,?) AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
+            (IDENTIFIER, PRIVATE_ID, CURRENT_IDENTIFIER, DISCOVERY_IDENTIFIER),
         )
     keyfile = workspace / "preview-auth.key"
     if not keyfile.exists():
@@ -142,7 +146,7 @@ def main() -> None:
         "CACHED_PRIVATE_PREVIEW",
         keyfile.read_bytes(),
         product_flow=True,
-        static_dir=PROJECT_ROOT / ".local/p051-web",
+        static_dir=PROJECT_ROOT / ".local/p052-web",
     )
     url = f"http://127.0.0.1:{args.port}/bootstrap?ticket={config.ticket}"
     (workspace / "entry.url").write_text(url, encoding="utf-8")
