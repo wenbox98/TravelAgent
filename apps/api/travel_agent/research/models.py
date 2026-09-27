@@ -187,7 +187,8 @@ class ResearchReport:
         from .quality import claim_clusters, evaluate_coverage, evidence_conflicts
         from .reporting import build_directions, unassociated_statements
         return {**self.safe_summary(), "materials": groups,
-                "request_constraints": {"days": self.request.days, "no_self_drive": self.request.no_self_drive,
+                "request_constraints": {"destination": self.request.destination, "departure": self.request.departure,
+                    "time_hint": self.request.time_hint, "days": self.request.days, "no_self_drive": self.request.no_self_drive,
                     "transport": self.request.transport, "budget_cny_fen": self.request.budget_cny_fen,
                     "traveler_count": self.request.traveler_count},
                 "constraint_fit": "NOT_ESTABLISHED",

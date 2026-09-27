@@ -86,6 +86,12 @@ class RoutePreviewService:
         self.memory: dict[str, dict[str, Any]] = {}
         self.process_epoch = uuid4().hex
 
+    def _quota(self, db: Any) -> dict[str, Any]:
+        return MapBudget(EvidenceStore(db)).summary()
+
+    def _reserve(self, db: Any, kind: str, payload: str, sid: str, option: str) -> None:
+        MapBudget(EvidenceStore(db)).reserve_map(kind, payload, self.scope, sid, option)
+
     def _context(self, db: Any, sid: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         preview = PreviewService(db, self.scope, self.mode).get(sid)
         option = next(
@@ -107,6 +113,11 @@ class RoutePreviewService:
                 "draft": json.loads(row["draft_json"]),
                 "adopted": json.loads(row["adopted_json"]) if row["adopted_json"] else None,
             }
+            # Pre-P04 inputs described door-to-door work. Preserve their meaning
+            # in the read projection without rewriting historical stored rows.
+            for saved in (state["draft"], state["adopted"]):
+                if saved is not None:
+                    saved.setdefault("planning_scope", "DOOR_TO_DOOR")
         else:
             state = {
                 "revision": 0,
@@ -126,7 +137,8 @@ class RoutePreviewService:
         places = []
         original_names = {p.place_id: p.name for p in seed_places(option)}
         for p in all_places(inputs):
-            temp = mem.get("places", {}).get(p.place_id, {}) if live else {}
+            identity = "origin" if inputs.same_return and p.place_id == "return" else p.place_id
+            temp = mem.get("places", {}).get(identity, {}) if live else {}
             confirmed = temp.get("confirmed")
             places.append(
                 p.model_dump()
@@ -192,7 +204,7 @@ class RoutePreviewService:
             or len(option["source_schedule"]["entries"]) <= 1
             else "WHOLE_SELECTED_OBJECT"
         )
-        budget = MapBudget(EvidenceStore(db)).summary()
+        budget = self._quota(db)
         return {
             "session_id": sid,
             "revision": state["revision"],
@@ -207,7 +219,7 @@ class RoutePreviewService:
                 if e["claim_id"] in option["route_evidence_ids"]
             ],
             "source_reference_kinds": option["reference_kinds"],
-            "inputs": state["draft"],
+            "inputs": inputs.model_dump(),
             "adopted_inputs": state["adopted"],
             "has_changes": state["draft"] != state["adopted"],
             "places": places,
@@ -253,6 +265,8 @@ class RoutePreviewService:
             ):
                 raise ValueError("STALE_REVISION")
             inputs = TripInputs.model_validate(state["draft"])
+            if inputs.same_return and action.place_id == "return":
+                action = action.model_copy(update={"place_id": "origin"})
             mem = self.memory.get(sid)
             if (
                 mem is None
@@ -315,8 +329,22 @@ class RoutePreviewService:
                         for k, v in mem["places"].items()
                         if v.get("input_hash") == current_places.get(k)
                     }
-                    for old_leg in mem["legs"].values():
-                        old_leg["status"] = "STALE"
+                    old_places = {
+                        p.place_id: fingerprint(p.model_dump()) for p in all_places(inputs)
+                    }
+                    next_inputs = TripInputs.model_validate(state["draft"])
+                    for lid, old_leg in mem["legs"].items():
+                        endpoints = lid.split("--")
+                        if (
+                            inputs.mode != next_inputs.mode
+                            or inputs.depart_at != next_inputs.depart_at
+                            or inputs.return_by != next_inputs.return_by
+                            or any(old_places.get(k) != current_places.get(k) for k in endpoints)
+                        ):
+                            old_leg["status"] = "STALE"
+                    mem["inputs_changed"] = any(
+                        v.get("status") == "STALE" for v in mem["legs"].values()
+                    )
                 db.connection.execute(
                     "INSERT INTO route_preview_inputs VALUES(?,?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET revision=excluded.revision,draft_json=excluded.draft_json,adopted_json=excluded.adopted_json,updated_at=excluded.updated_at",
                     (
@@ -357,8 +385,12 @@ class RoutePreviewService:
                 temp["confirmed"] = deepcopy(candidate) | {"relation": action.relation}
                 mem["generation"] = uuid4().hex
                 # A changed map object invalidates previous route calculations, without persisting it.
-                for leg in mem["legs"].values():
-                    leg["status"] = "STALE"
+                changed_ids = {action.place_id}
+                if inputs.same_return and action.place_id == "origin":
+                    changed_ids.add("return")
+                for lid, leg in mem["legs"].items():
+                    if changed_ids.intersection(lid.split("--")):
+                        leg["status"] = "STALE"
                 state["revision"] += 1
                 mem["revision"] = state["revision"]
                 db.connection.execute(
@@ -385,6 +417,9 @@ class RoutePreviewService:
             if action.action == "resolve":
                 if place is None or place.private_address and not action.private_send_confirmed:
                     raise ValueError("MAP_PRIVATE_ADDRESS_CONFIRMATION_REQUIRED")
+                if mem["places"].get(action.place_id, {}).get("candidates"):
+                    receipts._remember(key, payload, sid)
+                    return self._view(db, sid)
                 kind = "MAP_PLACE"
                 arguments: Any = (place.name, place.region)
                 dispatch: list[Any] = ["place", place.name, place.region]
@@ -400,7 +435,15 @@ class RoutePreviewService:
                 )
                 if pair is None:
                     raise ValueError("INVALID_INPUT")
-                start, end = [mem["places"].get(p.place_id, {}).get("confirmed") for p in pair]
+                start, end = [
+                    mem["places"]
+                    .get(
+                        "origin" if inputs.same_return and p.place_id == "return" else p.place_id,
+                        {},
+                    )
+                    .get("confirmed")
+                    for p in pair
+                ]
                 if not start or not end:
                     raise ValueError("MAP_CONFIRM_PLACES_FIRST")
                 if any(p.private_address for p in pair) and not action.private_send_confirmed:
@@ -408,6 +451,8 @@ class RoutePreviewService:
                 # Explicit DRIVING is only a road reference; it never changes charter
                 # preference, verifies a vehicle, or substitutes for a transit result.
                 # Validate before reservation. Departure is the explicit LEG time, not trip start.
+                if inputs.mode == "UNKNOWN":
+                    raise ValueError("MAP_MODE_REQUIRED")
                 params = route_parameters(start, end, inputs.mode, action.leg_depart_at)
                 kind, arguments = (
                     "MAP_ROUTE",
@@ -415,12 +460,8 @@ class RoutePreviewService:
                 )
                 dispatch = ["route", inputs.mode, params]
             try:
-                MapBudget(EvidenceStore(db)).reserve_map(
-                    kind,
-                    fingerprint([self.process_epoch, dispatch]),
-                    self.scope,
-                    sid,
-                    option["option_id"],
+                self._reserve(
+                    db, kind, fingerprint([self.process_epoch, dispatch]), sid, option["option_id"]
                 )
             except ValueError as exc:
                 if str(exc) != "BOUNDED_BUDGET_OR_DUPLICATE_DENIED":

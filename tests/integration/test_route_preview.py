@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import shutil
+import json
 import threading
 from uuid import uuid4
 
@@ -93,10 +94,11 @@ def act(s, sid, action, **values):
 
 def places(s, sid):
     inputs = TripInputs(
+        mode="TRANSIT",
         places=[
             PlaceInput(place_id="a", name="合成入口甲"),
             PlaceInput(place_id="b", name="合成入口乙"),
-        ]
+        ],
     )
     act(s, sid, "save", inputs=inputs)
     for pid in ["a", "b"]:
@@ -145,7 +147,7 @@ def test_ephemeral_map_values_never_in_sqlite_stale_and_restart(setup):
     act(s, sid, "route", leg_id="a--b", send_confirmed=True)
     assert len(s.adapter.calls) == 3
     data = TripInputs.model_validate(out["inputs"])
-    data.charter = "NO"
+    data.mode = "WALKING"
     stale = act(s, sid, "save", inputs=data)
     assert stale["legs"][0]["stale"] and stale["legs"][0]["duration_seconds"] == 600
     assert stale["time_check"]["known_movement_minutes"] == 0
@@ -418,3 +420,36 @@ print(json.dumps({'status':'PASS','evidence':v['evidence_count'],'used':v['budge
     )
     assert process.returncode == 0, process.stderr
     assert json.loads(process.stdout)["status"] == "PASS"
+
+
+def test_legacy_scope_preserved_without_rewriting_saved_inputs(setup):
+    service, sid = setup
+    act(service, sid, "save", inputs=TripInputs(mode="TRANSIT", same_return=False))
+    act(service, sid, "adopt")
+    with Database(service.database) as db:
+        row = db.connection.execute(
+            "SELECT draft_json,adopted_json FROM route_preview_inputs WHERE session_id=?", (sid,)
+        ).fetchone()
+        legacy = []
+        for value in row:
+            saved = json.loads(value)
+            saved.pop("planning_scope")
+            legacy.append(json.dumps(saved))
+        db.connection.execute(
+            "UPDATE route_preview_inputs SET draft_json=?,adopted_json=? WHERE session_id=?",
+            (*legacy, sid),
+        )
+    view = service.get(sid)
+    assert view["inputs"]["planning_scope"] == "DOOR_TO_DOOR"
+    assert view["adopted_inputs"]["planning_scope"] == "DOOR_TO_DOOR"
+    assert view["inputs"]["mode"] == "TRANSIT" and not view["inputs"]["same_return"]
+    with Database(service.database) as db:
+        assert (
+            list(
+                db.connection.execute(
+                    "SELECT draft_json,adopted_json FROM route_preview_inputs WHERE session_id=?",
+                    (sid,),
+                ).fetchone()
+            )
+            == legacy
+        )

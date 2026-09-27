@@ -4338,6 +4338,11 @@
           "default": false,
           "title": "Route Check Available",
           "type": "boolean"
+        },
+        "product_flow_available": {
+          "default": false,
+          "title": "Product Flow Available",
+          "type": "boolean"
         }
       },
       "required": [
@@ -5233,7 +5238,7 @@
           "type": "string"
         },
         "same_return": {
-          "default": false,
+          "default": true,
           "title": "Same Return",
           "type": "boolean"
         },
@@ -5253,13 +5258,23 @@
           "type": "string"
         },
         "mode": {
-          "default": "TRANSIT",
+          "default": "UNKNOWN",
           "enum": [
+            "UNKNOWN",
             "TRANSIT",
             "DRIVING",
             "WALKING"
           ],
           "title": "Mode",
+          "type": "string"
+        },
+        "planning_scope": {
+          "default": "ACTIVITY_WINDOW",
+          "enum": [
+            "ACTIVITY_WINDOW",
+            "DOOR_TO_DOOR"
+          ],
+          "title": "Planning Scope",
           "type": "string"
         },
         "activity_start": {
@@ -5689,6 +5704,7 @@
         },
         "mode": {
           "enum": [
+            "UNKNOWN",
             "TRANSIT",
             "DRIVING",
             "WALKING"
@@ -6242,6 +6258,726 @@
         "business_calls"
       ],
       "title": "MapView",
+      "type": "object"
+    },
+    "Activity": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "pattern": "^[a-zA-Z0-9_-]{1,80}$",
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "region": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Region",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Conditions",
+          "type": "array"
+        },
+        "provenance": {
+          "enum": [
+            "USER_INPUT",
+            "SOURCE_REFERENCE",
+            "SYNTHETIC_TEST",
+            "PRODUCT_DEFAULT"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "day": {
+          "default": 1,
+          "maximum": 90,
+          "minimum": 1,
+          "title": "Day",
+          "type": "integer"
+        },
+        "stay_min": {
+          "anyOf": [
+            {
+              "maximum": 720,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stay Min"
+        },
+        "stay_max": {
+          "anyOf": [
+            {
+              "maximum": 720,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stay Max"
+        },
+        "rest_minutes": {
+          "anyOf": [
+            {
+              "maximum": 180,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rest Minutes"
+        },
+        "locked_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locked Start"
+        },
+        "timing_origin": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "USER_CONFIRMED",
+            "AI_PROPOSED",
+            "PRODUCT_DEFAULT",
+            "SYNTHETIC_TEST"
+          ],
+          "title": "Timing Origin",
+          "type": "string"
+        }
+      },
+      "required": [
+        "activity_id",
+        "name",
+        "provenance"
+      ],
+      "title": "Activity",
+      "type": "object"
+    },
+    "PlanDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Direction"
+        },
+        "days": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Days"
+        },
+        "driving": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "YES",
+            "NO"
+          ],
+          "title": "Driving",
+          "type": "string"
+        },
+        "transport": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "PUBLIC_TRANSIT",
+            "SELF_DRIVE",
+            "LOCAL_SERVICE",
+            "WALKING"
+          ],
+          "title": "Transport",
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/TripInputs"
+        },
+        "first_day": {
+          "default": 1,
+          "maximum": 90,
+          "minimum": 1,
+          "title": "First Day",
+          "type": "integer"
+        },
+        "first_period": {
+          "default": "UNDECIDED",
+          "enum": [
+            "UNDECIDED",
+            "MORNING",
+            "AFTERNOON",
+            "EVENING"
+          ],
+          "title": "First Period",
+          "type": "string"
+        },
+        "anchor_origin": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "USER_CONFIRMED",
+            "AI_PROPOSED",
+            "SYNTHETIC_TEST"
+          ],
+          "title": "Anchor Origin",
+          "type": "string"
+        },
+        "return_deadline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Return Deadline"
+        },
+        "activities": {
+          "items": {
+            "$ref": "#/$defs/Activity"
+          },
+          "maxItems": 12,
+          "title": "Activities",
+          "type": "array"
+        }
+      },
+      "title": "PlanDraft",
+      "type": "object"
+    },
+    "PlanAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "save",
+            "adopt",
+            "cancel",
+            "collapse",
+            "suggest",
+            "cancel_job",
+            "use_proposal",
+            "confirm_direction",
+            "cancel_direction",
+            "add_source"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 0,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "draft": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlanDraft"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "section": {
+          "anyOf": [
+            {
+              "enum": [
+                "direction",
+                "activities",
+                "conditions",
+                "plan"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Section"
+        },
+        "collapsed": {
+          "default": false,
+          "title": "Collapsed",
+          "type": "boolean"
+        },
+        "proposal_index": {
+          "default": 0,
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Proposal Index",
+          "type": "integer"
+        },
+        "option_id": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Option Id"
+        }
+      },
+      "required": [
+        "action",
+        "expected_revision"
+      ],
+      "title": "PlanAction",
+      "type": "object"
+    },
+    "PlanCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "destination": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Destination",
+          "type": "string"
+        },
+        "request": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Request",
+          "type": "string"
+        },
+        "travel_kind": {
+          "default": "CITY",
+          "enum": [
+            "CITY",
+            "REGIONAL"
+          ],
+          "title": "Travel Kind",
+          "type": "string"
+        },
+        "demo": {
+          "anyOf": [
+            {
+              "enum": [
+                "CITY",
+                "REGIONAL",
+                "OTHER_CITY"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Demo"
+        }
+      },
+      "required": [
+        "destination"
+      ],
+      "title": "PlanCreate",
+      "type": "object"
+    },
+    "PlanView": {
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "destination": {
+          "title": "Destination",
+          "type": "string"
+        },
+        "request": {
+          "title": "Request",
+          "type": "string"
+        },
+        "travel_kind": {
+          "title": "Travel Kind",
+          "type": "string"
+        },
+        "demo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Demo"
+        },
+        "mode": {
+          "enum": [
+            "SYNTHETIC_DEMO",
+            "CACHED_PRIVATE_PREVIEW"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "draft": {
+          "$ref": "#/$defs/PlanDraft"
+        },
+        "adopted": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlanDraft"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "collapsed": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "title": "Collapsed",
+          "type": "object"
+        },
+        "directions": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Directions",
+          "type": "array"
+        },
+        "timeline": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Timeline",
+          "type": "array"
+        },
+        "gaps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gaps",
+          "type": "array"
+        },
+        "differences": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Differences",
+          "type": "array"
+        },
+        "evidence_count": {
+          "title": "Evidence Count",
+          "type": "integer"
+        },
+        "direction_change_pending": {
+          "default": false,
+          "title": "Direction Change Pending",
+          "type": "boolean"
+        },
+        "cache_message": {
+          "title": "Cache Message",
+          "type": "string"
+        },
+        "job": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Job"
+        },
+        "model_available": {
+          "title": "Model Available",
+          "type": "boolean"
+        },
+        "provenance": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Provenance",
+          "type": "object"
+        },
+        "feasibility": {
+          "const": "UNVERIFIED",
+          "default": "UNVERIFIED",
+          "title": "Feasibility",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "revision",
+        "destination",
+        "request",
+        "travel_kind",
+        "demo",
+        "mode",
+        "draft",
+        "adopted",
+        "collapsed",
+        "directions",
+        "timeline",
+        "gaps",
+        "differences",
+        "evidence_count",
+        "cache_message",
+        "job",
+        "model_available",
+        "provenance"
+      ],
+      "title": "PlanView",
+      "type": "object"
+    },
+    "PlanIndex": {
+      "additionalProperties": false,
+      "properties": {
+        "trips": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Trips",
+          "type": "array"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlanView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model_used": {
+          "title": "Model Used",
+          "type": "integer"
+        },
+        "model_limit": {
+          "const": 2,
+          "default": 2,
+          "title": "Model Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "trips",
+        "current",
+        "model_used"
+      ],
+      "title": "PlanIndex",
+      "type": "object"
+    },
+    "SuggestedActivity": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Activity Id",
+          "type": "string"
+        },
+        "day": {
+          "maximum": 90,
+          "minimum": 1,
+          "title": "Day",
+          "type": "integer"
+        },
+        "stay_min": {
+          "maximum": 360,
+          "minimum": 10,
+          "title": "Stay Min",
+          "type": "integer"
+        },
+        "stay_max": {
+          "maximum": 480,
+          "minimum": 10,
+          "title": "Stay Max",
+          "type": "integer"
+        },
+        "rest_minutes": {
+          "maximum": 120,
+          "minimum": 0,
+          "title": "Rest Minutes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "activity_id",
+        "day",
+        "stay_min",
+        "stay_max",
+        "rest_minutes"
+      ],
+      "title": "SuggestedActivity",
+      "type": "object"
+    },
+    "Suggestion": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "first_start": {
+          "title": "First Start",
+          "type": "string"
+        },
+        "transport": {
+          "enum": [
+            "UNKNOWN",
+            "PUBLIC_TRANSIT",
+            "SELF_DRIVE",
+            "LOCAL_SERVICE",
+            "WALKING"
+          ],
+          "title": "Transport",
+          "type": "string"
+        },
+        "activities": {
+          "items": {
+            "$ref": "#/$defs/SuggestedActivity"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Activities",
+          "type": "array"
+        },
+        "citation_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 40,
+          "title": "Citation Ids",
+          "type": "array"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "unknowns": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Unknowns",
+          "type": "array"
+        },
+        "impacts": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Impacts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "reason",
+        "first_start",
+        "transport",
+        "activities",
+        "citation_ids",
+        "assumptions",
+        "unknowns",
+        "impacts"
+      ],
+      "title": "Suggestion",
+      "type": "object"
+    },
+    "PlanningResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/Suggestion"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Proposals",
+          "type": "array"
+        }
+      },
+      "required": [
+        "proposals"
+      ],
+      "title": "PlanningResponse",
       "type": "object"
     }
   }

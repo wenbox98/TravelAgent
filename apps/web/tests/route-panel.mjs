@@ -16,7 +16,7 @@ const data = {interest:'合成日段 <img onerror="danger()">', evidence_count:8
   has_changes:true,budget:{used:{map_place:0,map_route:0},remaining:{map_place:8,map_route:8},total_used:0},places:[],legs:[],
   time_check:{completeness:'PARTIAL',scenario:'UNKNOWN',known_movement_minutes:0,available_minutes:null,missing_inputs:['停留未知'],assumptions:[],checked_scope:'LOCAL_DAY_SEGMENT'},
   message:'地图结果需显式重新核实', map_result_state:'EXPIRED_OR_NOT_QUERIED'}
-const render = changes => renderToString(createSSRApp({ssrRender,data:()=>({data,form:inputs,edited:false,busy:false,error:'',status:'',relations:{},times:{},consent:false,privateConsent:false,objectTypes:['UNKNOWN'],mapLabel:v=>v,roleLabel:v=>v,localDate:()=>'',...changes})}))
+const render = changes => renderToString(createSSRApp({ssrRender,components:{PlaceChoices:{template:'<div />'}},data:()=>({act:()=>{},data,form:inputs,edited:false,busy:false,error:'',status:'',relations:{},times:{},consent:false,privateConsent:false,objectTypes:['UNKNOWN'],mapLabel:v=>v,roleLabel:v=>v,localDate:()=>'',...changes})}))
 const html = await render()
 assert(html.includes('AMAP_LIVE_BLOCKED_NOT_CONFIGURED') && html.includes('继承 5 天'))
 assert(html.includes('停留未知') && html.includes('采用当前条件') && html.includes('取消本次条件修改'))

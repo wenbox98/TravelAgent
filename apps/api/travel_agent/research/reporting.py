@@ -151,8 +151,10 @@ def render_material_report(view: dict[str, Any]) -> str:
 def render_private_report(view: dict[str, Any], sources: list[dict[str, Any]]) -> str:
     """Compact local report with short source references; never reproduce full bodies."""
     refs = {source["source_id"]: f"S{i}" for i, source in enumerate(sources, 1)}
-    lines = ["# 国庆成都出发去川西：第一轮大致攻略", "",
-             "以下方向来自本次实际读取的笔记文字，供你先比较；尚未核实国庆出行可行性，不是最终行程。"]
+    constraints = view.get("request_constraints", {})
+    title = " · ".join(str(constraints[k]) for k in ("departure", "destination", "time_hint") if constraints.get(k)) or "本次旅行研究"
+    lines = ["# " + _escape(title) + "：第一轮大致攻略", "",
+             "以下方向来自本次实际读取的笔记文字，供你先比较；尚未核实当前出行可行性，不是最终行程。"]
     constraints = view.get("request_constraints", {})
     def statement(row: dict[str, Any], label: str) -> str:
         conditions = "；".join(row["applicable_conditions"]) or "原文未明确，不能补推"
@@ -198,7 +200,7 @@ def render_private_report(view: dict[str, Any], sources: list[dict[str, Any]]) -
         unknown_preferences.append("交通方式")
     lines += ["", "## 当前还不确定的事", "",
               ("、".join(unknown_preferences) + "仍未知；" if unknown_preferences else "") +
-              "发布时间不代表实际旅行时间，旧经验不代表今年国庆的交通、开放或预约情况。",
+              "发布时间不代表实际旅行时间，旧经验不代表本次出行的交通、开放或预约情况。",
               "笔记中的图片没有分析；只读到部分文字的资料也不能当成完整攻略。"]
     for conflict in view["conflicts"]:
         lines.append("- 来源差异：" + _escape(conflict["reason"]))

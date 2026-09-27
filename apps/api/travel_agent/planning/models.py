@@ -29,10 +29,11 @@ class TripInputs(StrictModel):
     return_by: str | None = None
     origin: str = Field(default="", max_length=80)
     destination: str = Field(default="", max_length=80)
-    same_return: bool = False
+    same_return: bool = True
     endpoints_private: bool = False
     charter: Literal["UNKNOWN", "COMPARE", "NO"] = "UNKNOWN"
-    mode: Literal["TRANSIT", "DRIVING", "WALKING"] = "TRANSIT"
+    mode: Literal["UNKNOWN", "TRANSIT", "DRIVING", "WALKING"] = "UNKNOWN"
+    planning_scope: Literal["ACTIVITY_WINDOW", "DOOR_TO_DOOR"] = "ACTIVITY_WINDOW"
     activity_start: str | None = None
     activity_end: str | None = None
     stay_minutes: int | None = Field(default=None, ge=0, le=43200)
@@ -145,7 +146,7 @@ class MapLeg(StrictModel):
     to_id: str
     from_name: str
     to_name: str
-    mode: Literal["TRANSIT", "DRIVING", "WALKING"]
+    mode: Literal["UNKNOWN", "TRANSIT", "DRIVING", "WALKING"]
     endpoint_confidence: str
     kind: Literal["OUTBOUND", "RETURN", "BETWEEN_SOURCE_PLACES"]
     status: str

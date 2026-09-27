@@ -61,3 +61,11 @@ def test_separate_explicit_trip_paragraphs_need_reviewed_association(fixture_dat
     # Baseline reproducer: without an audited association, 'same note' is insufficient.
     direction, = build_directions((EvidenceBundle(data),))
     assert not direction["duration_clues"] and not direction["limitations"]
+
+
+def test_report_title_uses_current_request_not_historical_destination():
+    report = ResearchReport("synthetic", 0, "run", ResearchRequest(destination="苏州", time_hint="周末"), (),
+                            (), "BUDGET_EXHAUSTED", {"search":0,"detail":0}, 1)
+    text = render_private_report(report.material_view(), [])
+    assert "苏州" in text.splitlines()[0] and "周末" in text.splitlines()[0]
+    assert "川西" not in text and "国庆" not in text

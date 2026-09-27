@@ -29,6 +29,7 @@ class PreviewConfig:
     local_replay: bool = False
     static_dir: Path | None = None
     route_check: bool = False
+    product_flow: bool = False
 
 
 def error(code: str, status: int) -> JSONResponse:
@@ -39,6 +40,9 @@ def error(code: str, status: int) -> JSONResponse:
                 'DESTINATION_REQUIRED':'请先确认要研究的目的区域。','DESTINATION_CONFLICT':'已有研究的目的区域与输入不一致，请保留原研究或新建本地需求。',
                 'NEW_MATERIAL_UNAVAILABLE':'本任务没有可采用的新合格材料；原选择保留。','JOB_UNAVAILABLE':'当前范围没有此研究任务。'}
     messages.update({
+        'PLANNING_UNAVAILABLE': '本轮AI建议仅供两个合成场景验收；未配置、额度用完或当前数据不在许可范围。草稿保留。',
+        'STALE_PROPOSAL': '条件已更新，旧建议不能覆盖当前草稿；已采用方案保留。',
+        'MAP_MODE_REQUIRED': '本次查询方式未决定，请明确选择道路、公交或步行参考；不改变旅行偏好。',
         'MAP_SCOPE_UNAVAILABLE': '本轮地图范围绑定原兴趣；请保留原方向，不能通过换工作区重置额度。',
         'MAP_INTEREST_REQUIRED': '请先确认已有资料中的兴趣方向。',
         'MAP_GRANT_BINDING_CHANGED': '当前兴趣或工作区不属于本轮地图许可；原数据与额度保留。',
@@ -57,7 +61,7 @@ def error(code: str, status: int) -> JSONResponse:
 def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
     origin = f"http://127.0.0.1:{port}"
     # Cookies ignore ports. An isolated preview must not replace the P01/P02 cookie.
-    cookie_name = f"ta_preview_{port}" if config.local_replay or config.route_check else "ta_preview"
+    cookie_name = f"ta_preview_{port}" if config.local_replay or config.route_check or config.product_flow else "ta_preview"
     cookie = hmac.digest(config.auth_key, b"preview-session", "sha256").hex()
     csrf = hmac.digest(config.auth_key, b"preview-csrf", "sha256").hex()
     expires, used = time.monotonic() + 300, False
@@ -115,6 +119,9 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
     if config.route_check:
         from travel_agent.planning.api import install_routes
         install_routes(app, config)
+    if config.product_flow:
+        from travel_agent.planning.flow_api import install_flow
+        install_flow(app, config)
 
     def present(view: dict[str, Any]) -> dict[str, Any]:
         if config.continuation and not view['options']:
@@ -131,7 +138,7 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
                 grant = db.connection.execute("SELECT config_json FROM research_continuations WHERE continuation_id='p03-amap-route-check'").fetchone()
                 latest = service.get(json.loads(grant[0])['session_id']) if grant else latest
             return {"mode": config.mode, "csrf_token": csrf, "researches": service.researches(), "session": present(latest) if latest else None,
-                    'workbench_available':config.continuation is not None, 'replay_available':config.local_replay, 'route_check_available':config.route_check}
+                    'workbench_available':config.continuation is not None, 'replay_available':config.local_replay, 'route_check_available':config.route_check, 'product_flow_available':config.product_flow}
 
     @app.post("/api/v1/preview/sessions", response_model=PreviewView)
     def create(body: PreviewCreate, request: Request) -> dict[str, Any]:

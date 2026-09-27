@@ -8,6 +8,8 @@ from .models import TripInputs
 def check_time(
     inputs: TripInputs, legs: list[dict[str, Any]], *, checked_scope: str
 ) -> dict[str, Any]:
+    if inputs.planning_scope == "ACTIVITY_WINDOW":
+        legs = [leg for leg in legs if leg.get("kind") not in {"OUTBOUND", "RETURN"}]
     missing = []
     assumptions = []
     unknown = [
@@ -20,10 +22,20 @@ def check_time(
     )
     if not legs:
         missing.append("ROUTE_NOT_CHECKED")
-    if not inputs.origin or not inputs.destination:
+    if inputs.planning_scope == "DOOR_TO_DOOR" and (not inputs.origin or not inputs.destination):
         missing.append("ENDPOINTS_UNKNOWN")
     available = None
-    if not inputs.depart_at or not inputs.return_by:
+    if inputs.planning_scope == "ACTIVITY_WINDOW":
+        assumptions.append("SELF_ARRIVAL_NOT_CHECKED_NOT_ZERO")
+        if inputs.return_by:
+            missing.append("RETURN_HARD_CONSTRAINT_UNVERIFIED")
+        if inputs.activity_start and inputs.activity_end:
+            h, m = map(int, inputs.activity_start.split(":"))
+            h2, m2 = map(int, inputs.activity_end.split(":"))
+            available = float((h2 * 60 + m2 - h * 60 - m) % 1440)
+        else:
+            missing.append("ACTIVITY_WINDOW_UNKNOWN")
+    elif not inputs.depart_at or not inputs.return_by:
         missing.append("TIME_WINDOW_UNCONFIRMED")
     elif not inputs.activity_start or not inputs.activity_end:
         missing.append("ACTIVITY_WINDOW_UNKNOWN")

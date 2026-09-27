@@ -195,6 +195,7 @@ def test_overnight_window_unknown_stay_does_not_become_zero():
 
 def test_explicit_assumptions_window_and_exceed_not_reality_proof():
     inputs = TripInputs(
+        planning_scope="DOOR_TO_DOOR",
         depart_at="2026-10-01T23:00",
         return_by="2026-10-02T02:00",
         origin="合成站",

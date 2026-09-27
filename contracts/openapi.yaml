@@ -1036,6 +1036,187 @@ paths:
           application/json:
             schema:
               $ref: ./domain.schema.json#/$defs/MapAction
+  /api/v1/preview/planning:
+    get:
+      operationId: readPlanningIndex
+      summary: P04 独立行程：读取/草稿/采用零外部调用；显式建议受两次合成许可、版本和预算约束；地图仅合成测试
+      parameters: []
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/PlanIndex
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+    post:
+      operationId: createIndependentTrip
+      summary: P04 独立行程：读取/草稿/采用零外部调用；显式建议受两次合成许可、版本和预算约束；地图仅合成测试
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/PlanView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/PlanCreate
+  /api/v1/preview/planning/{session_id}:
+    get:
+      operationId: readPlanningDraft
+      summary: P04 独立行程：读取/草稿/采用零外部调用；显式建议受两次合成许可、版本和预算约束；地图仅合成测试
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/PlanView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+    post:
+      operationId: changePlanningDraft
+      summary: P04 独立行程：读取/草稿/采用零外部调用；显式建议受两次合成许可、版本和预算约束；地图仅合成测试
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/PlanView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/PlanAction
+  /api/v1/preview/planning-maps/{session_id}:
+    get:
+      operationId: readPlanningPlaces
+      summary: P04 独立行程：读取/草稿/采用零外部调用；显式建议受两次合成许可、版本和预算约束；地图仅合成测试
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/MapView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/preview/planning-maps:
+    post:
+      operationId: changePlanningPlaces
+      summary: P04 独立行程：读取/草稿/采用零外部调用；显式建议受两次合成许可、版本和预算约束；地图仅合成测试
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/MapView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/MapAction
 components:
   securitySchemes:
     LocalSession:

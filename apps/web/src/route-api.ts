@@ -1,6 +1,6 @@
 import type { View } from './api'
 export type PlaceInput = {place_id: string; name: string; region: string; evidence_ids: string[]; provenance: string; object_type: string; private_address: boolean}
-export type TripInputs = {depart_at: string | null; return_by: string | null; origin: string; destination: string; same_return: boolean; endpoints_private: boolean; charter: string; mode: string; activity_start: string | null; activity_end: string | null; stay_minutes: number | null; rest_minutes: number | null; buffer_minutes: number | null; transfer_minutes: number | null; places: PlaceInput[]}
+export type TripInputs = {planning_scope: string;depart_at: string | null; return_by: string | null; origin: string; destination: string; same_return: boolean; endpoints_private: boolean; charter: string; mode: string; activity_start: string | null; activity_end: string | null; stay_minutes: number | null; rest_minutes: number | null; buffer_minutes: number | null; transfer_minutes: number | null; places: PlaceInput[]}
 export type MapCandidate = {candidate_id: string; name: string; type: string; address: string; pname: string; cityname: string; adname: string; object_type: string; uri: string; location: string; coordinate_system: string; relation?: string}
 export type MapPlace = PlaceInput & {raw_name: string; status: string; candidates: MapCandidate[]; confirmed: MapCandidate | null}
 export type MapLeg = {leg_id: string; from_name: string; to_name: string; from_id: string; to_id: string; kind: string; status: string; mode: string; duration_seconds: number | null; distance_meters: number | null; queried_at: string | null; date_applicability: string; requested_depart_at: string | null; endpoint_confidence: string; availability: string; basis: string; gaps: string[]; stale: boolean; result_endpoint_names: string[]}
@@ -20,5 +20,5 @@ export const mapLabel = (s: string): string => ({UNKNOWN: '未知', COMPARE: '�
   STAY_UNKNOWN: '停留时间未知', REST_UNKNOWN: '活动窗口内休息时间未知', BUFFER_UNKNOWN: '缓冲时间未知', ACCESS_TRANSFER_UNKNOWN: '末端接驳假设未知',
   ENDPOINTS_UNKNOWN: '门到门起终点未确认', ACTIVITY_WINDOW_UNKNOWN: '每日可活动窗口未知，不能把五天当120小时',
   ROUTE_NOT_CHECKED: '尚无可计算路段', UNCHECKED_LEGS: '部分路段未核实', LOCAL_SCOPE_NOT_WHOLE_TRIP: '只覆盖当前日段，不代表五天全程',
-  LOCAL_DAY_SEGMENT: '当前来源日段', WHOLE_SELECTED_OBJECT: '当前选中对象', OUTBOUND: '出发接入', RETURN: '最终返程', BETWEEN_SOURCE_PLACES: '来源相邻地点',
+  LOCAL_DAY_SEGMENT: '当前来源日段', WHOLE_SELECTED_OBJECT: '当前选中对象', OUTBOUND: '出发接入', RETURN: '最终返程', BETWEEN_SOURCE_PLACES: '相邻项目或地点',
   SAME_OBJECT: '与来源/输入为同一对象', REGIONAL_REFERENCE: '只作区域参考', ACCESS_POINT: '用户选择的接入点，接驳待核实'}[s] || s)

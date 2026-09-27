@@ -38,5 +38,6 @@ def install_routes(app: FastAPI, config: PreviewConfig) -> None:
                 "MAP_CONFIRM_PLACES_FIRST",
                 "MAP_CHARTER_UNDECIDED",
                 "CITYCODE_REQUIRED",
+                "MAP_MODE_REQUIRED",
             }
             return error(str(exc) if str(exc) in allowed else "MAP_SCOPE_UNAVAILABLE", 409)

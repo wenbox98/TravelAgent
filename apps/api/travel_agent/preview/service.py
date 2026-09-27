@@ -117,10 +117,11 @@ class PreviewService:
             q, evidence = self._cache(research_id) if research_id else ({}, ())
             if research_id and not evidence:
                 raise ValueError("RESEARCH_UNAVAILABLE")
-            request = json.loads(q.get("request_json", "{}"))
-            prefs = {"days": request.get("days"), "driving": "NO" if request.get("no_self_drive") else "UNKNOWN",
-                     "budget_cny_fen": request.get("budget_cny_fen"), "traveler_count": request.get("traveler_count"),
-                     "time_hint": request.get("time_hint"), "travel_date": None, "charter": "UNKNOWN", "answered": []}
+            # A research request describes its original investigation, not this new
+            # trip's preferences. Existing sessions keep their saved state verbatim.
+            prefs: dict[str, Any] = {"days": None, "driving": "UNKNOWN",
+                     "budget_cny_fen": None, "traveler_count": None,
+                     "time_hint": None, "travel_date": None, "charter": "UNKNOWN", "answered": []}
             parsed, clarification = parse_preferences(text)
             prefs.update(parsed)
             state = {"input_text": text, "preferences": prefs, "confirmed_option_id": None,

@@ -4,6 +4,7 @@ import EvidenceList from './components/EvidenceList.vue'
 import ResearchPanel from './components/ResearchPanel.vue'
 import ReviewPanel from './components/ReviewPanel.vue'
 import RoutePanel from './components/RoutePanel.vue'
+import PlanningPanel from './components/PlanningPanel.vue'
 import { readIndex, request, roleLabel, type View, type Research, type Option } from './api'
 const view = ref<View | null>(null)
 const researches = ref<Research[]>([])
@@ -11,6 +12,7 @@ const mode = ref('')
 const workbenchAvailable = ref(false)
 const replayAvailable = ref(false)
 const routeCheckAvailable = ref(false)
+const productFlow = ref(false), showHistory = ref(false)
 const input = ref('')
 const researchId = ref('')
 const busy = ref(false)
@@ -44,7 +46,7 @@ async function load() {
   await run(async ticket => {
     const result = await readIndex()
     if (ticket !== generation) return
-    researches.value = result.researches; mode.value = result.mode; workbenchAvailable.value = result.workbench_available; replayAvailable.value = result.replay_available; routeCheckAvailable.value = result.route_check_available
+    researches.value = result.researches; mode.value = result.mode; workbenchAvailable.value = result.workbench_available; replayAvailable.value = result.replay_available; routeCheckAvailable.value = result.route_check_available; productFlow.value = result.product_flow_available
     if (result.session) { apply(result.session, ticket); status.value = '已从本机恢复选择和资料。' }
   })
 }
@@ -68,7 +70,11 @@ onMounted(load)
 </script>
 <template>
   <main>
-    <header><a class="brand" href="/">TravelAgent<span>先看方向，再做决定</span></a><span class="badge">{{ mode === 'SYNTHETIC_DEMO' ? 'SYNTHETIC_DEMO · 合成演示' : mode === 'CACHED_PRIVATE_PREVIEW' ? 'CACHED_PRIVATE_PREVIEW · 本机私人资料' : '本机开发预览' }}</span></header>
+    <header><a class="brand" href="/">TravelAgent<span>先看方向，再做决定</span></a><span class="badge">{{ productFlow ? '本机旅行草稿' : mode === 'SYNTHETIC_DEMO' ? 'SYNTHETIC_DEMO · 合成演示' : mode === 'CACHED_PRIVATE_PREVIEW' ? 'CACHED_PRIVATE_PREVIEW · 本机私人资料' : '本机开发预览' }}</span></header>
+    <PlanningPanel v-if="productFlow && !showHistory" />
+    <button v-if="productFlow" class="quiet" @click="showHistory = !showHistory">{{ showHistory ? '返回当前旅行规划' : '查看历史测试资料（不会作为新旅行偏好）' }}</button>
+    <template v-if="!productFlow || showHistory">
+    <p v-if="productFlow" class="notice">历史测试：原五天、不自驾和包车输入只属于旧回归会话，不是长期偏好。</p>
     <p class="notice">缓存驱动开发预览；尚未核实当前行程可行性。{{ workbenchAvailable ? '浏览资料保持零外部调用；只有主动研究并满足门槛时才访问授权服务。' : '本轮仅使用已审核的本地资料，不启动小红书、不调用模型。' }}</p>
     <section class="intro"><p class="eyebrow">从已知的线索，找想去的方向</p><h1>先有一个旅行想法。</h1><p>不用先填完问卷。先比较来源支持的草案，再补充天数和驾驶意愿。预算、人数与交通方式可以暂时未知。</p></section>
     <p v-if="routeCheckAvailable"><a href="#route-check">前往当前方向的「路程与时间」↓</a> · 本轮保留原兴趣，在下方补充出行条件。</p>
@@ -124,6 +130,7 @@ onMounted(load)
     </div>
     <section v-else-if="!busy && mode" class="card empty"><h2>先选一份已有研究</h2><p>页面将从数据库中的已审核证据生成草案。未给预算或人数，也能先看。</p></section>
     <RoutePanel v-if="routeCheckAvailable && view" :session="view" />
+    </template>
     <footer>G0 仅保留历史验收；G1 仍 NOT PASS。此页面不是完整旅行产品或发布验收。缓存显示不会探测小红书或模型；{{ routeCheckAvailable ? '地图仅作显式分段参考，报价未接入。' : '本页地图与报价未接入。' }}</footer>
   </main>
 </template>

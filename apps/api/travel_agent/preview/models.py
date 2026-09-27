@@ -171,6 +171,7 @@ class PreviewIndex(StrictModel):
     workbench_available: bool = False
     replay_available: bool = False
     route_check_available: bool = False
+    product_flow_available: bool = False
 
 
 class ReplayItem(StrictModel):

@@ -8,11 +8,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api"))
 from travel_agent.preview.models import PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt  # noqa: E402
 from travel_agent.planning.models import MapAction, MapView  # noqa: E402
+from travel_agent.planning.flow_models import PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse  # noqa: E402
 
 
 def definitions():
     result = {}
-    for model in (PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView):
+    for model in (PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse):
         schema = model.model_json_schema()
         result.update(schema.pop("$defs", {}))
         result[model.__name__] = schema
@@ -32,6 +33,12 @@ def main():
     path = ROOT / "contracts/openapi.yaml"
     api = yaml.safe_load(path.read_text(encoding="utf-8"))
     routes = [
+        ('/api/v1/preview/planning', 'get', 'readPlanningIndex', None, 'PlanIndex'),
+        ('/api/v1/preview/planning', 'post', 'createIndependentTrip', 'PlanCreate', 'PlanView'),
+        ('/api/v1/preview/planning/{session_id}', 'get', 'readPlanningDraft', None, 'PlanView'),
+        ('/api/v1/preview/planning/{session_id}', 'post', 'changePlanningDraft', 'PlanAction', 'PlanView'),
+        ('/api/v1/preview/planning-maps/{session_id}', 'get', 'readPlanningPlaces', None, 'MapView'),
+        ('/api/v1/preview/planning-maps', 'post', 'changePlanningPlaces', 'MapAction', 'MapView'),
         ('/api/v1/preview/routes/{session_id}', 'get', 'readRoutePreview', None, 'MapView'),
         ('/api/v1/preview/routes', 'post', 'changeRoutePreview', 'MapAction', 'MapView'),
         ("/api/v1/preview/reviews", "get", "readReviewExplanations", None, "ReplayIndex"),
@@ -55,6 +62,9 @@ def main():
         value = {"operationId": operation, "summary": "P01 已实现：同源鉴权的缓存选择预览，零业务外部请求", "parameters": headers,
                  "security": [{"PreviewSession": []}], "responses": {"200": {"description": "本机已审核缓存和用户选择", "content": {"application/json": {"schema": {"$ref": f"./domain.schema.json#/$defs/{response}"}}}},
                  "default": {"description": "安全错误；不返回原始异常或正文", "content": {"application/json": {"schema": {"$ref": "./domain.schema.json#/$defs/ErrorResponse"}}}}}}
+        if 'Planning' in operation or operation == 'createIndependentTrip':
+            value['summary']='P04 独立行程：读取/草稿/采用零外部调用；显式建议受两次合成许可、版本和预算约束；地图仅合成测试'
+            value['security']=[{'PreviewMapSession':[]}]
         if body:
             value["requestBody"] = {"required": True, "content": {"application/json": {"schema": {"$ref": f"./domain.schema.json#/$defs/{body}"}}}}
         if 'BoundedResearch' in operation or operation=='readWorkbench':

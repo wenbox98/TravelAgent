@@ -9,7 +9,23 @@
 
 ## 当前定位：私人本地研究
 
-P03 增加已确认兴趣的地点与分段路程核实，保持原资料、G1 NOT PASS和五天/不自驾。地图只在明确点击时调用，缺少Key也能填写条件、预览/取消/采用并恢复。地图返回值只存内存；重启保留输入及额度，地图需显式重查。见 [P03设计](docs/architecture/p03-amap-route-check.md) 和 [验收报告](reports/P03-amap-route-check.md)。独立页面不覆盖8765/8766/8767：
+P04 当前主入口已改为独立旅行草稿：先建议再选择，确认后收起，以首个活动时间为锚点。历史“五天、不自驾、不接受包车”是测试输入，不进入新旅行默认值。交通未定保持未知，AI提议和来源事实分开；G1仍NOT PASS。见 [P04流程与契约](docs/architecture/p04-product-flow.md)。
+
+已有依赖时，唯一推荐启动方式：
+
+```powershell
+Set-Location E:\workSpace\travel-agent-project\travel-agent\apps\web
+npm.cmd run build -- --outDir ../../.local/p04-web
+Set-Location E:\workSpace\travel-agent-project\travel-agent
+.venv\Scripts\python.exe -X utf8 scripts\product_preview.py --open
+```
+
+地址 `http://127.0.0.1:8768/`。已运行时直接使用，不重复启动。原P03数据库/静态目录保留，当前独立使用 `.local/p04-preview` / `.local/p04-web`。本批真实地图和小红书请求关闭；模型仅限已授权的两个自编合成场景，额度用完不自动恢复。普通私人草稿仍可本地编辑。停止当前P04后，以原 `scripts/route_preview.py --open` 可回滚历史P03页面；不要同时占用8768。
+
+下面各阶段命令和结果作为历史记录保留，不是额外推荐入口。
+
+
+P03 增加已确认兴趣的地点与分段路程核实，保持原资料、G1 NOT PASS和当时测试条件。地图只在明确点击时调用，缺少Key也能填写条件、预览/取消/采用并恢复。地图返回值只存内存；重启保留输入及额度，地图需显式重查。见 [P03设计](docs/architecture/p03-amap-route-check.md) 和 [验收报告](reports/P03-amap-route-check.md)。独立页面不覆盖8765/8766/8767：
 
 ```powershell
 Set-Location E:\workSpace\travel-agent-project\travel-agent\apps\web
