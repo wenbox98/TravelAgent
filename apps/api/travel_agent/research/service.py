@@ -43,7 +43,7 @@ class ResearchService:
             "NO_GROUNDED_CLAIMS": "尚无能定位到实际正文的结论",
             "UNSUPPORTED_CLAIMS_REJECTED": "不能定位的模型输出已拒绝",
             "MODEL_INPUT_MINIMIZED": "部分正文因联系方式或长度限制未交给模型，相关信息仍待核实",
-            "INSUFFICIENT_TEXT_FOR_EXTRACTION": "当前正文不足以提取所需路线和时间线索，未调用模型",
+            "INSUFFICIENT_TEXT_FOR_EXTRACTION": "当前正文不足以提取所需路线、玩法或体验内容，未调用模型",
         }
         return ResearchGap(code, descriptions.get(code, "正文材料仍存在未验证信息"))
 
@@ -225,16 +225,9 @@ class ResearchService:
                         state_body, dom_body = content.read()
                         if content_id is not None:
                             if self.continuation is not None:
-                                from .canonical import canonicalize
-                                from .model_input import outbound_blocks
-                                import re
-                                usable = [b.text for b in outbound_blocks(canonicalize(state_body, dom_body).blocks)
-                                          if not b.text.startswith("#")]
-                                if (sum(map(len, usable)) < 40 or not any(re.search(
-                                    r"路线|行程|自驾|班车|徒步|[一二三四五六七八九十两\d]+[天日]|D[1-9]|→", t) for t in usable)):
-                                    from .grounding import IMAGE_REFERENCE
-                                    code = ("IMAGE_INFORMATION_REQUIRED" if IMAGE_REFERENCE.search("\n".join(usable))
-                                            else "INSUFFICIENT_TEXT_FOR_EXTRACTION")
+                                from .material_eligibility import skip_reason
+                                code = skip_reason(request, gaps, state_body, dom_body)
+                                if code:
                                     extra_gaps[code] = self._material_gap(code)
                                     continue
                             outcome = ExtractionRecovery(self.store, self.extractor).execute(

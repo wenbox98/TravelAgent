@@ -144,6 +144,8 @@ class JobService:
                     days=draft.days,
                     no_self_drive=draft.driving == "NO",
                 ).to_dict()
+                if draft.planning_mode == "ADVISORY":
+                    req["research_question"] = "有哪些具体玩法、体验差异和取舍？"
                 prefs = dict(
                     prefs,
                     days=draft.days,

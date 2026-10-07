@@ -91,13 +91,16 @@ class FocusedPlanner(QueryPlanner):
         self, request: ResearchRequest, evidence: Any, gaps: Any, previous: set[str]
     ) -> tuple[SearchQuery, ...]:
         # Current user constraints and selected source object only; no inferred transit preference.
+        from travel_agent.research.material_eligibility import play_focused
+
         terms = [
             request.departure,
             request.destination,
             request.time_hint,
             self.focus,
             f"{request.days}天" if request.days else None,
-            "不自驾 交通接驳" if request.no_self_drive else "路线 行程 交通",
+            "玩法 体验 看点 取舍" if play_focused(request) else "路线 行程 交通",
+            "不自驾 交通接驳" if request.no_self_drive else None,
         ]
         query = " ".join(str(t) for t in terms if t)
         if self.normalize(query) in {self.normalize(p) for p in previous}:
