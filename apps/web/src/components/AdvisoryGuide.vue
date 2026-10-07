@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { request } from '../api'
-import type { PlanView, Draft, BudgetLine, GuideView } from '../planning-api'
+import type { PlanView, Draft, BudgetLine, GuideView, GuideDayChoice } from '../planning-api'
 const props = defineProps<{plan:PlanView;busy:boolean}>()
 const emit = defineEmits<{action:[action:string,extra:Record<string,unknown>]}>()
 const copy=<T,>(v:T):T=>JSON.parse(JSON.stringify(v)) as T
@@ -15,6 +15,8 @@ const sign=(v:number)=>`${v>0?'+':''}${(v/100).toFixed(2)}`
 const number=(e:Event)=>{const s=(e.target as HTMLInputElement).value;return s===''?null:Number(s)}
 function walking(e:Event){const value=(e.target as HTMLSelectElement).value;form.value.walking_allowed=value==='UNKNOWN'?null:value==='ALLOWED';form.value.walking_origin='USER_EXPLICIT';save()}
 function save(){emit('action','save',{draft:copy(form.value)})}
+function chooseDay(day:number,kind:GuideDayChoice['kind']){const choices=form.value.guide.day_choices??[];form.value.guide.day_choices=[...choices.filter(c=>c.day!==day),{day,kind,reason:''}]}
+function saveDay(){if(form.value.guide.day_choices?.some(c=>!c.reason.trim())){error.value='请说明这一天的取舍；空白不会当作完整安排。';return}error.value='';save()}
 function reorder(index:number,offset:number){const to=index+offset;if(to<0||to>=selected.value.length)return;[selected.value[index],selected.value[to]]=[selected.value[to],selected.value[index]]}
 function price(line:BudgetLine,key:'min_fen'|'max_fen',e:Event){const n=number(e);line.unit_amount[key]=n===null?null:Math.round(n*100);if(line.unit_amount.min_fen===null||line.unit_amount.max_fen===null)return;if(line.unit_amount.min_fen>line.unit_amount.max_fen)return;line.basis='USER_BUDGET_TARGET';line.status='ESTIMATED';save()}
 function basis(line:BudgetLine,e:Event){line.basis=(e.target as HTMLSelectElement).value;line.status=line.basis==='USER_BUDGET_TARGET'?'ESTIMATED':'UNKNOWN';if(line.status==='UNKNOWN'){line.unit_amount.min_fen=null;line.unit_amount.max_fen=null;save()}}
@@ -28,7 +30,7 @@ async function download(){error.value='';try{const v=await request<{filename:str
     <p>{{guide.summary}}。{{form.inputs.activity_start ? (form.start_constraint==='LOCKED'?'首项锁定 ':'首项大约 ')+form.inputs.activity_start : '首项钟点未定也可以先看建议。'}}</p>
     <p>{{guide.walking.label}}。{{guide.walking_suggestion}}</p>
     <p v-for="note in form.hard_notes||[]" :key="note" class="notice">{{note}}。可展开项目确认预约；未确认前不能判断是否衔接。</p><fieldset v-if="editing" :disabled="busy"><legend>本次条件（可以没想好）</legend><div class="grid">
-      <label>玩几天<input :value="form.days??''" type="number" min="1" max="90" placeholder="未定" @change="form.days=number($event);save()" /></label>
+      <label>本次节奏<select v-model="form.pace" @change="save"><option value="UNKNOWN">还没想好</option><option value="RELAXED">轻松，不排太满</option></select></label><label>玩几天<input :value="form.days??''" type="number" min="1" max="90" placeholder="未定" @change="form.days=number($event);save()" /></label>
       <label>交通意向<select v-model="form.transport" @change="save"><option value="UNKNOWN">还没想好</option><option value="PUBLIC_TRANSIT">公共交通</option><option value="WALKING">步行</option><option value="SELF_DRIVE">自己驾驶</option><option value="LOCAL_SERVICE">比较当地服务</option></select></label>
 <label>步行意愿<select :value="guide.walking.state" @change="walking"><option value="UNKNOWN">没想好，允许先给待选择的建议</option><option value="ALLOWED">明确允许步行</option><option value="DECLINED">明确不接受步行</option></select></label>
       <label>首项大概钟点（可留空）<input type="time" :value="form.inputs.activity_start||''" @change="time" /></label>
@@ -43,6 +45,17 @@ async function download(){error.value='';try{const v=await request<{filename:str
       <ol><li v-for="(id,i) in selected" :key="id">{{plan.combination_candidates.find(a=>a.activity_id===id)?.name}} <button class="quiet" :disabled="busy||i===0" @click="reorder(i,-1)">上移</button> <button class="quiet" :disabled="busy||i===selected.length-1" @click="reorder(i,1)">下移</button></li></ol>
       <button :disabled="busy||!selected.length" @click="emit('action','preview_combination',{activity_ids:selected});composing=false">预览这个组合</button>
     </div>
+    <section v-if="guide.assessment" aria-label="内容与天数覆盖" class="notice"><h3>{{guide.assessment.label}}</h3><p>{{guide.assessment.coverage.meaning}}</p>
+      <p v-if="guide.assessment.coverage.status==='UNKNOWN_DURATION'">总天数未定，尚不能判断是否覆盖整趟旅行。</p>
+      <p v-for="warning in guide.assessment.coverage.warnings" :key="warning">{{warning}}</p>
+      <article v-for="day in guide.assessment.coverage.days" :key="day.day"><h4>第 {{day.day}} 天：{{day.label}}</h4><p>{{day.reason}}</p>
+        <details v-if="!day.activity_ids.length"><summary>说明这一天的取舍</summary><p>可以留作休息或自行安排；这是一项选择，资料缺口不会自动算作完整安排。</p>
+          <select :value="form.guide.day_choices?.find(c=>c.day===day.day)?.kind||'GAP'" :disabled="busy" :aria-label="`第${day.day}天取舍`" @change="chooseDay(day.day,($event.target as HTMLSelectElement).value as GuideDayChoice['kind'])"><option value="GAP">资料或安排待补</option><option value="REST">留作休息</option><option value="SELF_ARRANGED">自行安排</option></select>
+          <template v-for="choice in form.guide.day_choices?.filter(c=>c.day===day.day)||[]" :key="choice.day"><label>为什么这样安排<textarea v-model="choice.reason" maxlength="240" :disabled="busy" /></label><button :disabled="busy||!choice.reason.trim()" @click="saveDay">保存本次取舍</button></template>
+        </details>
+      </article>
+      <details><summary>这些资料能支持什么</summary><article v-for="support in guide.assessment.materials" :key="support.activity_id"><h4>{{guide.activities.find(a=>a.activity_id===support.activity_id)?.name}}：{{support.label}}</h4><p v-for="e in support.excerpts" :key="e.citation_id">来源片段（{{e.role}}，适用条件保留）：{{e.text}}{{e.truncated?'（节选）':''}}</p></article></details>
+    </section>
     <p v-if="!guide.available">先从本机资料选一个感兴趣的项目；一个项目也可以开始，不要求先确定全部时刻。</p>
     <article v-for="(a,i) in guide.activities" :key="a.activity_id" class="activity"><h4>第 {{a.day}} 天 · {{a.period}} · {{a.name}}</h4><p>{{a.highlight}}</p><p>{{a.stay}}；{{a.rest}}。{{a.locked_start?'预约锁定 '+a.locked_start+'。':''}}</p>
       <details><summary>修改停留、日段或预约</summary><fieldset :disabled="busy"><div class="grid">
@@ -59,7 +72,8 @@ async function download(){error.value='';try{const v=await request<{filename:str
     <p v-if="!plan.model_available">{{plan.model_reason}} 本地修改和导出仍可使用。</p>
     <p v-if="plan.job" role="status">{{['QUEUED','RUNNING'].includes(plan.job.status)?'正在生成建议，原采用版保留。':`原返回 ${plan.job.generated_count??0} 个提议；当时校验接纳 ${plan.job.accepted_count}，拒绝 ${plan.job.rejected_count}。`}}</p>
     <p v-if="plan.job?.reason" class="warning">本次未完成可用提议，已有资料保留；没有自动重试。</p>
-    <p v-if="plan.job?.proposals.length && plan.job.can_preview===false" class="notice">历史提议仅供查看：输入或版本已变，当前不能直接采用。既有资料和本地修改保留。</p><details v-if="plan.job?.proposals.length" :open="plan.job.request_revision===plan.revision"><summary>比较AI建议与取舍</summary><article v-for="(p,i) in plan.job.proposals" :key="i"><h4>{{p.title}}</h4><p>{{p.reason}}</p><ul><li v-for="a in p.activities" :key="a.activity_id">第 {{a.day}} 天 · {{plan.combination_candidates.find(c=>c.activity_id===a.activity_id)?.name||'已有候选'}} · {{a.stay_min===null?'停留待选':`建议 ${a.stay_min}–${a.stay_max} 分钟`}}</li></ul><p v-for="t in p.impacts" :key="t">{{t}}</p><button :disabled="busy||plan.job.can_preview===false" @click="emit('action','use_proposal',{proposal_index:i})">预览此建议</button></article></details>
+    <p v-if="plan.job?.status==='PARTIAL'" class="notice">本次有可保留的局部建议；请查看各方案的内容与天数覆盖，接纳不表示整趟攻略已经完整。</p>
+    <p v-if="plan.job?.proposals.length && plan.job.can_preview===false" class="notice">历史提议仅供查看：输入或版本已变，当前不能直接采用。既有资料和本地修改保留。</p><details v-if="plan.job?.proposals.length" :open="plan.job.request_revision===plan.revision"><summary>比较AI建议与取舍</summary><article v-for="(p,i) in plan.job.proposals" :key="i"><h4>{{p.title}}</h4><p>{{p.reason}}</p><p v-if="p.assessment">{{p.assessment.label}}<span v-if="p.assessment.coverage.missing_days.length">；待补日期：{{p.assessment.coverage.missing_days.join("、")}}</span></p><ul><li v-for="a in p.activities" :key="a.activity_id">第 {{a.day}} 天 · {{plan.combination_candidates.find(c=>c.activity_id===a.activity_id)?.name||'已有候选'}} · {{a.stay_min===null?'停留待选':`建议 ${a.stay_min}–${a.stay_max} 分钟`}}</li></ul><p v-for="t in p.impacts" :key="t">{{t}}</p><button :disabled="busy||plan.job.can_preview===false" @click="emit('action','use_proposal',{proposal_index:i})">预览此建议</button></article></details>
     <p v-if="guide.local_revalidation" class="notice">本版来自已存回复的本地复核与空费用规范化（LOCAL_REVALIDATION / NORMALIZED）。原模型失败未改写，活动与停留仍是AI建议。</p>
     <button v-if="plan.job?.protocol_version===4 && plan.job.local_diagnostic?.replayable" class="quiet" :disabled="busy||!!plan.proposal_preview_active" @click="emit('action','revalidate_guide',{})">用已保存回复本地复核（不联网）</button>
     <article v-if="plan.local_guide_review" class="notice"><h3>本地复核结果</h3><p>规则 {{plan.local_guide_review.rule_version}}：接纳 {{plan.local_guide_review.summary.accepted_count}}，拒绝 {{plan.local_guide_review.summary.rejected_count}}。只规范化符合原条件的空住宿行，不是模型重新回答。</p>

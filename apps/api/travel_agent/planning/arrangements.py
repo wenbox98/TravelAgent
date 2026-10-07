@@ -72,7 +72,10 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
     if not needed <= set(p["citation_ids"]):
         raise Rejected("PLANNING_UNKNOWN_REFERENCE", "citation_ids")
     days = [a["day"] for a in p["activities"]]
-    if days != sorted(days) or days[0] != data["first_day"]:
+    flexible_days = data.get("planning_mode") == "ADVISORY" and not data.get("first_start")
+    if days != sorted(days) or (
+        days[0] < data["first_day"] if flexible_days else days[0] != data["first_day"]
+    ):
         raise Rejected("PLANNING_INVALID_TIME", "activities.day")
     for i, a in allowed.items():
         if a.get("locked_start") and (

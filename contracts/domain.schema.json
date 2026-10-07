@@ -6621,6 +6621,15 @@
     "PlanDraft": {
       "additionalProperties": false,
       "properties": {
+        "pace": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "RELAXED"
+          ],
+          "title": "Pace",
+          "type": "string"
+        },
         "planning_mode": {
           "default": "DETAILED",
           "enum": [
@@ -8145,6 +8154,14 @@
     "GuideProposal": {
       "additionalProperties": false,
       "properties": {
+        "day_choices": {
+          "items": {
+            "$ref": "#/$defs/GuideDayChoice"
+          },
+          "maxItems": 90,
+          "title": "Day Choices",
+          "type": "array"
+        },
         "walking_requirement": {
           "default": "NONE",
           "enum": [
@@ -8325,6 +8342,14 @@
     "GuideContent": {
       "additionalProperties": false,
       "properties": {
+        "day_choices": {
+          "items": {
+            "$ref": "#/$defs/GuideDayChoice"
+          },
+          "maxItems": 90,
+          "title": "Day Choices",
+          "type": "array"
+        },
         "walking_requirement": {
           "default": "NONE",
           "enum": [
@@ -8502,6 +8527,40 @@
         }
       },
       "title": "TripBudget",
+      "type": "object"
+    },
+    "GuideDayChoice": {
+      "additionalProperties": false,
+      "description": "An intentional non-activity day, never an automatically filled itinerary.",
+      "properties": {
+        "day": {
+          "maximum": 90,
+          "minimum": 1,
+          "title": "Day",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "REST",
+            "SELF_ARRANGED",
+            "GAP"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "day",
+        "kind",
+        "reason"
+      ],
+      "title": "GuideDayChoice",
       "type": "object"
     }
   }

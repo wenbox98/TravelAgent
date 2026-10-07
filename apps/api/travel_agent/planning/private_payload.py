@@ -134,6 +134,8 @@ def assemble(
                 k: a.model_dump()[k]
                 for k in (
                     "activity_id",
+                    "provenance",
+                    "reference_kinds",
                     "name",
                     "region",
                     "day",

@@ -31,3 +31,14 @@ assert(reviewed.includes('当时校验接纳 0，拒绝 1') && reviewed.includes
 assert(reviewed.includes('不是模型重新回答') && reviewed.includes('LOCAL_REVALIDATION / NORMALIZED'))
 assert(reviewed.includes('预览本地复核建议') && reviewed.includes('用已保存回复本地复核（不联网）'))
 console.log('PASS AdvisoryGuide: original failure and independent local revalidation remain distinguishable')
+
+const assessment={status:'PARTIAL',label:'局部建议：天数覆盖尚不完整',content_limited:true,coverage:{status:'PARTIAL',missing_days:[2],outside_days:[],warnings:['轻松需求仍集中在一天'],meaning:'逐日覆盖不表示现实可行性已核实',days:[{day:1,kind:'ACTIVITIES',label:'已有项目建议',reason:'',activity_ids:['fixture']},{day:2,kind:'GAP',label:'资料或安排待补',reason:'尚未决定如何安排，不是完整的一天',activity_ids:[]}]},materials:[{activity_id:'fixture',level:'NAME_ONLY',label:'只有名称线索，具体玩法不足',roles:[],excerpts:[]}]}
+const partial=await renderToString(createSSRApp({ssrRender,data:()=>({guide:{...guide,assessment},form,plan,busy:false,editing:false,composing:false,selected:[],error:'',exported:'',money:()=> '未知'})}))
+assert(partial.includes('局部建议：天数覆盖尚不完整') && partial.includes('第 2 天：资料或安排待补'))
+assert(partial.includes('只有名称线索，具体玩法不足') && partial.includes('轻松需求仍集中在一天'))
+assert(partial.includes('说明这一天的取舍') && partial.includes('资料缺口不会自动算作完整安排'))
+const resting={...assessment,coverage:{...assessment.coverage,status:'COVERED',missing_days:[],days:[assessment.coverage.days[0],{day:2,kind:'REST',label:'留作休息',reason:'留给恢复体力，不增加项目',activity_ids:[]}]}}
+const rested=await renderToString(createSSRApp({ssrRender,data:()=>({guide:{...guide,assessment:resting},form,plan,busy:false,editing:false,composing:false,selected:[],error:'',exported:'',money:()=> '未知'})}))
+assert(rested.includes('第 2 天：留作休息') && !rested.includes('第 2 天：资料或安排待补'))
+assert(rested.includes('只有名称线索，具体玩法不足'))
+console.log('PASS AdvisoryGuide: missing days, deliberate rest and name-only material remain distinct')

@@ -10,7 +10,7 @@ from .guide_models import GuideProposal, GuideContent, BudgetLine
 from .arrangements import Rejected, _safety, _check
 from .guide_context import walking, budget_context
 
-VERSION = "advisory-guide-1.4"
+VERSION = "advisory-guide-1.5"
 SYNTHETIC = "GUIDE_MULTI_DAY"
 PROMPT = (
     "Return JSON only, protocol_version 4, Simplified Chinese, matching the supplied schema. "
@@ -48,6 +48,16 @@ PROMPT = (
     "Amounts belong ONLY in budget_lines, not prose. Free text is brief rationale, assumptions, unresolved facts and tradeoffs. "
     "Transport limitations, city-only exclusions and locked activities remain binding. Unknown scope may be tentative; "
     "MISMATCH cannot silently enter a city-core selection. Do not label partial suggestions a complete destination guide."
+    " Read planning_context.required_days and pace: these are CURRENT request days, not source itinerary days. "
+    "Reorganize supplied activities across these days for a relaxed trip, without inventing places or filling every hour. "
+    "Read material_support separately: NAME_ONLY supports a tentative named stop and pacing, never highlights; "
+    "ROUTE_CONTEXT supports source combination only; CONTENT_REFERENCE supports only its provided reviewed text. "
+    "Do not claim that quantity of references or selected names makes a useful full guide. "
+    "For a day intentionally without activities, use day_choices with kind REST or SELF_ARRANGED and a concrete "
+    "reason explaining the tradeoff. These are your modifiable suggestions, never inferred user consent. "
+    "A blank day, generic '自由活动/待定', or meals/hotel alone is NOT coverage. Use kind GAP for insufficient material. "
+    "Omitted days are recorded as gaps by code. Never fill gaps with generic text to claim completeness. "
+    "day_choices must not duplicate activity days. All day numbers obey the program range. "
 )
 
 
@@ -245,6 +255,20 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         "只保护明确锁定时刻、预约、返回硬截止和交通限制。名称提及不是体验，停留是AI建议。"
         "食宿用策略，不编商家或当前事实；金额仅作预算预留，不是报价。"
     )
+    from .guide_assessment import materials
+
+    data["planning_context"] = dict(
+        required_days=list(range(draft.first_day, draft.days + 1)) if draft.days else [],
+        pace=draft.pace,
+        source_days_are_request_days=False,
+        allow_partial=True,
+        require_exact_times=False,
+    )
+    # Minimal metadata only: the already-filtered references contain the source text.
+    data["material_support"] = [
+        {k: v for k, v in row.items() if k != "excerpts"}
+        for row in materials(data["activities"], data["references"])
+    ]
     return data
 
 
@@ -292,6 +316,22 @@ def validate(raw: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
             # UNKNOWN is allowed in an advisory city shortlist, never MISMATCH.
             checked["discovery_mode"] = True
             _check(value, checked)
+            from .guide_assessment import assess, materials
+
+            # Only day geometry is needed here; do not reinterpret source roles as Activity fields.
+            day_numbers = [a.day for a in p.activities]
+            choice_days = [c.day for c in p.day_choices]
+            if len(choice_days) != len(set(choice_days)) or any(
+                d < data["first_day"] or (data.get("days") and d > data["days"])
+                for d in choice_days
+            ):
+                raise Rejected("GUIDE_INVALID_DAY", "day_choices")
+            if set(choice_days) & set(day_numbers):
+                raise Rejected("GUIDE_DAY_CHOICE_CONFLICT", "day_choices")
+            if p.day_choices:
+                day_text = deepcopy(value)
+                day_text["assumptions"] = [c.reason for c in p.day_choices]
+                _check(day_text, checked)
             preference = data.get(
                 "walking_preference",
                 "UNKNOWN"
@@ -304,7 +344,16 @@ def validate(raw: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
                 preference == "UNKNOWN" and p.walking_requirement == "REQUIRED"
             ):
                 raise Rejected("GUIDE_WALKING_CONFLICT", "walking_requirement")
-            text = "。".join([p.title, p.reason, *p.assumptions, *p.unknowns, *p.impacts])
+            text = "。".join(
+                [
+                    p.title,
+                    p.reason,
+                    *p.assumptions,
+                    *p.unknowns,
+                    *p.impacts,
+                    *[c.reason for c in p.day_choices],
+                ]
+            )
             budget_text = "。".join([text, *[c for v in p.budget_lines for c in v.conditions]])
             for key, names in {
                 "people": "人数",
@@ -446,6 +495,16 @@ def validate(raw: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
                     )
             value["budget_lines"] = [line.model_dump() for line in p.budget_lines]
             value["normalizations"] = normalizations
+            value["assessment"] = assess(
+                value["activities"],
+                data.get("days"),
+                data["first_day"],
+                p.day_choices,
+                data.get(
+                    "material_support", materials(data["activities"], data.get("references", []))
+                ),
+                data.get("planning_context", {}).get("pace", "UNKNOWN"),
+            )
             value.update(
                 proposal_id=pid,
                 first_start=data.get("first_start"),
@@ -457,7 +516,9 @@ def validate(raw: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
                 dict(
                     proposal_id=pid,
                     status="ACCEPTED",
-                    reason="ADVISORY_SUPPORTED",
+                    reason="ADVISORY_SUPPORTED"
+                    if value["assessment"]["status"] == "ADVISORY_COVERED"
+                    else "ADVISORY_PARTIAL_SUPPORTED",
                     field=None,
                     normalizations=normalizations,
                 )
@@ -475,6 +536,9 @@ def validate(raw: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
         protocol_version=4,
         rule_version=VERSION,
         input_hash=fingerprint(data),
+        advisory_status="ADVISORY_COVERED"
+        if accepted and all(v["assessment"]["status"] == "ADVISORY_COVERED" for v in accepted)
+        else "PARTIAL",
         proposals=accepted,
         decisions=decisions,
         accepted_count=len(accepted),
@@ -498,6 +562,7 @@ def apply(p: dict[str, Any], proposal: dict[str, Any]) -> dict[str, Any]:
         result.append(a)
     draft.activities = result
     draft.guide = GuideContent(
+        day_choices=proposal.get("day_choices", []),
         walking_requirement=proposal.get("walking_requirement", "NONE"),
         **{
             k: proposal[k]
@@ -529,6 +594,9 @@ def apply(p: dict[str, Any], proposal: dict[str, Any]) -> dict[str, Any]:
 
 
 def check_transition(before: PlanDraft, after: PlanDraft) -> None:
+    from .guide_assessment import check_days
+
+    check_days(after)
     selected = {a.activity_id: a for a in after.activities}
     for a in before.activities:
         if (a.locked or a.locked_start) and a.activity_id not in selected:
@@ -541,6 +609,9 @@ def check_transition(before: PlanDraft, after: PlanDraft) -> None:
 
 def verify_current(db: Any, scope: str, sid: str, p: dict[str, Any]) -> None:
     draft = PlanDraft.model_validate(p["draft"])
+    from .guide_assessment import check_days
+
+    check_days(draft)
     preference = walking(draft, p.get("request", ""))["state"]
     if (
         preference == "DECLINED"
@@ -594,6 +665,10 @@ def combine(db: Any, scope: str, sid: str, p: dict[str, Any], ids: list[str]) ->
     before = PlanDraft.model_validate(p["draft"])
     after = before.model_copy(deep=True)
     after.activities = [catalog[i] for i in ids]
+    # A newly selected activity supersedes the prior empty-day choice for that day.
+    after.guide.day_choices = [
+        c for c in after.guide.day_choices if c.day not in {a.day for a in after.activities}
+    ]
     check_transition(before, after)
     if ids != [a.activity_id for a in before.activities]:
         # Do not present the old model's route title as a claim about the changed selection.
@@ -601,6 +676,9 @@ def combine(db: Any, scope: str, sid: str, p: dict[str, Any], ids: list[str]) ->
         after.guide.title = "按当前选择调整的旅行建议"
         after.guide.reason = "组合已由页面改选；各项目沿用已有停留建议，未重新请求模型。原模型提议保留供历史比较，以下实际项目为本次选择。"
         after.guide.origin = "USER_CONFIRMED"
+        from .guide_assessment import current_dining
+
+        after.guide.dining = current_dining(after)
     p.setdefault("combination_preview", dict(draft=deepcopy(p["draft"])))
     p["draft"] = after.model_dump()
     p["collapsed"]["activities"] = True

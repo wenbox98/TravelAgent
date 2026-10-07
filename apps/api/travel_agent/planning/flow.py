@@ -490,7 +490,13 @@ class PlanningService:
         from .guide_view import project
         from .guide_revalidation import view as local_review
 
-        guide_view = project(p) if draft.planning_mode == "ADVISORY" else None
+        from .guide_assessment import references as guide_references
+
+        guide_view = (
+            project(p, guide_references(self.db, self.scope, sid, p))
+            if draft.planning_mode == "ADVISORY"
+            else None
+        )
         return {
             "guide_view": guide_view,
             "local_guide_review": local_review(self.db, self.scope, sid, p) if guide_view else None,

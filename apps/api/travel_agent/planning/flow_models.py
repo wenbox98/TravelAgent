@@ -64,6 +64,7 @@ class Activity(StrictModel):
 
 
 class PlanDraft(StrictModel):
+    pace: Literal["UNKNOWN", "RELAXED"] = "UNKNOWN"
     # Missing fields keep historical semantics. Only creation sets the new default.
     planning_mode: Literal["DETAILED", "ADVISORY"] = "DETAILED"
     start_constraint: Literal["LOCKED", "FLEXIBLE"] = "LOCKED"

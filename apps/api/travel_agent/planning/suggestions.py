@@ -654,7 +654,11 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             if current["revision"] != row["request_revision"]:
                 raise ValueError("STALE_PROPOSAL")
             status = (
-                ("PARTIAL" if summary.get("rejected_count") else "COMPLETED")
+                (
+                    "PARTIAL"
+                    if summary.get("rejected_count") or summary.get("advisory_status") == "PARTIAL"
+                    else "COMPLETED"
+                )
                 if summary.get("proposals")
                 else "FAILED"
             )

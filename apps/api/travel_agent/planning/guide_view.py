@@ -23,7 +23,7 @@ LODGING = {
 }
 
 
-def project(p: dict[str, Any]) -> dict[str, Any]:
+def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     d = PlanDraft.model_validate(p["draft"])
     from .lodging import context as lodging_context, project_line
 
@@ -58,9 +58,12 @@ def project(p: dict[str, Any]) -> dict[str, Any]:
                 max_fen=now["max_fen"] - previous["max_fen"],
                 meaning="仅已计入部分的变化，未知项未折算",
             )
+    from .guide_assessment import for_draft, current_dining
+
+    assessment = for_draft(d, refs or [])
     dining = [
         dict(day=m.day, window="午餐" if m.window == "LUNCH" else "晚餐", text=DINING[m.strategy])
-        for m in d.guide.dining
+        for m in current_dining(d)
     ]
     covered = {m["day"] for m in dining}
     if d.activities:
@@ -77,6 +80,7 @@ def project(p: dict[str, Any]) -> dict[str, Any]:
         lodging = "UNDECIDED"
     areas = {a["area_id"]: a["name"] for a in p.get("lodging_areas", [])}
     return dict(
+        assessment=assessment,
         title=d.guide.title,
         reason=d.guide.reason,
         origin=d.guide.origin,
@@ -177,7 +181,9 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
     if p["draft"].get("planning_mode") != "ADVISORY":
         raise ValueError("GUIDE_MODE_REQUIRED")
     verify_current(db, scope, sid, p)
-    guide = project(p)
+    from .guide_assessment import references
+
+    guide = project(p, references(db, scope, sid, p))
     lines = [
         "# " + escaped(p["destination"]) + " · 建议攻略",
         "",
@@ -195,6 +201,29 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         if guide["local_revalidation"]
         else "",
     ]
+    assessment = guide["assessment"]
+    lines += ["", "## 内容与天数覆盖", "", assessment["label"], assessment["coverage"]["meaning"]]
+    for day in assessment["coverage"]["days"]:
+        lines.append(
+            f"- 第 {day['day']} 天：{day['label']}"
+            + ("；" + escaped(day["reason"]) if day["reason"] else "")
+        )
+    lines += ["- " + escaped(w) for w in assessment["coverage"]["warnings"]]
+    if assessment["coverage"]["status"] == "UNKNOWN_DURATION":
+        lines.append("- 总天数未定，尚不能判断是否覆盖整趟旅行。")
+    for support in assessment["materials"]:
+        name = next(
+            a["name"] for a in guide["activities"] if a["activity_id"] == support["activity_id"]
+        )
+        lines.append("- " + escaped(name) + "：" + support["label"])
+        lines += [
+            "  - 来源片段（"
+            + escaped(e["role"])
+            + "，保留原条件）："
+            + escaped(e["text"])
+            + ("（节选）" if e["truncated"] else "")
+            for e in support["excerpts"]
+        ]
     for a in guide["activities"]:
         lines += [
             "",

@@ -6,6 +6,50 @@ from .flow_models import PlanDraft
 
 WALK_LABELS = {"UNKNOWN": "步行意愿未定", "ALLOWED": "允许步行", "DECLINED": "明确不接受步行"}
 
+_NUMBER = r"(?:\d{1,2}|[零一二两三四五六七八九十]{1,3})"
+
+
+def number(value: str) -> int:
+    if value.isdigit():
+        return int(value)
+    digits = {c: i for i, c in enumerate("零一二三四五六七八九")}
+    digits["两"] = 2
+    if "十" in value:
+        left, right = value.split("十", 1)
+        return digits.get(left, 1) * 10 + digits.get(right, 0)
+    return digits.get(value, -1)
+
+
+def request_quantity(request: str, unit: str, minimum: int = 1) -> int | None:
+    # A date, ordinal, alternative, bound or conflicting duration is not a trip length.
+    matches = list(
+        re.finditer(rf"(?<![第\d零一二两三四五六七八九十])({_NUMBER})\s*(?:{unit})", request)
+    )
+    matches = [
+        m
+        for m in matches
+        if not (
+            m[0].endswith("日")
+            and (
+                request[max(0, m.start() - 1) : m.start()] == "月"
+                or re.match(r"(?:出发|到达|返程|返回|抵达|入住|退房|开始)", request[m.end() :])
+            )
+        )
+    ]
+    values = {number(m[1]) for m in matches}
+    if len(values) != 1 or not minimum <= next(iter(values)) <= 90:
+        return None
+    for m in matches:
+        prefix = request[max(0, m.start() - 8) : m.start()]
+        clause = re.split(r"[，。；;,\n]", prefix)[-1]
+        if re.search(
+            r"第|可能|也许|大概|约|至少|最多|不超过|不止|不是|或者|或|至|到|[~～–-]$", clause
+        ):
+            return None
+    if re.search(rf"{_NUMBER}\s*(?:或|到|至|[-~～–])\s*{_NUMBER}\s*(?:{unit})", request):
+        return None
+    return next(iter(values))
+
 
 def walking(draft: PlanDraft, request: str = "") -> dict[str, Any]:
     value = draft.walking_allowed
@@ -31,13 +75,15 @@ def walking(draft: PlanDraft, request: str = "") -> dict[str, Any]:
 def from_request(draft: PlanDraft, request: str) -> None:
     """Only explicit clauses establish consent; softer walking wishes stay unknown."""
     draft.walking_allowed = None
-    digits = {"一": 1, "两": 2, "二": 2, "三": 3, "四": 4, "五": 5, "零": 0}
+    draft.days = request_quantity(request, r"天|日(?!期)")
+    if re.search(r"轻松|慢游|休闲|不要排(?:得)?太满|不赶(?:路|行程)", request) and not re.search(
+        r"不(?:要|想)轻松|不(?:要|想)休闲", request
+    ):
+        draft.pace = "RELAXED"
     for key, unit in (("people", "(?:个)?人"), ("rooms", "间房"), ("nights", "晚")):
-        match = re.search(r"(\d{1,2}|一|两|二|三|四|五|零)" + unit, request)
-        if match:
-            value = int(match[1]) if match[1].isdigit() else digits[match[1]]
-            if value > 0 or key == "nights":
-                setattr(draft.trip_budget, key, value)
+        value = request_quantity(request, unit, 0 if key == "nights" else 1)
+        if value is not None:
+            setattr(draft.trip_budget, key, value)
     clauses = [s.strip() for s in re.split(r"[，。；;,\n]", request)]
     refused = walking(draft, request)["state"] == "DECLINED"
     allowed = any(
