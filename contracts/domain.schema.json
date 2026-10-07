@@ -6866,6 +6866,7 @@
             "authorize",
             "revoke_authorization",
             "reuse_activities",
+            "material_filter",
             "preview_combination",
             "revalidate_guide",
             "use_revalidated_guide"
@@ -6963,6 +6964,11 @@
           ],
           "default": null,
           "title": "Reuse Key"
+        },
+        "include_test": {
+          "default": false,
+          "title": "Include Test",
+          "type": "boolean"
         }
       },
       "required": [
@@ -7320,6 +7326,19 @@
           },
           "title": "Reuse Options",
           "type": "array"
+        },
+        "local_materials": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Local Materials"
         },
         "model_status": {
           "anyOf": [

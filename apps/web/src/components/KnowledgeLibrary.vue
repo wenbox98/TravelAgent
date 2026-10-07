@@ -6,7 +6,7 @@ type Binding={card_id:string;version:number;card_hash:string}
 type Card=Binding & {kind:string;title:string;entities:string[];text:string;conditions:string[];unknowns:string[];review_method:string;review_scope:string;test_input:boolean;spatial_status:string;attested_at:string;raw_availability:string;validation_basis:string;sources:{title:string;url:string|null;completeness:string;retrieved_at:string}[]}
 type Result={cards:Card[];mode:string;source_count:number;bounded:boolean;gaps:string[]}
 type Preview={cards?:Card[];skipped?:string[];preview_hash:string;items?:{characters:number}[];meaning?:string}
-const props=defineProps<{plan:PlanView;busy:boolean}>()
+const props=defineProps<{plan:PlanView;busy:boolean;includeTest?:boolean}>()
 const emit=defineEmits<{refresh:[sid:string];newtrip:[]}>()
 const retention=ref('PERSISTENT')
 const opened=ref(false),query=ref(''),region=ref(''),kind=ref(''),since=ref(''),includeTest=ref(false),waiting=ref(false),message=ref('')
@@ -19,9 +19,10 @@ async function search(){waiting.value=true;message.value='';try{result.value=awa
 async function show(){opened.value=!opened.value;if(opened.value){await search();options.value=(await call<{options:typeof options.value}>('options')).options;sourceTrip.value=props.plan.session_id}}
 async function prepare(action:string){waiting.value=true;message.value='';ack.value=false;try{pending.value=action;preview.value=await call<Preview>(action,{session_id:sourceTrip.value,refs:refs()})}catch(e){message.value=String(e)}finally{waiting.value=false}}
 async function confirm(){waiting.value=true;try{const action=({preview_organize:'organize',preview_pattern:'save_pattern',preview_cleanup:'cleanup'} as Record<string,string>)[pending.value]!;await call(action,{session_id:sourceTrip.value,refs:refs(),preview_hash:preview.value?.preview_hash,confirm:true});preview.value=null;message.value=action==='cleanup'?'所选原文已逻辑清理；知识和账本保留。':'整理已保存在本机。';await search()}catch(e){message.value=String(e)}finally{waiting.value=false}}
-async function attach(){waiting.value=true;try{await call('attach',{session_id:props.plan.session_id,expected_revision:props.plan.revision,refs:refs(),include_test:includeTest.value});emit('refresh',props.plan.session_id);message.value='知识已加入这次草稿，尚未覆盖采用版。'}catch(e){message.value=String(e)}finally{waiting.value=false}}
+async function attach(){waiting.value=true;try{await call('attach',{session_id:props.plan.session_id,expected_revision:props.plan.revision,refs:refs(),include_test:includeTest.value});opened.value=false;emit('refresh',props.plan.session_id);message.value='知识已加入这次草稿，尚未覆盖采用版。'}catch(e){message.value=String(e)}finally{waiting.value=false}}
 async function saveRetention(){waiting.value=true;try{await call('retention',{refs:refs(),retention_policy:retention.value,confirm:true});message.value='已保存所选原文的保留偏好；不会自动清理，仍需单独预览和确认。'}catch(e){message.value=String(e)}finally{waiting.value=false}}
 async function remove(action:string){waiting.value=true;try{await call(action,{refs:refs(),confirm:true});ack.value=false;pending.value='';await search();emit('refresh',props.plan.session_id)}catch(e){message.value=String(e)}finally{waiting.value=false}}
+watch(()=>props.includeTest,v=>{if(v!==undefined){includeTest.value=v;void search()}},{immediate:true})
 watch(()=>props.plan.session_id,()=>{region.value=props.plan.destination;preview.value=null;pending.value='';void search()},{immediate:true})
 </script>
 <template>
@@ -29,7 +30,7 @@ watch(()=>props.plan.session_id,()=>{region.value=props.plan.destination;preview
 <p>本机关键词检索 · 没有联网。当前目的地 {{result?.cards.length ?? 0}} 张匹配卡片；命中不代表条件充分。</p>
 <template v-if="opened">
 <div class="fields"><label>地区标签<input v-model="region" placeholder="精确地区，留空浏览所有" /></label><label>关键词<input v-model="query" placeholder="名称、交通或季节" @keyup.enter="search" /></label><label>类型<select v-model="kind"><option value="">全部类型</option><option v-for="(name,value) in labels" :key="value" :value="value">{{name}}</option></select></label><label>整理日期不早于<input v-model="since" type="date" /></label></div>
-<label class="check"><input v-model="includeTest" type="checkbox" />明确包含开发测试资料（不是长期偏好）</label><button :disabled="waiting||busy" @click="search">查询本机资料</button><p v-if="result">{{result.cards.length}} 张卡片，{{result.source_count}} 个不同来源标识；同源重复不算独立事实。{{result.bounded?'当前只展示有限范围，请缩小查询。':''}}</p>
+<label v-if="props.includeTest===undefined" class="check"><input v-model="includeTest" type="checkbox" />明确包含开发测试资料（不是长期偏好）</label><button :disabled="waiting||busy" @click="search">查询本机资料</button><p v-if="result">{{result.cards.length}} 张卡片，{{result.source_count}} 个不同来源标识；同源重复不算独立事实。{{result.bounded?'当前只展示有限范围，请缩小查询。':''}}</p>
 <p v-if="result && !result.cards.length">没有符合筛选的本地知识；不会改名套用其他城市资料。可查看测试开关或整理已有资料。</p>
 <article v-for="c in result?.cards" :key="c.card_id" class="entry"><label class="check"><input v-model="selected" type="checkbox" :value="c.card_id" />{{c.title}}</label><p>{{labels[c.kind]}} · {{roles[c.review_method]||c.review_method}} · {{c.test_input?'开发测试资料':'私人资料'}} · {{c.spatial_status==='MATCH'?'历史范围依据':'范围未核实/不适配'}}</p><p>{{c.text}}</p><ul><li v-for="v in c.conditions" :key="v">{{v}}</li></ul><details><summary>来源、角色与历史核对</summary><p>角色：{{c.review_scope}}；整理时核对：{{c.attested_at}}。{{c.raw_availability==='USER_CLEARED'?'原文已由用户清理，仅使用历史核对依据；不能重放原文审核。':'原文缓存仍在；本页检索不重新读取正文。'}}</p><p v-for="s in c.sources" :key="s.title">{{s.title}} · {{s.completeness}} · 取得于 {{s.retrieved_at}} <a v-if="s.url" :href="s.url" target="_blank" rel="noopener noreferrer">手动查看来源</a></p><p v-for="u in c.unknowns" :key="u">{{u}}</p></details></article>
 <div class="actions"><button :disabled="waiting||busy||!selected.length||!!plan.adopted||!!plan.draft.activities.length" @click="attach">加入这次新旅行草稿</button><button class="quiet" @click="emit('newtrip')">先建立独立新旅行</button></div><p>新旅行只采用你选择的条目；旧日期、交通和测试偏好不会自动继承。已采用节奏只提供停留与顺序参考，不是实测。</p>

@@ -5,7 +5,7 @@ import PlanPlaces from './PlanPlaces.vue'
 import PlaceDiscovery from './PlaceDiscovery.vue'
 import RevisionReview from './RevisionReview.vue'
 import OperationPanel from './OperationPanel.vue'
-import KnowledgeLibrary from './KnowledgeLibrary.vue'
+import LocalMaterials from './LocalMaterials.vue'
 import AdvisoryGuide from './AdvisoryGuide.vue'
 import { originLabel, transportLabel, type Draft, type PlanView, type PlanIndex } from '../planning-api'
 const data = ref<PlanView | null>(null), form = ref<Draft | null>(null)
@@ -51,7 +51,7 @@ async function act(action: string, extra: Record<string, unknown> = {}) {
     }
     apply(await request<PlanView>('/api/v1/preview/planning/' + data.value.session_id, {action, expected_revision: data.value.revision, ...(action === 'save' ? {draft: form.value} : {}), ...extra}))
     if (['suggest', 'research'].includes(action)) await refreshIndex()
-    status.value = action === 'adopt' ? '已采用这版；尚未核实的交通和预约继续保留。' : action === 'cancel' ? '已恢复采用版。' : action === 'suggest' ? 'AI正在生成建议；原草稿和采用版保留。' : action === 'research' ? '正在查找玩法并审核资料；不覆盖已采用安排。' : action === 'adopt_research' ? '已加入通过审核的资料，请选择感兴趣的活动。' : action === 'use_proposal' ? 'AI建议已放入可编辑草稿，尚未覆盖采用版。' : '已保存到本机，没有发起地图或研究请求。'
+    status.value = action === 'adopt' ? '已采用这版；尚未核实的交通和预约继续保留。' : action === 'cancel' ? '已取消本次预览或修改，恢复原草稿或采用版。' : action === 'suggest' ? 'AI正在生成建议；原草稿和采用版保留。' : action === 'research' ? '正在查找玩法并审核资料；不覆盖已采用安排。' : action === 'adopt_research' ? '已加入通过审核的资料，请选择感兴趣的活动。' : action === 'use_proposal' ? 'AI建议已放入可编辑草稿，尚未覆盖采用版。' : '已保存到本机，没有发起地图或研究请求。'
   } catch(e) { error.value = e instanceof Error ? e.message : '操作未完成，草稿保留' }
   finally { busy.value = false }
 }
@@ -95,12 +95,12 @@ onUnmounted(() => { ++generation; clearInterval(poll); clearTimeout(saveTimer) }
     </section>
     <details class="card"><summary>历史旅行与合成场景</summary><label>恢复本次旅行<select :value="data?.session_id || ''" @change="load(($event.target as HTMLSelectElement).value)"><option value="">请选择</option><option v-for="t in index?.trips" :key="t.session_id" :value="t.session_id">{{ t.destination }} · {{ t.demo ? '合成测试' : '本机私人草稿' }}</option></select></label><p>以下仅用虚构活动，测试输入不作为你的真实旅行偏好。</p><div class="actions"><button class="quiet" :disabled="busy" @click="create('CITY')">成都城市公交 · 合成</button><button class="quiet" :disabled="busy" @click="create('REGIONAL')">区域交通未定 · 合成</button><button class="quiet" :disabled="busy" @click="create('OTHER_CITY')">苏州两日 · 合成</button><button class="quiet" :disabled="busy" @click="create('GUIDE_MULTI_DAY')">多日食宿预算 · 合成</button></div></details>
     <template v-if="data && form && !creating">
-      <KnowledgeLibrary v-if="!data.demo" :plan="data" :busy="busy" @refresh="load" @newtrip="creating=true" />
+      <LocalMaterials v-if="!data.demo" :plan="data" :busy="busy || edited" @action="act" @refresh="load" @newtrip="creating=true" />
       <OperationPanel :plan="data" :busy="busy" @action="act" />
       <AdvisoryGuide v-if="data.guide_view" :plan="data" :busy="busy" @action="act" />
       <p class="notice">{{ data.validation_trip ? '真实资料验收 · 独立测试输入。' : '' }} {{ data.demo ? '合成测试：全部项目为自编虚构活动；不是你的真实行程。' : '本机私人草案：本次旅行的选择不会成为长期偏好。' }} {{ data.cache_message }}</p>
       <PlaceDiscovery v-if="data.discovery_available || data.place_leads.length" :plan="data" :busy="busy" @action="act" @refresh="load(data.session_id)" />
-      <section v-if="!data.demo" class="card stage"><h2>先找适合这次旅行的玩法</h2><p>本机资料先用；不足时由你主动补充。外部操作仅使用本次旅行的已登记许可；地点发现仅用缓存，原审核与额度保留。必要文字每来源每次最多6000字交由既定 DeepSeek；调用上限以本旅行当前许可为准，未授权不会派发。审核只是来源上下文检查，不代表当前开放或交通已经核实。</p>
+      <section v-if="!data.demo" id="find-play" class="card stage"><h2>查找新玩法</h2><p>本机资料先用；不足时由你主动补充。外部操作仅使用本次旅行的已登记许可；地点发现仅用缓存，原审核与额度保留。必要文字每来源每次最多6000字交由既定 DeepSeek；调用上限以本旅行当前许可为准，未授权不会派发。审核只是来源上下文检查，不代表当前开放或交通已经核实。</p>
         <button :disabled="busy || !data.research_available" @click="act('research')">补充研究，查找真实玩法</button>
         <template v-if="data.research_job"><p role="status">{{ ({QUEUED:'等待查找玩法',RUNNING:'查找玩法并整理活动',WAITING_LOGIN:'请在打开的官方页面正常登录，当前任务等待中',PARTIAL:'已取得部分资料，仍有缺口',COMPLETED:'本次资料整理完成',NEEDS_REVIEW:'资料尚未形成可用活动',FAILED:'本次研究停止，已有草稿保留',CANCELED:'已停止',INTERRUPTED:'任务已中断，不会自动重试',VERIFICATION_REQUIRED:'网站需要验证，已停止自动推进'} as Record<string,string>)[data.research_job.status] || '任务状态已保存' }}</p><p>接纳 {{ data.research_job.reviewed }} · 待审 {{ data.research_job.pending }} · 拒绝 {{ data.research_job.rejected }}</p><button v-if="data.research_job.can_adopt" :disabled="busy" @click="act('adopt_research')">将合格资料加入当前旅行</button><button v-if="['QUEUED','RUNNING','WAITING_LOGIN'].includes(data.research_job.status)" class="quiet" :disabled="busy" @click="act('cancel_job')">停止研究</button></template>
         <details v-if="data.activity_candidates.length" :open="!form.activities.length"><summary>真实资料支持的活动候选</summary><p>选择一组感兴趣的项目，时间与顺序稍后给建议；来源中的季节、交通和历史性质继续保留。</p><article v-for="a in data.activity_candidates.filter(a => a.spatial_status !== 'MISMATCH')" :key="a.activity_id" class="direction"><label class="check"><input v-model="selectedActivities" type="checkbox" :value="a.activity_id" :disabled="form.spatial.intent === 'CITY_CORE' && (data.guide_view ? a.spatial_status === 'MISMATCH' : a.spatial_status !== 'MATCH')" />{{ a.name }}</label><p>{{ a.description }}</p><p>{{ scopeLabel(a.spatial_status || 'UNKNOWN') }}；检索区域标签：{{ a.region }}（不是地图观测位置）</p><p v-for="b in a.spatial_basis" :key="b.reference_id + b.text">{{ b.kind === 'TITLE_WEAK' ? '标题弱线索' : '来源上下文' }}：{{ b.text }}</p><p>{{ a.reference_kinds?.join('、') }} · {{ a.conditions.join('；') || '来源未提供更多适用条件' }}</p><details><summary>查看来源依据</summary><div v-for="r in data.references.filter(r=>a.evidence_ids.includes(r.claim_id))" :key="r.claim_id"><p>{{ r.source_title }} · {{ r.review_status }}</p><blockquote>{{ r.text }}</blockquote><p>{{ r.conditions.join('；') }}</p></div></details></article><button :disabled="busy || !selectedActivities.length" @click="act('use_activities', {activity_ids:selectedActivities})">将所选项目放入草稿</button></details>

@@ -481,6 +481,7 @@ class PlanningService:
             pass
         available = model_available(self.db, self.scope, p, sid)
         from .workbench import daily, overview, reuse_options, model_status, STATUS_MESSAGES
+        from .local_materials import entry
 
         operation = overview(self.db, self.scope, sid, p) if daily(p) else None
         status = model_status(self.db, self.scope, sid, p) if daily(p) else None
@@ -518,7 +519,8 @@ class PlanningService:
             "gaps": gaps,
             "differences": differences,
             "evidence_count": len(refs) if not p["demo"] else view["evidence_count"],
-            "proposal_preview_active": bool(p.get("local_guide_preview"))
+            "proposal_preview_active": bool(p.get("local_material_preview"))
+            or bool(p.get("local_guide_preview"))
             or bool(p.get("knowledge_preview") or p.get("combination_preview")),
             "direction_change_pending": p.get("direction_backup") is not None,
             "cache_message": "合成活动测试，非真实攻略或地图。"
@@ -548,11 +550,9 @@ class PlanningService:
             else "需要可用来源活动或已检查身份的公共地点、已配置服务和对应剩余额度；首次及改选各一次，不会自动重试。",
             "place_leads": leads,
             "operation": operation,
+            "local_materials": entry(p) if daily(p) and not p.get("demo") else None,
             "reuse_options": reuse_options(self.db, self.scope, sid, p)
-            if daily(p)
-            and not p.get("knowledge_mode")
-            and not draft.activities
-            and not p["adopted"]
+            if daily(p) and not draft.activities and not p["adopted"]
             else [],
             "model_status": status,
             "discovery_available": discovery_available,
@@ -597,7 +597,12 @@ class PlanningService:
                 catalog = {a["activity_id"]: a for a in p.get("activity_pool", [])}
                 catalog.update({a["activity_id"]: deepcopy(a) for a in p["draft"]["activities"]})
                 p["activity_pool"] = list(catalog.values())
-            if action.action in {"authorize", "revoke_authorization", "reuse_activities"}:
+            if action.action in {
+                "authorize",
+                "revoke_authorization",
+                "reuse_activities",
+                "material_filter",
+            }:
                 from .workbench import daily, authorize, close, reuse
 
                 if not daily(p):
@@ -606,6 +611,8 @@ class PlanningService:
                     authorize(self.db, self.scope, sid, p, action.authorization)
                 elif action.action == "revoke_authorization":
                     close(self.db, self.scope, sid, p)
+                elif action.action == "material_filter":
+                    p["material_include_test"] = action.include_test
                 else:
                     reuse(self.db, self.scope, sid, p, action.reuse_key or "", action.activity_ids)
             elif action.action == "save":
@@ -867,6 +874,7 @@ class PlanningService:
                 from .guide_revalidation import check_adoption
 
                 check_adoption(self.db, self.scope, sid, p, row["revision"])
+                p.pop("local_material_preview", None)
                 p.pop("combination_preview", None)
                 p.pop("knowledge_preview", None)
                 p.pop("knowledge_preview_cancel", None)
@@ -908,6 +916,15 @@ class PlanningService:
                 p["adopted"] = deepcopy(p["draft"])
                 p["collapsed"] = dict.fromkeys(["direction", "activities", "conditions"], True)
             elif action.action == "cancel":
+                from .local_materials import cancel as cancel_material
+
+                # Cancel the innermost suggestion/combination first; keep its material
+                # bindings until the outer local-selection preview is canceled.
+                if not any(
+                    p.get(k)
+                    for k in ("local_guide_preview", "combination_preview", "knowledge_preview")
+                ):
+                    cancel_material(p)
                 local_preview = p.pop("local_guide_preview", None)
                 if local_preview:
                     p["draft"] = local_preview["draft"]

@@ -90,6 +90,7 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
         title=d.guide.title,
         reason=d.guide.reason,
         origin=d.guide.origin,
+        local_reuse=bool(p.get("local_reuse") and not p.get("job_id")),
         local_revalidation=bool(
             p.get("local_guide_preview") or p.get("last_guide_revalidation_adoption")
         ),
@@ -157,7 +158,12 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
                 ]
             )
         ),
-        test_input=bool(p.get("validation_trip") or p.get("demo")),
+        test_input=bool(
+            p.get("material_test_input")
+            or p.get("validation_trip")
+            or p.get("demo")
+            or p.get("local_reuse", {}).get("test_input")
+        ),
     )
 
 
@@ -203,6 +209,9 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         "",
         escaped(guide["title"]),
         escaped(guide["reason"]),
+        "本次复用历史活动与停留建议，没有新模型生成。旧日序仅作历史参考，本次日序可修改；未知范围仍待确认。"
+        if guide["local_reuse"]
+        else "",
         "本版经本地规则复核（LOCAL_REVALIDATION）；保留原模型判定记录。活动与停留仍为 AI 建议。"
         if guide["local_revalidation"]
         else "",

@@ -1,14 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import type { PlanView } from '../planning-api'
 const props = defineProps<{ plan: PlanView; busy: boolean }>()
 const emit = defineEmits<{action:[action:string, extra:Record<string,unknown>]}>()
 const editing = ref(false), planning = ref(true), research = ref(false), maps = ref(false)
 const limits = ref({model:2, connect:0, search:0, detail:0, map_place:0, map_route:0, hours:24})
-const choice = ref(''), selected = ref<string[]>([])
-const chosen = computed(() => props.plan.reuse_options?.find(o => o.key === choice.value))
-watch(choice, () => {selected.value = chosen.value?.activities.map(a => a.activity_id) || []})
-watch(() => props.plan.session_id, () => {editing.value=false; choice.value=''; selected.value=[]})
+watch(() => props.plan.session_id, () => {editing.value=false})
 const names:Record<string,string> = {model:'模型', connect:'登录连接', search:'搜索', detail:'详情', map_place:'地点', map_route:'路径'}
 const configuration = (s:string) => s === 'CONFIGURED_NOT_VERIFIED' ? '已配置，未额外测试凭证' : '未配置'
 const availability = (s:string) => ({NOT_CONFIGURED:'未配置',NOT_AUTHORIZED:'未授权',CLOSED:'许可已关闭',EXPIRED:'许可已到期',BUDGET_EXHAUSTED:'剩余额度不足',RUNNING:'任务运行中',AVAILABLE:'已获准，可主动操作'}[s] || '请查看当前条件')
@@ -49,12 +46,7 @@ function authorize() {
       <button :disabled="busy || (!planning && !research && !maps)" @click="authorize">{{ plan.operation.history.length ? '确认追加以上有限额度' : '确认以上用途与调用上限' }}</button>
     </div>
     <details v-if="plan.operation.history.length"><summary>查看累计许可与消耗</summary><article v-for="(grant,i) in plan.operation.history" :key="i"><p>第 {{ i+1 }} 次许可 · {{ grant.current ? '当前' : '历史' }} · {{ grant.closed ? '已关闭' : grant.expired ? '已到期' : '有效' }} · {{ grant.recipients.join('、') }}</p><p v-for="(limit,key) in grant.limits" :key="key">{{ names[key] }}：已用 {{ grant.used[key] }} / 上限 {{ limit }}</p></article></details>
-    <details v-if="plan.reuse_options?.length"><summary>从历史采用版本复用活动（本地）</summary>
-      <p>只复制所选活动的资料依据和已有停留建议；不复制旧预算、采用状态、交通、首项时间或预约。复用后可修改，再明确采用。</p>
-      <label>选择历史活动组合<select v-model="choice"><option value="">请选择已有组合</option><option v-for="(o,i) in plan.reuse_options" :key="o.key" :value="o.key">组合 {{ i+1 }} · {{ o.activities.map(a=>a.name).join(' → ') }} · {{ o.activities.map(a=>`${a.stay_min ?? '?'}–${a.stay_max ?? '?'}分钟`).join(' / ') }}</option></select></label>
-      <label v-for="a in chosen?.activities" :key="a.activity_id" class="check"><input v-model="selected" type="checkbox" :value="a.activity_id" />{{ a.name }} · 既有{{ a.timing_origin === 'AI_PROPOSED' ? 'AI建议' : '安排' }}，范围{{ a.spatial_status === 'MATCH' ? '来源有依据' : '待核实' }}</label>
-      <button :disabled="busy || !selected.length" @click="emit('action','reuse_activities',{reuse_key:choice,activity_ids:selected})">将所选历史活动放入新草稿</button>
-    </details>
+
   </section>
 </template>
 <style scoped>.quota{display:flex;flex-wrap:wrap;gap:.8rem}.permission-form{border:1px solid #cbd4ca;border-radius:12px;padding:1rem;margin:1rem 0}.input-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.check{display:flex;align-items:center;gap:.6rem}.check input{width:auto}.stage-title{display:flex;justify-content:space-between;align-items:center;gap:1rem}details{margin:.8rem 0}</style>

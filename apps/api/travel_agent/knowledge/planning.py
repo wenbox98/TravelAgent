@@ -119,9 +119,13 @@ def attach(
         activities = {a.activity_id: a.model_dump() for c in cards for a in templates(c)}
         if not activities:
             raise ValueError("KNOWLEDGE_NO_PUBLIC_ACTIVITY")
+        from travel_agent.planning.local_materials import begin
+
+        begin(p)
         p["draft"]["activities"] = list(activities.values())
         PlanDraft.model_validate(p["draft"])
         p.update(knowledge_mode=True, knowledge_include_test=include_test, protocol_version=2)
+        p["material_test_input"] = any(c["test_input"] for c in cards)
         p["collapsed"]["activities"] = False
         verify(db, scope, p)
         db.connection.execute(

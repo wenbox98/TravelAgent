@@ -26,6 +26,7 @@ async function download(){error.value='';try{const v=await request<{filename:str
 </script>
 <template>
   <section class="card advisory-guide">
+    <p v-if="guide.local_reuse" class="notice">本次复用历史活动与停留建议，没有新模型生成。旧日序仅作历史参考，本次日序可修改；未知范围仍待确认。</p>
     <div class="guide-title"><div><p class="eyebrow">先选玩法，时间留有弹性</p><h2>建议攻略</h2></div><button class="quiet" :disabled="busy" @click="editing=!editing">{{editing?'收起条件':'修改本次条件'}}</button></div>
     <p>{{guide.summary}}。{{form.inputs.activity_start ? (form.start_constraint==='LOCKED'?'首项锁定 ':'首项大约 ')+form.inputs.activity_start : '首项钟点未定也可以先看建议。'}}</p>
     <p>{{guide.walking.label}}。{{guide.walking_suggestion}}</p>

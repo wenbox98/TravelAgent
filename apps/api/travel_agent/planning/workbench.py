@@ -394,6 +394,10 @@ def reuse_options(db: Any, scope: str, sid: str, p: dict[str, Any]) -> list[dict
         old = json.loads(row[1]).get("planning", {})
         if (
             old.get("demo")
+            or (
+                (old.get("validation_trip") or old.get("local_reuse", {}).get("test_input"))
+                and not p.get("material_include_test")
+            )
             or old.get("destination") != p["destination"]
             or old.get("travel_kind") != p["travel_kind"]
         ):
@@ -405,7 +409,36 @@ def reuse_options(db: Any, scope: str, sid: str, p: dict[str, Any]) -> list[dict
             try:
                 draft = PlanDraft.model_validate(version["draft"])
                 context = dict(old, draft=version["draft"])
+                if any(a.knowledge_refs for a in draft.activities):
+                    # Card-backed history stays on the card validation path.
+                    continue
+                claims = [i for a in draft.activities for i in a.evidence_ids]
+                cleared = db.connection.execute(
+                    "SELECT 1 FROM knowledge_raw_state k JOIN source_contents c USING(content_id) "
+                    "WHERE k.state='USER_CLEARED' AND c.account_scope=? AND c.source_id IN "
+                    "(SELECT source_id FROM claims WHERE claim_id IN (SELECT value FROM json_each(?)))",
+                    (scope, json.dumps(claims)),
+                ).fetchone()
+                if cleared:
+                    # No raw fallback after intentional deletion: use retained cards.
+                    continue
+                content_ids = [
+                    lead["content_id"] for lead in old.get("discovery", {}).get("leads", [])
+                ]
+                if db.connection.execute(
+                    "SELECT 1 FROM knowledge_raw_state WHERE state='USER_CLEARED' AND content_id IN (SELECT value FROM json_each(?))",
+                    (json.dumps(content_ids),),
+                ).fetchone():
+                    continue
                 leads = checked(db, scope, row[0], context)
+                if any(
+                    db.connection.execute(
+                        "SELECT 1 FROM knowledge_withdrawals WHERE account_scope=? AND source_id=?",
+                        (scope, lead["source_id"]),
+                    ).fetchone()
+                    for lead in leads.values()
+                ):
+                    continue
                 from .materials import references
 
                 allowed = {e["claim_id"] for e in references(db, scope, row[0])}
@@ -421,10 +454,16 @@ def reuse_options(db: Any, scope: str, sid: str, p: dict[str, Any]) -> list[dict
                 if draft.activities:
                     result.append(
                         dict(
-                            key=fingerprint([row[0], version]),
+                            key=fingerprint(
+                                [row[0], version, references(db, scope, row[0]), leads]
+                            ),
                             session_id=row[0],
                             version=version["version"],
                             activities=[a.model_dump() for a in draft.activities],
+                            test_input=bool(
+                                old.get("validation_trip")
+                                or old.get("local_reuse", {}).get("test_input")
+                            ),
                         )
                     )
             except ValueError:
@@ -452,8 +491,34 @@ def reuse(
     old = state["planning"]
     leads = checked(db, scope, choice["session_id"], old)
     selected = [deepcopy(a) for a in choice["activities"] if a["activity_id"] in activity_ids]
+    from .local_materials import begin, reference_binding
+
+    begin(p)
+    from .materials import references
+    from .spatial import classify
+
+    source_refs = references(db, scope, choice["session_id"])
     for a in selected:
         a["locked_start"] = None
+        a["locked"] = False
+        # Day numbers belong to the old itinerary, never override the new duration.
+        a["day"] = 1
+        a["period"] = "UNDECIDED"
+        if a["provenance"] == "SOURCE_REFERENCE":
+            a["spatial_status"], a["spatial_basis"] = classify(
+                a["name"],
+                [r for r in source_refs if r["claim_id"] in a["evidence_ids"]],
+                p["draft"]["spatial"]["intent"],
+            )
+    p["knowledge_mode"] = False
+    p["local_reuse"] = dict(
+        source_session=choice["session_id"],
+        source_version=choice["version"],
+        test_input=choice["test_input"],
+        historical_days=[
+            a["day"] for a in choice["activities"] if a["activity_id"] in activity_ids
+        ],
+    )
     p["draft"]["activities"] = selected
     p["discovery"] = dict(
         version=1, leads=[deepcopy(leads[i]) for a in selected for i in a["discovery_ids"]]
@@ -479,6 +544,11 @@ def reuse(
         {c["citation_id"] for c in backgrounds}
         | {b["citation_id"] for c in backgrounds for b in c["basis"]}
     )
+    p["reused_reference_bindings"] = {
+        r["claim_id"]: reference_binding(r)
+        for r in references(db, scope, choice["session_id"])
+        if r["claim_id"] in [*p["reused_claim_ids"], *p["reused_context_ids"]]
+    }
     p["collapsed"]["activities"] = False
 
 
@@ -507,6 +577,11 @@ def local_contents(db: Any, scope: str, sid: str, p: dict[str, Any]) -> list[dic
             bindings.append(dict(row))
     result = {}
     for binding in bindings:
+        if db.connection.execute(
+            "SELECT 1 FROM knowledge_withdrawals WHERE account_scope=? AND source_id=?",
+            (scope, binding["source_id"]),
+        ).fetchone():
+            continue
         for c in SourceContentStore(db).load(binding["source_id"], scope, purge=False):
             if (
                 c["content_id"] == binding["content_id"]

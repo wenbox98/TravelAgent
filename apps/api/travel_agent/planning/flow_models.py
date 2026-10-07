@@ -150,6 +150,7 @@ class PlanAction(StrictModel):
         "authorize",
         "revoke_authorization",
         "reuse_activities",
+        "material_filter",
         "preview_combination",
         "revalidate_guide",
         "use_revalidated_guide",
@@ -163,6 +164,7 @@ class PlanAction(StrictModel):
     activity_ids: list[str] = Field(default_factory=list, max_length=12)
     authorization: OperationAuthorization | None = None
     reuse_key: str | None = Field(default=None, max_length=64)
+    include_test: bool = False
 
 
 class GroundedActivity(StrictModel):
@@ -280,6 +282,7 @@ class PlanView(StrictModel):
     place_leads: list[dict[str, Any]] = Field(default_factory=list)
     operation: dict[str, Any] | None = None
     reuse_options: list[dict[str, Any]] = Field(default_factory=list)
+    local_materials: dict[str, Any] | None = None
     model_status: str | None = None
 
 

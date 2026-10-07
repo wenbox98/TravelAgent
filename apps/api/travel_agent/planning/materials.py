@@ -66,6 +66,11 @@ def references(db: Any, scope: str, sid: str) -> list[dict[str, Any]]:
         for e in [e for option in data["options"] for e in option["evidence"]] + data[
             "other_clues"
         ]:
+            if db.connection.execute(
+                "SELECT 1 FROM knowledge_withdrawals WHERE account_scope=? AND source_id=?",
+                (scope, e["source_id"]),
+            ).fetchone():
+                continue
             if (
                 "reused_claim_ids" in p
                 and rid not in p.get("own_research_ids", [])
@@ -73,6 +78,11 @@ def references(db: Any, scope: str, sid: str) -> list[dict[str, Any]]:
             ):
                 continue
             if e["topic"] in {"ROUTE", "EXPERIENCE", "DURATION", "TRANSPORT", "RISK"}:
+                from .local_materials import reference_binding
+
+                bound = p.get("reused_reference_bindings", {}).get(e["claim_id"])
+                if bound and bound != reference_binding(e):
+                    continue
                 result[e["claim_id"]] = e
     return sorted(result.values(), key=lambda e: (e["source_id"], e["claim_id"]))
 
