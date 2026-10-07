@@ -5,6 +5,7 @@ from typing import Any
 from travel_agent.preview.projection import fingerprint, safe_text
 
 VERSION = "scoped-context-1"
+USE_RULE = "scoped-use-1.1"
 REVIEWED = {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED", "LOCAL_REVALIDATION"}
 LIMIT = "仅为来源整体背景与组合线索，不证明每站特色、行政归属、亲历或当前人流/开放/可行性。"
 
@@ -183,6 +184,24 @@ def attach_context(data: dict[str, Any], source_lengths: dict[str, int]) -> None
     data["scoped_context"] = rows
 
 
+def scope_assertion(text: str) -> bool:
+    """Recognize narrow uncertainty disclaimers, not arbitrary clauses containing 不."""
+    for clause in re.split(r"[，,；;。！？!?]|但是|然而|不过|而是|但|却", text):
+        clause = clause.strip()
+        if re.fullmatch(
+            r"(?:不|不能|不可|不得|无法|尚不能|不应)(?:据此)?(?:推断|证明|确认|保证|认定|声称)"
+            r"(?:(?:每(?:一)?(?:站|处)|各(?:站|处)|具体地点|行政归属|实际人流|当前人流|人少|特色|氛围|关系|开放|可行性)(?:的)?|或|和|与|及)+",
+            clause,
+        ):
+            continue
+        if re.search(
+            r"(?:每(?:一)?(?:站|处|个)|各(?:站|处|点)).{0,8}(?:都有|均有|都是|特色|氛围)|分别.{0,8}(?:特色|氛围)|属于|位于|坐落|必有|人少|人潮|馆藏|展品",
+            clause,
+        ):
+            return True
+    return False
+
+
 def validate_uses(proposal: dict[str, Any], data: dict[str, Any]) -> None:
     from .arrangements import Rejected, _check
 
@@ -203,10 +222,7 @@ def validate_uses(proposal: dict[str, Any], data: dict[str, Any]) -> None:
             raise Rejected("GUIDE_CONTEXT_REFERENCE", "context_uses")
         seen.add(use["context_id"])
         text = use["reason"]
-        if re.search(
-            r"(?:每(?:一)?(?:站|处|个)|各(?:站|处|点)).{0,8}(?:都有|均有|都是|特色|氛围)|分别.{0,8}(?:特色|氛围)|属于|位于|坐落|必有|人少|人潮|馆藏|展品",
-            text,
-        ):
+        if scope_assertion(text):
             raise Rejected("GUIDE_CONTEXT_SCOPE", "context_uses.reason")
         # Existing fact, transport and fixed-constraint checks apply to rationale too.
         _check(dict(proposal, assumptions=[text]), data)

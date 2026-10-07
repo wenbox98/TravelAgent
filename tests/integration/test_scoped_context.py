@@ -496,6 +496,43 @@ def test_repeated_background_text_cannot_bypass_source_limit():
         attach_context(data, {"authored-source": 5990})
 
 
+@pytest.mark.parametrize(
+    "text,blocked",
+    [
+        ("不能推断每站特色与当前人流。建议只取少数项目。", False),
+        ("不据此证明各站氛围或行政归属", False),
+        ("不能推断每站特色，但各站都有独特氛围", True),
+        ("不推断实际人流，每一站都有同样特色", True),
+        ("我不知道，但这些项目属于同一片区", True),
+        ("各处都有人少的优势", True),
+        ("不必每一站停留，可减少项目", False),
+    ],
+)
+def test_context_scope_distinguishes_disclaimer_from_assertion(text, blocked):
+    from travel_agent.planning.scoped_context import scope_assertion
+
+    assert scope_assertion(text) == blocked
+
+
+def test_negative_scope_reason_passes_complete_proposal_validation(scoped):
+    from travel_agent.planning.advisory import validate
+    from test_advisory_guide import proposal
+
+    s, v = scoped
+    _, data = context(s, v)
+    raw = proposal(data)
+    bg = data["scoped_context"][0]
+    raw["proposals"][0]["context_uses"] = [
+        dict(
+            context_id=bg["context_id"],
+            activity_ids=bg["activity_ids"],
+            use="SELECT",
+            reason="可以减少停靠，不能推断每站特色与当前人流。",
+        )
+    ]
+    assert validate(raw, data)["accepted_count"] == 1
+
+
 def test_legacy_card_missing_relation_does_not_guess_membership():
     from travel_agent.knowledge.planning import card_references
     from travel_agent.planning.scoped_context import derive
