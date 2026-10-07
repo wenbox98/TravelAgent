@@ -28,7 +28,8 @@ assert(html.includes('人数、天数与房晚条件已明确；实际价格仍�
 const reviewedPlan={...plan,job:{status:'FAILED',generated_count:1,accepted_count:0,rejected_count:1,reason:'OLD_FAILURE',proposals:[],decisions:[],protocol_version:4,local_diagnostic:{replayable:true}},local_guide_review:{rule_version:'fixture-rule',can_preview:true,summary:{accepted_count:1,rejected_count:0,proposals:[{title:'原回复的派生建议',reason:'空住宿金额仍未知'}],decisions:[]}}}
 const reviewed=await renderToString(createSSRApp({ssrRender,data:()=>({guide:{...guide,local_revalidation:true},form,plan:reviewedPlan,busy:false,editing:false,composing:false,selected:[],error:'',exported:'',money:()=> '未知'})}))
 assert(reviewed.includes('当时校验接纳 0，拒绝 1') && reviewed.includes('接纳 1，拒绝 0'))
-assert(reviewed.includes('不是模型重新回答') && reviewed.includes('LOCAL_REVALIDATION / NORMALIZED'))
+assert(reviewed.includes('不是模型重新回答') && reviewed.includes('LOCAL_REVALIDATION'))
+assert(!reviewed.includes('只规范化') && !reviewed.includes('LOCAL_REVALIDATION / NORMALIZED'))
 assert(reviewed.includes('预览本地复核建议') && reviewed.includes('用已保存回复本地复核（不联网）'))
 console.log('PASS AdvisoryGuide: original failure and independent local revalidation remain distinguishable')
 

@@ -174,6 +174,7 @@ def test_explicit_local_revalidation_preview_cancel_adopt(normal, monkeypatch, o
         assert (
             v["adopted"]
             and "LOCAL_REVALIDATION" in export(s.db, s.scope, v["session_id"])["markdown"]
+            and "LOCAL_REVALIDATION / NORMALIZED" not in export(s.db, s.scope, v["session_id"])["markdown"]
         )
     assert (
         tuple(

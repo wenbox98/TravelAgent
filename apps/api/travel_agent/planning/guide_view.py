@@ -203,7 +203,7 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         "",
         escaped(guide["title"]),
         escaped(guide["reason"]),
-        "本版经本地规则复核与空费用规范化（LOCAL_REVALIDATION / NORMALIZED）；保留原模型失败记录。活动与停留仍为 AI 建议。"
+        "本版经本地规则复核（LOCAL_REVALIDATION）；保留原模型判定记录。活动与停留仍为 AI 建议。"
         if guide["local_revalidation"]
         else "",
     ]
