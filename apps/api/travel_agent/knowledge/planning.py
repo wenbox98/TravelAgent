@@ -9,6 +9,33 @@ from travel_agent.preview.projection import fingerprint
 from .store import Library, binding, no_raw
 
 
+def card_references(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = {}
+    for c in cards:
+        related = c.get("scoped_references", []) if c["kind"] == "SOURCE_REFERENCE" else []
+        own: dict[str, Any] = next((r for r in related if r["claim_id"] in c["evidence_links"]), {})
+        main = dict(
+            own,
+            claim_id=c["card_id"],
+            text=c["text"],
+            conditions=c["conditions"],
+            reference_kind=c["review_scope"],
+            review_status=c["review_method"],
+            topic="PUBLIC_NAME"
+            if c["kind"] == "PLACE_LEAD"
+            else "ARRANGEMENT"
+            if c["kind"] == "PLAN_PATTERN"
+            else c["tags"][0],
+            knowledge_kind=c["kind"],
+            knowledge_binding=binding(c),
+        )
+        rows[main["claim_id"]] = main
+        for r in related:
+            if r["claim_id"] not in c["evidence_links"]:
+                rows[r["claim_id"]] = dict(r, knowledge_binding=binding(c))
+    return list(rows.values())
+
+
 def templates(c: dict[str, Any]) -> list[Activity]:
     entries = c.get("activities") or [dict(name=n) for n in c["entities"]]
     result = []
@@ -111,30 +138,25 @@ def payload(db: Any, scope: str, p: dict[str, Any]) -> dict[str, Any]:
         cards = verify(db, scope, p, outbound=True)
         draft = PlanDraft.model_validate(p["draft"])
         lengths: dict[str, int] = {}
-        selected = []
-        for c in cards:
-            text = "\n".join([c["text"], *c["conditions"], *c["entities"]])
+        selected = card_references(cards)
+        for entry in selected:
+            c = next(c for c in cards if c["card_id"] == entry["knowledge_binding"]["card_id"])
+            text = "\n".join(
+                [
+                    entry["text"],
+                    *entry["conditions"],
+                    (entry.get("route_association") or {}).get("object_quote", ""),
+                ]
+            )
             blocks = body_blocks(text)
             if len(outbound_blocks(blocks)) != len(blocks):
                 raise ValueError("KNOWLEDGE_UNSAFE_INPUT")
             for s in c["sources"]:
                 lengths[s["source_id"]] = lengths.get(s["source_id"], 0) + len(text)
-            selected.append(
-                dict(
-                    claim_id=c["card_id"],
-                    text=c["text"],
-                    conditions=c["conditions"],
-                    reference_kind=c["review_scope"],
-                    topic="PUBLIC_NAME"
-                    if c["kind"] == "PLACE_LEAD"
-                    else "ARRANGEMENT"
-                    if c["kind"] == "PLAN_PATTERN"
-                    else c["tags"][0],
-                    knowledge_kind=c["kind"],
-                    review_method=c["review_method"],
-                    completeness=sorted({s["completeness"] for s in c["sources"]}),
-                    historical_only=True,
-                )
+            entry.update(
+                review_method=c["review_method"],
+                historical_only=True,
+                completeness=sorted({s["completeness"] for s in c["sources"]}),
             )
         if len(lengths) > 2 or any(n > 6000 for n in lengths.values()):
             raise ValueError("KNOWLEDGE_INPUT_LIMIT")
@@ -145,6 +167,9 @@ def payload(db: Any, scope: str, p: dict[str, Any]) -> dict[str, Any]:
         result["knowledge_mode"] = True
         for a, original in zip(result["activities"], draft.activities, strict=True):
             a["knowledge_citation_ids"] = [r.card_id for r in original.knowledge_refs]
+        from travel_agent.planning.scoped_context import attach_context
+
+        attach_context(result, lengths)
         result["instructions"] += (
             " 知识卡为历史有限条目；名称提及、来源参考和已采用节奏不是实测事实。仅使用本次列出的知识卡引用，不推测原文，不改写适用条件。"
         )

@@ -69,7 +69,7 @@ def references(db: Any, scope: str, sid: str) -> list[dict[str, Any]]:
             if (
                 "reused_claim_ids" in p
                 and rid not in p.get("own_research_ids", [])
-                and e["claim_id"] not in p["reused_claim_ids"]
+                and e["claim_id"] not in [*p["reused_claim_ids"], *p.get("reused_context_ids", [])]
             ):
                 continue
             if e["topic"] in {"ROUTE", "EXPERIENCE", "DURATION", "TRANSPORT", "RISK"}:

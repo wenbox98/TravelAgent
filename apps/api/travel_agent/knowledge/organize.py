@@ -131,6 +131,29 @@ def prepare(
                         locators=[e["locator"], *e["block_locators"], *e["span_ids"]],
                         evidence_links=[e["claim_id"]],
                     )
+                    from travel_agent.planning.scoped_context import anchor
+
+                    c["scoped_references"] = [
+                        {
+                            k: r[k]
+                            for k in (
+                                "claim_id",
+                                "source_id",
+                                "source_version",
+                                "locator",
+                                "text",
+                                "topic",
+                                "conditions",
+                                "reference_kind",
+                                "review_status",
+                                "route_association",
+                            )
+                        }
+                        for r in refs.values()
+                        if anchor(e)
+                        and anchor(r) == anchor(e)
+                        and (r["claim_id"] == e["claim_id"] or r["topic"] == "EXPERIENCE")
+                    ]
                     from travel_agent.planning.materials import activities
 
                     inferred = activities([e], p["destination"])

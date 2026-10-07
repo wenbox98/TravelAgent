@@ -135,6 +135,18 @@ class Library:
                 ).fetchone()
                 if not claim or claim[1] or claim[0] != c["text"]:
                     raise ValueError("KNOWLEDGE_SOURCE_UNAVAILABLE")
+            for context in c.get("scoped_references", []):
+                claim = self.db.connection.execute(
+                    "SELECT text,deleted_at,source_id FROM claims WHERE claim_id=?",
+                    (context["claim_id"],),
+                ).fetchone()
+                if (
+                    not claim
+                    or claim[1]
+                    or claim[0] != context["text"]
+                    or claim[2] not in {s["source_id"] for s in c["sources"]}
+                ):
+                    raise ValueError("KNOWLEDGE_SOURCE_UNAVAILABLE")
         for dependency in c.get("dependencies", []):
             self.get(dependency, outbound=outbound)
         states = [self.source(s, outbound=outbound) for s in c["sources"]]

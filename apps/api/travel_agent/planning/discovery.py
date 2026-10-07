@@ -246,6 +246,9 @@ def model_references(
                 conditions=[context],
                 reference_kind="PLACE_MENTION_ONLY",
                 topic="PUBLIC_NAME",
+                source_id=lead["source_id"],
+                source_version=lead["locator"].split(":chars:")[0],
+                locator=lead["locator"],
             )
         )
     return deepcopy(refs)

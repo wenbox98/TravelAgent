@@ -42,3 +42,8 @@ const rested=await renderToString(createSSRApp({ssrRender,data:()=>({guide:{...g
 assert(rested.includes('第 2 天：留作休息') && !rested.includes('第 2 天：资料或安排待补'))
 assert(rested.includes('只有名称线索，具体玩法不足'))
 console.log('PASS AdvisoryGuide: missing days, deliberate rest and name-only material remain distinct')
+
+const context={backgrounds:[{context_id:'authored',scope:'GROUP_BACKGROUND',subject:'东桥片区',text:'适合慢逛，但雨天不推荐',reference_kind:'AUTHOR_PROPOSED_PLAN',conditions:['春季；作者未亲历'],activity_names:['甲巷','乙步道'],limitation:'不证明每站特色',citation_id:'fixture-reference'}],uses:[{context_id:'authored',reason:'按兴趣二选一，停留可调整'}],supplements:[{citation_id:'supplement',text:'关系未明',reference_kind:'UNKNOWN',conditions:[],reason:'不作地点特色依据'}],source_count:1}
+const scoped=await renderToString(createSSRApp({ssrRender,data:()=>({guide:{...guide,context,assessment},form,plan,busy:false,editing:false,composing:false,selected:[],error:'',exported:'',money:()=> '未知'})}))
+for(const text of ['这组玩法的背景与取舍','整体背景','春季；作者未亲历','雨天不推荐','不证明每站特色','未关联的来源补充','AI取舍建议','只有名称线索，具体玩法不足','来自 1 个来源']) assert(scoped.includes(text),text)
+console.log('PASS AdvisoryGuide: scoped background, conditions, independent name-only support and AI advice remain separate')

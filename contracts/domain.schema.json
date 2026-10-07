@@ -3794,6 +3794,24 @@
     "PreviewEvidence": {
       "additionalProperties": false,
       "properties": {
+        "route_association": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Route Association"
+        },
+        "source_version": {
+          "default": "",
+          "title": "Source Version",
+          "type": "string"
+        },
         "claim_id": {
           "title": "Claim Id",
           "type": "string"
@@ -8154,6 +8172,14 @@
     "GuideProposal": {
       "additionalProperties": false,
       "properties": {
+        "context_uses": {
+          "items": {
+            "$ref": "#/$defs/GuideContextUse"
+          },
+          "maxItems": 12,
+          "title": "Context Uses",
+          "type": "array"
+        },
         "day_choices": {
           "items": {
             "$ref": "#/$defs/GuideDayChoice"
@@ -8342,6 +8368,14 @@
     "GuideContent": {
       "additionalProperties": false,
       "properties": {
+        "context_uses": {
+          "items": {
+            "$ref": "#/$defs/GuideContextUse"
+          },
+          "maxItems": 12,
+          "title": "Context Uses",
+          "type": "array"
+        },
         "day_choices": {
           "items": {
             "$ref": "#/$defs/GuideDayChoice"
@@ -8561,6 +8595,49 @@
         "reason"
       ],
       "title": "GuideDayChoice",
+      "type": "object"
+    },
+    "GuideContextUse": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Context Id",
+          "type": "string"
+        },
+        "activity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Activity Ids",
+          "type": "array"
+        },
+        "use": {
+          "enum": [
+            "COMPARE",
+            "SELECT",
+            "RELAXED_PACING"
+          ],
+          "title": "Use",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 180,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "context_id",
+        "activity_ids",
+        "use",
+        "reason"
+      ],
+      "title": "GuideContextUse",
       "type": "object"
     }
   }

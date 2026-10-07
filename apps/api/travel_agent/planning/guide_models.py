@@ -131,7 +131,20 @@ class GuideDayChoice(StrictModel):
         return safe_text(value, 240)
 
 
+class GuideContextUse(StrictModel):
+    context_id: str = Field(min_length=1, max_length=80)
+    activity_ids: list[str] = Field(min_length=1, max_length=12)
+    use: Literal["COMPARE", "SELECT", "RELAXED_PACING"]
+    reason: str = Field(min_length=1, max_length=180)
+
+    @field_validator("reason")
+    @classmethod
+    def safe_reason(cls, value: str) -> str:
+        return safe_text(value, 180)
+
+
 class GuideContent(StrictModel):
+    context_uses: list[GuideContextUse] = Field(default_factory=list, max_length=12)
     day_choices: list[GuideDayChoice] = Field(default_factory=list, max_length=90)
     walking_requirement: Literal["NONE", "OPTIONAL", "REQUIRED"] = "NONE"
     title: str = Field(default="可修改的旅行建议", max_length=80)
@@ -175,6 +188,7 @@ class GuideActivity(StrictModel):
 
 
 class GuideProposal(StrictModel):
+    context_uses: list[GuideContextUse] = Field(default_factory=list, max_length=12)
     day_choices: list[GuideDayChoice] = Field(default_factory=list, max_length=90)
     walking_requirement: Literal["NONE", "OPTIONAL", "REQUIRED"] = "NONE"
     title: str = Field(min_length=1, max_length=80)

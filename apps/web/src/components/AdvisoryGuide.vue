@@ -57,6 +57,12 @@ async function download(){error.value='';try{const v=await request<{filename:str
       <details><summary>这些资料能支持什么</summary><article v-for="support in guide.assessment.materials" :key="support.activity_id"><h4>{{guide.activities.find(a=>a.activity_id===support.activity_id)?.name}}：{{support.label}}</h4><p v-for="e in support.excerpts" :key="e.citation_id">来源片段（{{e.role}}，适用条件保留）：{{e.text}}{{e.truncated?'（节选）':''}}</p></article></details>
     </section>
     <p v-if="!guide.available">先从本机资料选一个感兴趣的项目；一个项目也可以开始，不要求先确定全部时刻。</p>
+    <details v-if="guide.context && (guide.context.backgrounds.length || guide.context.supplements.length)" class="notice"><summary>这组玩法的背景与取舍</summary>
+      <article v-for="c in guide.context.backgrounds" :key="c.context_id"><h4>{{c.scope==='GROUP_BACKGROUND'?'整体背景':'直接地点内容'}} · {{c.subject}}</h4><p>来源内容（{{c.reference_kind}}）：{{c.text}}</p><p v-for="condition in c.conditions" :key="condition">原条件：{{condition}}</p><p>本次组合线索：{{c.activity_names.join('、')}}</p><p>{{c.limitation}}</p><small>引用：{{c.citation_id}}</small></article>
+      <p v-for="u in guide.context.uses" :key="u.context_id">AI取舍建议：{{u.reason}}（建议，不是来源事实）</p>
+      <article v-for="s in guide.context.supplements" :key="s.citation_id"><h4>未关联的来源补充</h4><p>{{s.text}}（{{s.reference_kind}}）</p><p>{{s.conditions.join('；')}}</p><p>{{s.reason}}</p></article>
+      <p>整体背景参考来自 {{guide.context.source_count}} 个来源；不按项目数量重复计数，来源独立性未确认。</p>
+    </details>
     <article v-for="(a,i) in guide.activities" :key="a.activity_id" class="activity"><h4>第 {{a.day}} 天 · {{a.period}} · {{a.name}}</h4><p>{{a.highlight}}</p><p>{{a.stay}}；{{a.rest}}。{{a.locked_start?'预约锁定 '+a.locked_start+'。':''}}</p>
       <details><summary>修改停留、日段或预约</summary><fieldset :disabled="busy"><div class="grid">
         <label>第几天<input v-model.number="form.activities[i].day" type="number" min="1" max="90" @change="save" /></label>

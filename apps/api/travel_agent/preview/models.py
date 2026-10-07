@@ -1,5 +1,6 @@
 """P01 HTTP input contracts; outputs are explicitly projected, never raw bundles."""
-from typing import Literal
+
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .projection import safe_text
 
@@ -39,6 +40,8 @@ class PreviewMutation(StrictModel):
 
 
 class PreviewEvidence(StrictModel):
+    route_association: dict[str, Any] | None = None
+    source_version: str = ""
     claim_id: str
     source_id: str
     source_title: str
@@ -212,24 +215,34 @@ class ReplayAdopt(StrictModel):
 class JobCreate(StrictModel):
     session_id: str = Field(max_length=100)
     expected_revision: int = Field(ge=0)
-    destination: str | None = Field(default=None,max_length=80)
+    destination: str | None = Field(default=None, max_length=80)
 
-    @field_validator('destination')
+    @field_validator("destination")
     @classmethod
     def safe(cls, value: str | None) -> str | None:
-        return safe_text(value,80) if value is not None else None
+        return safe_text(value, 80) if value is not None else None
 
 
 class JobAction(StrictModel):
-    action: Literal['cancel','adopt']
+    action: Literal["cancel", "adopt"]
     expected_revision: int = Field(ge=0)
 
 
 class JobView(StrictModel):
     job_id: str
     session_id: str
-    status: Literal['QUEUED','RUNNING','WAITING_LOGIN','VERIFICATION_REQUIRED','PARTIAL','COMPLETED',
-                    'NEEDS_REVIEW','FAILED','CANCELED','INTERRUPTED']
+    status: Literal[
+        "QUEUED",
+        "RUNNING",
+        "WAITING_LOGIN",
+        "VERIFICATION_REQUIRED",
+        "PARTIAL",
+        "COMPLETED",
+        "NEEDS_REVIEW",
+        "FAILED",
+        "CANCELED",
+        "INTERRUPTED",
+    ]
     request_revision: int
     cancel_requested: bool
     new_evidence_count: int

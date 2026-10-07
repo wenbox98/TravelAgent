@@ -10,7 +10,7 @@ from .guide_models import GuideProposal, GuideContent, BudgetLine
 from .arrangements import Rejected, _safety, _check
 from .guide_context import walking, budget_context
 
-VERSION = "advisory-guide-1.5"
+VERSION = "advisory-guide-1.6"
 SYNTHETIC = "GUIDE_MULTI_DAY"
 PROMPT = (
     "Return JSON only, protocol_version 4, Simplified Chinese, matching the supplied schema. "
@@ -58,6 +58,13 @@ PROMPT = (
     "A blank day, generic '自由活动/待定', or meals/hotel alone is NOT coverage. Use kind GAP for insufficient material. "
     "Omitted days are recorded as gaps by code. Never fill gaps with generic text to claim completeness. "
     "day_choices must not duplicate activity days. All day numbers obey the program range. "
+    "Read scoped_context: these are reviewed source-object backgrounds, not features of every member place. "
+    "Use context_uses to select context_id, a subset of its activity_ids, use COMPARE/SELECT/RELAXED_PACING, "
+    "and a brief suggestion explaining how this background helps compare interests or pacing. Include its citation_id. "
+    "Code displays the original text, subject, role, conditions and limitations; DO NOT recopy or paraphrase source facts "
+    "in free text. Never turn a group atmosphere, author opinion, negation or seasonal condition into each stop's feature, "
+    "current crowd guarantee or verified geographic membership. Direct place content and group background stay separate. "
+    "Unassociated source supplements are not planning input. A name-only stop can coexist with independent group context. "
 )
 
 
@@ -316,6 +323,9 @@ def validate(raw: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
             # UNKNOWN is allowed in an advisory city shortlist, never MISMATCH.
             checked["discovery_mode"] = True
             _check(value, checked)
+            from .scoped_context import validate_uses
+
+            validate_uses(value, checked)
             from .guide_assessment import assess, materials
 
             # Only day geometry is needed here; do not reinterpret source roles as Activity fields.
@@ -562,6 +572,7 @@ def apply(p: dict[str, Any], proposal: dict[str, Any]) -> dict[str, Any]:
         result.append(a)
     draft.activities = result
     draft.guide = GuideContent(
+        context_uses=proposal.get("context_uses", []),
         day_choices=proposal.get("day_choices", []),
         walking_requirement=proposal.get("walking_requirement", "NONE"),
         **{

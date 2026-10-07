@@ -20,15 +20,33 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     if not daily(p):
         PrivatePlanningBudget.for_trip(db, sid).check_trip(scope, sid)
     draft = PlanDraft.model_validate(p["draft"])
-    discovery_mode = bool(draft.activities) and all(
+    discovery_mode = bool(draft.activities) and any(
         a.provenance == "SOURCE_MENTION" for a in draft.activities
     )
     refs = references(db, scope, sid)
+    from .scoped_context import derive
+
+    mentions = []
+    if discovery_mode:
+        from .discovery import model_references
+
+        mention_draft = draft.model_copy(deep=True)
+        mention_draft.activities = [a for a in draft.activities if a.provenance == "SOURCE_MENTION"]
+        mentions = model_references(db, scope, sid, p, mention_draft)
+    backgrounds = derive([a.model_dump() for a in draft.activities], [*refs, *mentions])[
+        "backgrounds"
+    ]
     if p.get("protocol_version") == 2 and draft.activities:
         needed = {identifier for a in draft.activities for identifier in a.evidence_ids}
+        needed.update(c["citation_id"] for c in backgrounds)
+        needed.update(b["citation_id"] for c in backgrounds for b in c["basis"])
         refs = [e for e in refs if e["claim_id"] in needed]
-    selected: list[dict[str, Any]] = []
+    selected: list[dict[str, Any]] = list(mentions)
     lengths: dict[str, int] = {}
+    for e in mentions:
+        lengths[e["source_id"]] = (
+            lengths.get(e["source_id"], 0) + len(e["text"]) + sum(map(len, e["conditions"]))
+        )
     for e in refs:
         policy = db.connection.execute(
             "SELECT p.policy_json FROM sources b JOIN source_policies p ON p.policy_id=b.policy_id "
@@ -39,7 +57,13 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
             json.loads(policy[0]).get(k) for k in ("allow_inference", "allow_external_model")
         ):
             continue
-        text = "\n".join([e["text"], *e["conditions"]])
+        text = "\n".join(
+            [
+                e["text"],
+                *e["conditions"],
+                (e.get("route_association") or {}).get("object_quote", ""),
+            ]
+        )
         blocks = body_blocks(text)
         if len(outbound_blocks(blocks)) != len(blocks):
             continue
@@ -50,16 +74,27 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
             continue
         lengths[source] = lengths.get(source, 0) + len(text)
         selected.append(
-            {k: e[k] for k in ("claim_id", "text", "conditions", "reference_kind", "topic")}
+            {
+                k: e[k]
+                for k in (
+                    "claim_id",
+                    "text",
+                    "conditions",
+                    "reference_kind",
+                    "topic",
+                    "source_id",
+                    "source_version",
+                    "locator",
+                    "route_association",
+                    "review_status",
+                )
+                if k in e
+            }
         )
-    if discovery_mode:
-        from .discovery import model_references
-
-        selected = model_references(db, scope, sid, p, draft)
     allowed = {e["claim_id"]: e for e in selected}
     catalog = {a.activity_id: a for a in activities(refs, p["destination"])}
     for a in draft.activities:
-        if discovery_mode:
+        if a.provenance == "SOURCE_MENTION":
             continue
         if (
             a.provenance != "SOURCE_REFERENCE"
@@ -98,7 +133,11 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         and not draft.activities
     ):
         raise ValueError("ACTIVITY_SELECTION_REQUIRED")
-    return assemble(p, draft, selected, discovery_mode, refs)
+    data = assemble(p, draft, selected, discovery_mode, refs)
+    from .scoped_context import attach_context
+
+    attach_context(data, lengths)
+    return data
 
 
 def assemble(
@@ -155,7 +194,7 @@ def assemble(
         "allowed_citation_ids": sorted(e["claim_id"] for e in selected),
         "known_map_values": [],
         "instructions": (
-            "当前输入仅证明公共名称被原文提及，引用ID是发现依据，不是获准的作者事实。只给顺序、建议停留/休息和节奏取舍；不得添加地点历史、展览、特色、开放或预约事实。范围UNKNOWN的选项仅为临时草案。不要解释地点体验。"
+            "SOURCE_MENTION活动仅证明公共名称被原文提及，其引用ID是发现依据，不是获准的作者事实。独立已审核scoped_context可按标定范围用于取舍，不能升级提及的性质。只给顺序、建议停留/休息和节奏取舍；不得添加地点历史、展览、特色、开放或预约事实。范围UNKNOWN的选项仅为临时草案。"
             if discovery_mode
             else ""
         )

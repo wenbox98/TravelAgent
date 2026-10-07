@@ -24,7 +24,7 @@ LEVEL_LABELS = {
 
 
 def references(db: Any, scope: str, sid: str, p: dict[str, Any]) -> list[dict[str, Any]]:
-    """Local read only. Never read raw contents or call providers for display."""
+    """Local read only; knowledge uses metadata only, mentions recheck cached lineage."""
     if not p["draft"]["activities"] or p.get("demo"):
         return []
     if p.get("knowledge_mode"):
@@ -34,23 +34,41 @@ def references(db: Any, scope: str, sid: str, p: dict[str, Any]) -> list[dict[st
         try:
             with no_raw(db):
                 cards = verify(db, scope, p)
-            return [
-                dict(
-                    claim_id=c["card_id"],
-                    text=c["text"],
-                    conditions=c["conditions"],
-                    reference_kind=c["review_scope"],
-                    review_method=c["review_method"],
-                    topic=c["tags"][0] if c["tags"] else "UNKNOWN",
-                    knowledge_kind=c["kind"],
-                )
-                for c in cards
-            ]
+            from travel_agent.knowledge.planning import card_references
+
+            return card_references(cards)
         except ValueError:
             return []  # Unavailable bindings never gain content support from a snapshot.
     from .materials import references as evidence_references
 
-    return evidence_references(db, scope, sid)
+    result = evidence_references(db, scope, sid)
+    mentions = [
+        a
+        for a in PlanDraft.model_validate(p["draft"]).activities
+        if a.provenance == "SOURCE_MENTION"
+    ]
+    if mentions:
+        from .discovery import checked, verify_activity
+
+        try:
+            leads = checked(db, scope, sid, p)
+            for a in mentions:
+                lead = verify_activity(a, leads)
+                result.append(
+                    dict(
+                        claim_id=lead["lead_id"],
+                        source_id=lead["source_id"],
+                        source_version=lead["locator"].split(":chars:")[0],
+                        locator=lead["locator"],
+                        text=a.name,
+                        conditions=a.conditions,
+                        topic="PUBLIC_NAME",
+                        reference_kind="PLACE_MENTION_ONLY",
+                    )
+                )
+        except ValueError:
+            pass  # Unavailable mention bindings cannot establish a context target.
+    return result
 
 
 def materials(activities: list[dict[str, Any]], refs: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -113,6 +113,10 @@ class DailyBudget(BoundedBudget):
         s = self.state()
         self.task("REVISION" if data.get("protocol_version") == 3 else "PLANNING")
         gate = s["gate"]
+        if "RESEARCH" not in gate["tasks"] and not {
+            c["context_id"] for c in data.get("scoped_context", [])
+        } <= set(gate.get("scoped_context_ids", [])):
+            raise ValueError("OPERATION_MATERIAL_CHANGED")
         if data.get("knowledge_mode") and any(
             r not in gate.get("knowledge_bindings", []) for r in data["knowledge_bindings"]
         ):
@@ -220,6 +224,12 @@ def authorize(db: Any, scope: str, sid: str, p: dict[str, Any], proposal: Any) -
         ],
         authorized_input_hash=fingerprint([p["destination"], p["draft"], tasks]),
     )
+    if p["draft"]["activities"] and set(tasks) & {"PLANNING", "REVISION"}:
+        from .suggestions import payload_for
+
+        gate["scoped_context_ids"] = [
+            c["context_id"] for c in payload_for(p, db, scope, sid).get("scoped_context", [])
+        ]
     db.connection.execute(
         "INSERT INTO research_continuations VALUES(?,?,?,?,?,?,NULL,?,?)",
         (
@@ -461,6 +471,14 @@ def reuse(
     ]
     p["research_ids"] = list(old.get("research_ids", []))
     p["reused_claim_ids"] = sorted({i for a in selected for i in a["evidence_ids"]})
+    from .materials import references
+    from .scoped_context import derive
+
+    backgrounds = derive(selected, references(db, scope, choice["session_id"]))["backgrounds"]
+    p["reused_context_ids"] = sorted(
+        {c["citation_id"] for c in backgrounds}
+        | {b["citation_id"] for c in backgrounds for b in c["basis"]}
+    )
     p["collapsed"]["activities"] = False
 
 

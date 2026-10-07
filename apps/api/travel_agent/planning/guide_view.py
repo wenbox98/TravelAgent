@@ -61,6 +61,11 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
     from .guide_assessment import for_draft, current_dining
 
     assessment = for_draft(d, refs or [])
+    from .scoped_context import view as context_view
+
+    context_background = context_view(
+        [a.model_dump() for a in d.activities], refs or [], d.guide.context_uses
+    )
     dining = [
         dict(day=m.day, window="午餐" if m.window == "LUNCH" else "晚餐", text=DINING[m.strategy])
         for m in current_dining(d)
@@ -80,6 +85,7 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
         lodging = "UNDECIDED"
     areas = {a["area_id"]: a["name"] for a in p.get("lodging_areas", [])}
     return dict(
+        context=context_background,
         assessment=assessment,
         title=d.guide.title,
         reason=d.guide.reason,
@@ -235,6 +241,38 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         if a["locked_start"]:
             lines.append("用户锁定预约：" + a["locked_start"])
         lines += ["- 适用条件：" + escaped(c) for c in a["conditions"]]
+    context = guide["context"]
+    if context["backgrounds"] or context["supplements"]:
+        lines += ["", "## 这组玩法的背景与取舍", ""]
+        for item in context["backgrounds"]:
+            lines += [
+                "- "
+                + ("整体背景" if item["scope"] == "GROUP_BACKGROUND" else "直接地点内容")
+                + "："
+                + escaped(item["subject"])
+                + "（"
+                + escaped(item["reference_kind"])
+                + "）",
+                "  - 来源内容：" + escaped(item["text"]),
+                "  - 原条件：" + escaped("；".join(item["conditions"])),
+                "  - 本次组合线索：" + escaped("、".join(item["activity_names"])),
+                "  - " + item["limitation"],
+                "  - 引用："
+                + escaped(item["citation_id"])
+                + "；对象定位："
+                + escaped(item["object_locator"]),
+            ]
+        for use in context["uses"]:
+            lines.append("- AI取舍建议：" + escaped(use["reason"]) + "（建议，不是来源事实）")
+        for item in context["supplements"]:
+            lines += [
+                "- 未关联的来源补充：" + escaped(item["text"]),
+                "  - 性质："
+                + escaped(item["reference_kind"])
+                + "；原条件："
+                + escaped("；".join(item["conditions"])),
+                "  - " + item["reason"],
+            ]
     lines += ["", "## 食宿策略", ""]
     lines += [f"- 第 {m['day']} 天{m['window']}：{m['text']}" for m in guide["dining"]]
     lines += [
