@@ -8,6 +8,7 @@ import OperationPanel from './OperationPanel.vue'
 import LocalMaterials from './LocalMaterials.vue'
 import AdvisoryGuide from './AdvisoryGuide.vue'
 import TripIntake from './TripIntake.vue'
+import AutomaticPlanning from './AutomaticPlanning.vue'
 import {readIdea,storeIdea} from '../intake'
 import { originLabel, transportLabel, type Draft, type PlanView, type PlanIndex } from '../planning-api'
 const data = ref<PlanView | null>(null), form = ref<Draft | null>(null)
@@ -24,7 +25,7 @@ const readable = (s: string) => (data.value?.draft.activities || []).reduce((tex
 const scopeLabel = (s:string) => ({MATCH:'来源支持范围匹配',MISMATCH:'来源指向当前范围以外',UNKNOWN:'范围待核实'}[s] || '范围待核实')
 const proposalReason = (s:string) => ({PLANNING_LOCKED_TRANSPORT:'违反交通条件',PLANNING_LOCKED_ANCHOR:'改变固定开始时间',PLANNING_LOCKED_CONSTRAINT:'违反预约或硬截止',PLANNING_SCOPE_UNVERIFIED:'活动范围未通过',PLANNING_UNKNOWN_REFERENCE:'活动或引用不受支持',PLANNING_PROPOSAL_SCHEMA:'方案字段不完整',PLANNING_INVALID_TIME:'时间安排无效',PLANNING_UNSUPPORTED_FACT:'触发事实边界检查'}[s] || '未通过检查')
 const deltaLabel = (s: string) => ({activities: '活动顺序或停留', direction: '兴趣方向', inputs: '时间/往返条件', days: '可用天数', transport: '交通意向', driving: '驾驶意愿', return_deadline: '返回硬约束', first_day: '开始日序', first_period: '开始时段', anchor_origin: '开始时间'}[s] || '本行程条件')
-function apply(v: PlanView, submitted?:string) { const keep=submitted!==undefined&&JSON.stringify(form.value)!==submitted; if (v.job && !['QUEUED','RUNNING'].includes(v.job.status) && status.value.startsWith('AI正在')) status.value = ''; if (v.research_job && !['QUEUED','RUNNING','WAITING_LOGIN'].includes(v.research_job.status) && status.value.startsWith('正在查找')) status.value = ''; if (data.value?.session_id !== v.session_id) selectedActivities.value = []; data.value = v; if(!keep)form.value = clone(v.draft); localStorage.setItem('ta-current-trip', v.session_id) }
+function apply(v: PlanView, submitted?:string) { try{const pending=JSON.parse(localStorage.getItem('ta-auto-intent')||'null');if(v.automatic_task?.intent_key===pending?.key)localStorage.removeItem('ta-auto-intent')}catch{} const keep=submitted!==undefined&&JSON.stringify(form.value)!==submitted; if (v.job && !['QUEUED','RUNNING'].includes(v.job.status) && status.value.startsWith('AI正在')) status.value = ''; if (v.research_job && !['QUEUED','RUNNING','WAITING_LOGIN'].includes(v.research_job.status) && status.value.startsWith('正在查找')) status.value = ''; if (data.value?.session_id !== v.session_id) selectedActivities.value = []; data.value = v; if(!keep)form.value = clone(v.draft); localStorage.setItem('ta-current-trip', v.session_id) }
 async function refreshIndex() { index.value = await request<PlanIndex>('/api/v1/preview/planning') }
 async function load(sid?: string) {
   if(busy.value){error.value='正在保存或执行操作，请完成后再切换旅行。';return}
@@ -38,7 +39,27 @@ async function load(sid?: string) {
   } catch(e) { error.value = e instanceof Error ? e.message : '本地读取失败' }
 }
 async function saveAndSwitch(){const sid=pendingTrip.value;await act('save');if(!edited.value){pendingTrip.value='';await load(sid)}}
-function beginIdea(idea:string,region:string,travelKind:string){requestText.value=idea;destination.value=region;kind.value=travelKind;void create()}
+function beginIdea(idea:string,region:string,travelKind:string){requestText.value=idea;destination.value=region;kind.value=travelKind;void automatic('start')}
+function beginLocal(idea:string,region:string,travelKind:string){requestText.value=idea;destination.value=region;kind.value=travelKind;void create()}
+async function automatic(action:string,text='') {
+ if(busy.value)return
+ if(data.value&&edited.value){error.value='请先保存当前编辑，再提交补充；输入不会被后台结果覆盖。';return}
+ busy.value=true;error.value='';++generation
+ const url='/api/v1/preview/automatic-planning'+(action==='start'?'':'/'+data.value?.session_id)
+ const body=action==='start'?{request:requestText.value,destination:destination.value,travel_kind:kind.value,consent:'PRIVATE_RESEARCH_AND_ADVICE_V1'}:{action,expected_revision:data.value?.revision,text,consent:action==='cancel'?null:'PRIVATE_RESEARCH_AND_ADVICE_V1'}
+ const signature=JSON.stringify([url,body]);let key:string=crypto.randomUUID()
+ try{
+  const pending=JSON.parse(localStorage.getItem('ta-auto-intent')||'null') as {signature:string;key:string}|null
+  if(pending&&pending.signature===signature)key=pending.key
+  else if(pending){error.value='上次提交结果尚未确认，请先读取已保存状态；不会再派发另一个任务。';return}
+  localStorage.setItem('ta-auto-intent',JSON.stringify({signature,key}))
+  apply(await request<PlanView>(url,body,key));localStorage.removeItem('ta-auto-intent')
+  creating.value=false;if(action==='start')storeIdea('');await refreshIndex()
+  status.value=action==='cancel'?'已停止本次任务，原采用版保留。':'已提交本次有限任务，进度和新建议会显示在这里。'
+ }catch(e){error.value=e instanceof Error?e.message:'任务结果未确认，请读取已保存状态。';if(e instanceof Error&&'status' in e&&Number(e.status)>0)localStorage.removeItem('ta-auto-intent')}
+ finally{busy.value=false}
+}
+async function adoptAutomatic(i:number){await act('use_proposal',{proposal_index:i});if(data.value?.proposal_preview_active&&!error.value)await act('adopt')}
 async function create(demo: string | null = null) {
   if (busy.value) return
   if(data.value&&edited.value){error.value='当前旅行有未保存更改，请先保存后再建立新旅行。';return}
@@ -88,7 +109,7 @@ onMounted(async () => {
   window.addEventListener('beforeunload',protectLeave)
   await load()
   poll = setInterval(async () => {
-    if (!busy.value && !edited.value && data.value && ((data.value.job && ['QUEUED', 'RUNNING'].includes(data.value.job.status)) || (data.value.research_job && ['QUEUED','RUNNING','WAITING_LOGIN'].includes(data.value.research_job.status)))) {
+    if (!busy.value && !edited.value && data.value && (['QUEUED','RUNNING'].includes(data.value.automatic_task?.status||'') || (data.value.job && ['QUEUED', 'RUNNING'].includes(data.value.job.status)) || (data.value.research_job && ['QUEUED','RUNNING','WAITING_LOGIN'].includes(data.value.research_job.status)))) {
       const ticket = generation, sid = data.value.session_id
       try { const next = await request<PlanView>('/api/v1/preview/planning/' + sid); if (ticket === generation && sid === data.value?.session_id&&!edited.value) apply(next) } catch(e) { error.value=e instanceof Error?e.message:'暂时未读到任务进度；任务可能仍在运行，请读取状态，勿重复派发。' }
     }
@@ -102,13 +123,14 @@ onUnmounted(() => { ++generation; clearInterval(poll); clearTimeout(saveTimer);w
     <p v-if="error" class="warning" role="alert">{{ error }} <button class="quiet" :disabled="busy" @click="load(data?.session_id)">读取已保存状态</button></p><p v-if="status" role="status">{{ status }}</p>
     <p v-if="data&&form&&edited" role="status">{{busy?'正在保存本次更改…':'有未保存更改；保存成功前请保留本页。'}}</p>
     <div v-if="pendingTrip" class="card"><p>当前输入仍保留。保存成功后再切换。</p><button :disabled="busy" @click="saveAndSwitch">保存后继续</button><button class="quiet" @click="pendingTrip='';error=''">留在当前旅行</button></div>
-    <TripIntake v-if="creating || !data" :busy="busy" :ready="true" @start="beginIdea" />
+    <TripIntake v-if="creating || !data" :busy="busy" :ready="true" @start="beginIdea" @local="beginLocal" />
     <details class="card"><summary>历史旅行与合成场景</summary><label>恢复本次旅行<select :value="data?.session_id || ''" @change="load(($event.target as HTMLSelectElement).value)"><option value="">请选择</option><option v-for="t in index?.trips" :key="t.session_id" :value="t.session_id">{{ t.destination }} · {{ t.demo ? '合成测试' : '本机私人草稿' }}</option></select></label><p>以下仅用虚构活动，测试输入不作为你的真实旅行偏好。</p><div class="actions"><button class="quiet" :disabled="busy" @click="create('CITY')">成都城市公交 · 合成</button><button class="quiet" :disabled="busy" @click="create('REGIONAL')">区域交通未定 · 合成</button><button class="quiet" :disabled="busy" @click="create('OTHER_CITY')">苏州两日 · 合成</button><button class="quiet" :disabled="busy" @click="create('GUIDE_MULTI_DAY')">多日食宿预算 · 合成</button></div></details>
     <template v-if="data && form && !creating">
-      <section v-if="!data.draft.activities.length&&!data.demo" class="card next-step"><h2>先为这次旅行找玩法</h2><p>已识别：{{data.destination}} · {{data.draft.days?`${data.draft.days} 天`:'天数未定'}} · {{transportLabel(data.draft.transport)}}。预算和人数仍以你明确填写的条件为准。</p><p>当前还没有选定可用活动。本机已有资料可以先比较；没有适用资料时，需要你明确允许有限研究后才能查找，暂不编造路线。</p><a href="#local-materials">查看本地玩法与历史组合</a> · <a href="#operation-permission">查看有限研究许可</a></section>
+      <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy" @run="automatic" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
+      <AdvisoryGuide v-if="data.guide_view && data.draft.activities.length && (!data.automatic_task || data.proposal_preview_active || data.adopted)" :plan="data" :busy="busy" @action="act" />
+      <details class="card"><summary>高级：本地选材、手动操作与详细条件</summary>
       <LocalMaterials v-if="!data.demo" :plan="data" :busy="busy || edited" @action="act" @refresh="load" @newtrip="creating=true" />
       <OperationPanel :plan="data" :busy="busy" @action="act" />
-      <AdvisoryGuide v-if="data.guide_view && data.draft.activities.length" :plan="data" :busy="busy" @action="act" />
       <p class="notice">{{ data.validation_trip ? '真实资料验收 · 独立测试输入。' : '' }} {{ data.demo ? '合成测试：全部项目为自编虚构活动；不是你的真实行程。' : '本机私人草案：本次旅行的选择不会成为长期偏好。' }} {{ data.cache_message }}</p>
       <PlaceDiscovery v-if="data.discovery_available || data.place_leads.length" :plan="data" :busy="busy" @action="act" @refresh="load(data.session_id)" />
       <section v-if="!data.demo" id="find-play" class="card stage"><h2>查找新玩法</h2><p>本机资料先用；不足时由你主动补充。外部操作仅使用本次旅行的已登记许可；地点发现仅用缓存，原审核与额度保留。必要文字每来源每次最多6000字交由既定 DeepSeek；调用上限以本旅行当前许可为准，未授权不会派发。审核只是来源上下文检查，不代表当前开放或交通已经核实。</p>
@@ -124,6 +146,7 @@ onUnmounted(() => { ++generation; clearInterval(poll); clearTimeout(saveTimer);w
       <section v-if="!data.guide_view" class="card stage"><h2>4 · 可编辑的时间草案</h2><div class="actions"><button :disabled="busy || !data.model_available" @click="act('suggest')">让AI给出安排建议</button><button v-if="data.job && ['QUEUED','RUNNING'].includes(data.job.status)" class="quiet" :disabled="busy" @click="act('cancel_job')">停止本次建议</button></div><p class="muted">AI建议仅在点击时生成。外部操作按当前旅行的明确许可扣账；刷新、普通修改和折叠不调用模型。地图结果和私址不发送给模型。生成失败仍保留草稿。休息时间不会抵扣未知通行时间。</p><label>这次建议希望怎么调整<select v-model="form.adjustment" :disabled="busy" @change="act('save')"><option value="NONE">按当前兴趣安排</option><option value="FEWER">少安排一个项目</option><option value="LONGER_FIRST">第一项多玩一会儿</option><option value="SWAP_FIRST_TWO">交换前两项</option></select></label><label v-if="form.adjustment === 'LONGER_FIRST'">增加分钟（可留空，由AI建议）<input :value="form.adjustment_minutes ?? ''" type="number" min="5" max="120" @input="form.adjustment_minutes = number($event)" /></label><RevisionReview v-if="data.job?.protocol_version === 3" :job="data.job" :busy="busy" @action="act" /><p v-if="data.model_reason">{{ data.model_reason }}</p><p v-if="data.job && ['QUEUED','RUNNING'].includes(data.job.status)" role="status">正在生成可修改建议，原采用版保留……</p><p v-if="data.job?.protocol_version === 2">本次生成 {{ data.job.generated_count }} 个提议，独立接纳 {{ data.job.accepted_count }} 个，拒绝 {{ data.job.rejected_count }} 个。</p><p v-for="d in data.job?.decisions.filter(d => data?.job?.protocol_version !== 3 && d.status === 'REJECTED')" :key="d.proposal_id" class="warning">一个提议{{ proposalReason(d.reason) }}；其他独立合格提议保留。</p><p v-if="data.job?.reason && data.job.protocol_version !== 3" class="warning">本次未生成可采用建议：{{ data.job.reason === 'STALE_PROPOSAL' ? '条件已变化，旧建议未采用' : data.job.reason === 'PLANNING_LOCKED_TRANSPORT' ? '输出改变了已确认交通意向，已拒绝整次提议' : '模型未完成或输出未通过约束检查' }}。不会自动重试。</p><details v-if="data.job?.proposals.length && data.job.protocol_version !== 3" :open="data.job.request_revision === data.revision"><summary>查看AI提议与取舍</summary><div class="suggestion-grid"><article v-for="(p, i) in data.job.proposals" :key="i" class="direction"><small>AI提议 · 未核实事实</small><h3>{{ form.activities.some(a => a.provenance === 'SOURCE_MENTION' && a.spatial_status !== 'MATCH') ? `暂定方案 ${i+1} · 范围待核实` : p.title }}</h3><p>{{ readable(p.reason) }}</p><ol><li v-for="a in p.activities" :key="a.activity_id">第 {{ a.day }} 天 {{ (form.activities.find(x => x.activity_id === a.activity_id) || data.activity_candidates.find(x => x.activity_id === a.activity_id))?.name || a.activity_id }} · 建议停留 {{ a.stay_min }}–{{ a.stay_max }} 分钟</li></ol><p>{{ p.fixed_origin === 'PROGRAM_INPUT' ? '程序保留的交通条件' : '交通建议' }}：{{ transportLabel(p.transport) }}，不自动改偏好。</p><details><summary>假设、未知与取舍</summary><p v-for="s in [...p.assumptions, ...p.unknowns, ...p.impacts]" :key="s">{{ readable(s) }}</p></details><button :disabled="busy || (!data.job.can_preview && data.job.request_revision !== data.revision)" @click="act('use_proposal', {proposal_index: i})">将此建议放入草稿</button><p v-if="!data.job.can_preview && data.job.request_revision !== data.revision" class="muted">当前条件已变化，旧建议不再覆盖草稿。</p></article></div></details><ol class="timeline"><li v-for="a in data.timeline" :key="a.activity_id"><strong>第 {{ a.day }} 天 · {{ a.display_start }}　{{ a.name }}</strong><p>结束：{{ a.display_end }}；{{ a.rest_minutes === null ? '休息待定' : `活动后休息建议 ${a.rest_minutes} 分钟` }}。{{ a.locked ? '预约锁定。' : '' }}{{ data.validation_trip && a.timing_origin === 'USER_CONFIRMED' ? '本轮页面测试假设，非作者耗时或长期偏好' : originLabel(a.timing_origin) }}</p></li></ol><p class="muted">约为停留/休息假设与当前地图参考下的安排，显示区间向外取整到五分钟，不代表已验证到达时间。</p><details><summary>时间计算详情（原值）</summary><p v-for="a in data.timeline" :key="a.activity_id">{{ a.name }}：{{ a.start }} → {{ a.end }}；原值保留用于约束计算。</p></details><ul class="warning"><li v-for="g in data.gaps" :key="g">{{ g }}</li></ul><p v-if="data.differences.length">与采用版相比：{{ data.differences.map(deltaLabel).join('、') }}发生变化；原采用版未覆盖。</p><div class="actions"><button :disabled="busy" @click="act('adopt')">采用这版草案</button><button class="quiet" :disabled="busy || (!data.adopted && !data.proposal_preview_active)" @click="act('cancel')">{{ data.proposal_preview_active ? '取消建议，恢复原草稿' : '恢复已采用版' }}</button><button class="quiet" :disabled="busy" @click="load(data.session_id)">刷新本地状态</button></div><details v-if="data.adopted"><summary>已采用版本</summary><p>{{ data.adopted.activities.map(a => a.name).join(' → ') || '尚未选项目' }}；首项 {{ data.adopted.inputs.activity_start || '未定' }}；{{ transportLabel(data.adopted.transport) }}。</p><p>采用是本次行程的选择，不证明交通、预约或整趟可行。</p></details></section>
       <PlanPlaces v-if="data.draft.activities.length&&!data.place_leads.length" :plan="data" @refresh="load(data.session_id)" />
       <details class="card"><summary>依据与诊断</summary><p v-if="!data.operation">当前目的地关联 {{ data.evidence_count }} 条已审核资料。模型额度累计 {{ index?.model_used ?? 0 }}/{{ index?.model_limit ?? 2 }}（历史合成许可）（失败同样计数）。</p><p>新旅行默认：交通未知、返回同点为可修改假设；AI停留/顺序标建议，来源条件留在引用处。测试不进入长期偏好。</p><p v-if="data.private_budget && !data.operation">历史许可累计：连接 {{ data.private_budget.used.connect }}/{{ data.private_budget.used.connect + data.private_budget.remaining.connect }}，搜索 {{ data.private_budget.used.search }}/{{ data.private_budget.used.search + data.private_budget.remaining.search }}，详情 {{ data.private_budget.used.detail }}/{{ data.private_budget.used.detail + data.private_budget.remaining.detail }}，模型 {{ data.private_budget.used.model }}/{{ data.private_budget.used.model + data.private_budget.remaining.model }}，地点 {{ data.private_budget.used.map_place }}/{{ data.private_budget.used.map_place + data.private_budget.remaining.map_place }}，路径 {{ data.private_budget.used.map_route }}/{{ data.private_budget.used.map_route + data.private_budget.remaining.map_route }}。预留后失败也计数。</p><p>历史门禁保留；单段参考不代表全程可执行。</p></details>
+      </details>
     </template>
   </section>
 </template>

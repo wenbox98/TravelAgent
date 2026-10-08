@@ -1278,6 +1278,83 @@ paths:
             application/json:
               schema:
                 $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/preview/automatic-planning:
+    post:
+      operationId: startAutomaticPlanning
+      summary: 一次明确点击记录版本化私人用途与服务器有界上限，耐久编排研究/审核/建议；GET零派发，改条件隔离旧结果，最终采用仍显式确认
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/PlanView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/AutomaticStart
+  /api/v1/preview/automatic-planning/{session_id}:
+    post:
+      operationId: changeAutomaticPlanning
+      summary: 一次明确点击记录版本化私人用途与服务器有界上限，耐久编排研究/审核/建议；GET零派发，改条件隔离旧结果，最终采用仍显式确认
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/PlanView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/AutomaticAction
 components:
   securitySchemes:
     LocalSession:

@@ -245,6 +245,7 @@ class RevisionResponse(StrictModel):
 
 
 class PlanView(StrictModel):
+    automatic_task: dict[str, Any] | None = None
     guide_view: dict[str, Any] | None = None
     local_guide_review: dict[str, Any] | None = None
     combination_candidates: list[Activity] = Field(default_factory=list)

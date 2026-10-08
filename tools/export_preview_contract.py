@@ -13,11 +13,12 @@ from travel_agent.planning.flow_models import PlanAction, PlanCreate, PlanView, 
 
 from travel_agent.knowledge.api import LibraryAction, LibraryResponse  # noqa: E402
 from travel_agent.planning.guide_models import GuideResponse, GuideExport  # noqa: E402
+from travel_agent.planning.automatic_models import AutomaticStart, AutomaticAction  # noqa: E402
 
 
 def definitions():
     result = {}
-    for model in (GuideResponse, GuideExport, LibraryAction, LibraryResponse, PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse):
+    for model in (AutomaticStart, AutomaticAction, GuideResponse, GuideExport, LibraryAction, LibraryResponse, PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse):
         schema = model.model_json_schema()
         result.update(schema.pop("$defs", {}))
         result[model.__name__] = schema
@@ -37,6 +38,8 @@ def main():
     path = ROOT / "contracts/openapi.yaml"
     api = yaml.safe_load(path.read_text(encoding="utf-8"))
     routes = [
+        ('/api/v1/preview/automatic-planning', 'post', 'startAutomaticPlanning', 'AutomaticStart', 'PlanView'),
+        ('/api/v1/preview/automatic-planning/{session_id}', 'post', 'changeAutomaticPlanning', 'AutomaticAction', 'PlanView'),
         ("/api/v1/preview/knowledge", "post", "manageLocalKnowledge", "LibraryAction", "LibraryResponse"),
         ('/api/v1/preview/planning', 'get', 'readPlanningIndex', None, 'PlanIndex'),
         ('/api/v1/preview/planning', 'post', 'createIndependentTrip', 'PlanCreate', 'PlanView'),
@@ -71,6 +74,8 @@ def main():
         if 'Planning' in operation or operation == 'createIndependentTrip':
             value['summary']='日常私人工作台：新旅行无隐含授权；页面有限许可、追加/撤销复用耐久账本；本地复用/修改/恢复零外部调用；历史规则保留'
             value['security']=[{'PreviewMapSession':[]}]
+        if 'AutomaticPlanning' in operation:
+            value['summary']='一次明确点击记录版本化私人用途与服务器有界上限，耐久编排研究/审核/建议；GET零派发，改条件隔离旧结果，最终采用仍显式确认'
         if operation == "manageLocalKnowledge":
             value["summary"] = "本机关键词资料库：整理、检索、显式复用、独立清理和撤销；无外部派发"
             value["security"] = [{"PreviewMapSession": []}]

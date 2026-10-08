@@ -49,6 +49,10 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
         view["gaps"] = list(dict.fromkeys(view["gaps"] + gaps))
         return view
 
+    from .automatic_api import install_automatic
+
+    install_automatic(app, config, present)
+
     @app.get("/api/v1/preview/planning-maps/{session_id}", response_model=MapView)
     def read_maps(session_id: str) -> Any:
         return selected_maps(session_id).get(session_id)

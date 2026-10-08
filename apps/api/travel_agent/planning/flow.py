@@ -502,7 +502,10 @@ class PlanningService:
             if draft.planning_mode == "ADVISORY"
             else None
         )
+        from .automatic import task_view
+
         return {
+            "automatic_task": task_view(self.db, self.scope, sid, p),
             "guide_view": guide_view,
             "local_guide_review": local_review(self.db, self.scope, sid, p) if guide_view else None,
             "combination_candidates": [a.model_dump() for a in pool(self.db, self.scope, sid, p)]
@@ -593,6 +596,10 @@ class PlanningService:
                 return self.get(sid)
             if row["revision"] != action.expected_revision:
                 raise ValueError("STALE_REVISION")
+            if action.action != "collapse":
+                from .automatic import invalidate
+
+                invalidate(self.db, sid)
             p = state["planning"]
             from .advisory import enabled, check_transition, combine
 

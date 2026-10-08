@@ -20,19 +20,27 @@ def reopen(workspace: Path, port: int) -> None:
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     try:
         key = (workspace / "preview-auth.key").read_bytes()
-        connection.request("POST", "/local-entry", headers={"X-Local-Entry-Proof": entry_proof(key)})
+        connection.request(
+            "POST", "/local-entry", headers={"X-Local-Entry-Proof": entry_proof(key)}
+        )
         response = connection.getresponse()
         if response.status != 200:
             raise ValueError("LOCAL_ENTRY_UNAVAILABLE")
         url = json.loads(response.read(2048))["entry_url"]
         target = urlsplit(url)
-        if target.scheme != "http" or target.netloc != f"127.0.0.1:{port}" or target.path != "/bootstrap":
+        if (
+            target.scheme != "http"
+            or target.netloc != f"127.0.0.1:{port}"
+            or target.path != "/bootstrap"
+        ):
             raise ValueError("LOCAL_ENTRY_UNAVAILABLE")
         (workspace / "entry.url").write_text(url, encoding="utf8")
         webbrowser.open(url)
         print("已重新打开本机旅行工作台；原服务、草稿和任务保留。")
-    except (OSError, ValueError, KeyError):
-        raise SystemExit("无法重新打开本机入口：请确认该工作区服务已启动且版本已更新。原数据未改变。") from None
+    except OSError, ValueError, KeyError:
+        raise SystemExit(
+            "无法重新打开本机入口：请确认该工作区服务已启动且版本已更新。原数据未改变。"
+        ) from None
     finally:
         connection.close()
 
@@ -80,6 +88,7 @@ def main() -> None:
             "authorize-private",
             "worker",
             "job-worker",
+            "task-worker",
             "extract-worker",
             "review-worker",
             "diagnostic-replay",
@@ -162,6 +171,11 @@ def main() -> None:
     audit = workspace / "operation-audit"
     audit.mkdir(exist_ok=True)
     install(args.action, audit / f"metrics-{os.getpid()}.json")
+    if args.action == "task-worker":
+        from travel_agent.planning.automatic import run_task
+
+        run_task(database, args.job)
+        return
     if args.action in {"diagnostic-replay", "diagnostic-clean"}:
         import json
         from travel_agent.planning.revision_diagnostics import cleanup, replay
@@ -214,6 +228,9 @@ def main() -> None:
             return
         raise SystemExit("WORKBENCH_ALREADY_RUNNING") from None
     with Database(database) as db:
+        from travel_agent.planning.automatic import recover
+
+        recover(db)
         db.connection.execute(
             "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1 WHERE continuation_id IN (?,?,?,?,?) AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
             (IDENTIFIER, PRIVATE_ID, CURRENT_IDENTIFIER, DISCOVERY_IDENTIFIER, REVISION_IDENTIFIER),

@@ -14,6 +14,8 @@ from travel_agent.research.store import EvidenceStore
 KINDS = ("CONNECT", "SEARCH", "DETAIL", "MODEL", "MAP_PLACE", "MAP_ROUTE")
 PURPOSE = "PRIVATE_OPERATION"
 STATUS_MESSAGES = {
+    "AUTOMATIC_NO_RETRY": "这个任务已结束；不会自动重试。可补充新的旅行条件，或查看已保存结果与失败阶段。",
+    "AUTOMATIC_CLARIFY_CHANGE": "这项补充还不能明确转成条件，请说明天数、交通或节奏的具体变化；未发起请求。",
     "DIAGNOSTIC_EXPIRED": "保留的诊断已过期，不能从报告重建回复；旧失败和采用版保留。",
     "DIAGNOSTIC_UNAVAILABLE": "没有可安全复核的原始诊断；未发起模型请求。",
     "KNOWLEDGE_SOURCE_UNAVAILABLE": "知识原文身份缺失或发生意外变化，未继续使用。",
@@ -81,6 +83,18 @@ def check_active(db: Any, state: dict[str, Any]) -> dict[str, Any]:
         or p["destination"] != gate["destination"]
     ):
         raise ValueError("OPERATION_SCOPE_MISMATCH")
+    if gate.get("automatic_task_id"):
+        task = db.connection.execute(
+            "SELECT status FROM planning_tasks WHERE task_id=? AND session_id=? AND account_scope=?",
+            (gate["automatic_task_id"], gate["session_id"], state["account_scope"]),
+        ).fetchone()
+        if (
+            not task
+            or task[0] != "RUNNING"
+            or p.get("automatic_task_id") != gate["automatic_task_id"]
+            or p.get("automatic_generation") != gate["automatic_generation"]
+        ):
+            raise ValueError("STALE_PROPOSAL")
     return p
 
 

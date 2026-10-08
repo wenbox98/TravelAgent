@@ -141,6 +141,12 @@ def run_job(
         state = "FAILED"
         owned = reader is None
 
+        def progress(stage: str) -> None:
+            con.execute(
+                "UPDATE preview_jobs SET summary_json=json_set(coalesce(summary_json,'{}'),'$.stage',?) WHERE job_id=? AND status IN ('RUNNING','WAITING_LOGIN')",
+                (stage, job_id),
+            )
+
         def active() -> None:
             if ordinary:
                 from travel_agent.planning.workbench import check_active
@@ -162,6 +168,11 @@ def run_job(
                 ):
                     raise ResearchStopped("BUDGET_EXHAUSTED", "PLANNING_MODEL_RESERVED")
                 budget.reserve(kind, fingerprint)
+                progress(
+                    {"CONNECT": "LOGIN", "SEARCH": "SEARCH", "DETAIL": "READING"}.get(
+                        kind, "RESEARCH"
+                    )
+                )
 
         try:
             provider = provider or configured_provider()
@@ -201,6 +212,7 @@ def run_job(
                     (attempt,),
                 ).fetchone()[0]
                 budget.reserve("MODEL", "extract:" + source)
+                progress("EXTRACT")
                 if extract_dispatch:
                     return dict(extract_dispatch(store, attempt, gaps))
                 return supervise_reserved(
@@ -214,6 +226,7 @@ def run_job(
 
             def after(out: dict[str, Any]) -> None:
                 active()
+                progress("REVIEW")
                 if review_dispatch:
                     review_dispatch(
                         store, budget, out["attempt_id"], j["account_scope"], data["preferences"]
@@ -258,6 +271,8 @@ def run_job(
                         data["request"]["destination"],
                         data.get("spatial_intent", "UNDECIDED"),
                     )
+                    if budget.state()["gate"].get("automatic_task_id"):
+                        return any(a.spatial_status != "MISMATCH" for a in candidates)
                     return (
                         sum(a.spatial_status == "MATCH" for a in candidates) >= 2
                         if data.get("spatial_intent") == "CITY_CORE"

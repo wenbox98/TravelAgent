@@ -1,0 +1,44 @@
+"""Same-origin explicit intents; status reads are handled by the planning projection."""
+
+from typing import Any
+from fastapi import FastAPI, Request
+from travel_agent.persistence.database import Database
+from travel_agent.preview.api import PreviewConfig, error
+from .automatic import AutomaticService
+from .automatic_models import AutomaticAction, AutomaticStart
+from .flow_models import PlanView
+
+
+def install_automatic(app: FastAPI, config: PreviewConfig, present: Any) -> None:
+    def dispatch(view: Any) -> Any:
+        if (view.get("automatic_task") or {}).get("status") == "QUEUED":
+            from .suggestions import launch
+
+            launch(config.database, view["automatic_task"]["task_id"], automatic=True)
+        return present(view)
+
+    @app.post("/api/v1/preview/automatic-planning", response_model=PlanView)
+    def start(body: AutomaticStart, request: Request) -> Any:
+        try:
+            if not config.daily_workbench:
+                raise ValueError("DAILY_TRIP_REQUIRED")
+            with Database(config.database) as db:
+                view = AutomaticService(db, config.account_scope).start(
+                    body, request.headers.get("idempotency-key", "")
+                )
+            return dispatch(view)
+        except ValueError as exc:
+            return error(str(exc), 409)
+
+    @app.post("/api/v1/preview/automatic-planning/{session_id}", response_model=PlanView)
+    def action(session_id: str, body: AutomaticAction, request: Request) -> Any:
+        try:
+            if not config.daily_workbench:
+                raise ValueError("DAILY_TRIP_REQUIRED")
+            with Database(config.database) as db:
+                view = AutomaticService(db, config.account_scope).action(
+                    session_id, body, request.headers.get("idempotency-key", "")
+                )
+            return dispatch(view)
+        except ValueError as exc:
+            return error(str(exc), 409)

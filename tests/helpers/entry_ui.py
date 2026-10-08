@@ -85,7 +85,7 @@ def main():
                 assert page.get_by_role("button", name="查看本地草案", exact=True).count() == 0
                 idea = page.get_by_label("你想去哪里，怎么玩？", exact=True)
                 idea.fill("我想去合成北域玩7天")
-                expect(page.get_by_role("button", name="开始规划", exact=True)).to_be_disabled()
+                expect(page.get_by_role("button", name="查资料并生成旅行建议", exact=True)).to_be_disabled()
                 page.reload()
                 expect(idea).to_have_value("我想去合成北域玩7天")
                 # Owner CLI uses a private local key; the browser never receives proof.
@@ -97,32 +97,24 @@ def main():
                 )
                 assert renewed.status_code == 200
                 page.goto(renewed.json()["entry_url"])
-                expect(page.get_by_role("button", name="开始规划", exact=True)).to_be_enabled()
+                expect(page.get_by_role("button", name="查资料并生成旅行建议", exact=True)).to_be_enabled()
                 expect(idea).to_have_value("我想去合成北域玩7天")
                 # Chinese IME composition must not submit Ctrl+Enter.
                 idea.evaluate(
                     "el=>el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,isComposing:true,bubbles:true}))"
                 )
                 assert (
-                    page.get_by_role("heading", name="先为这次旅行找玩法", exact=True).count() == 0
+                    page.get_by_role("heading", name="合成北域", exact=True).count() == 0
                 )
                 idea.press("Control+Enter")
                 expect(page.get_by_role("heading", name="合成北域", exact=True)).to_be_visible()
                 expect(
                     page.get_by_text(
-                        "已识别：合成北域 · 7 天 · 交通未定。预算和人数仍以你明确填写的条件为准。",
+                        "已识别：合成北域 · 7 天。人数、预算和日期可以以后再补。",
                         exact=True,
                     )
                 ).to_be_visible()
-                expect(
-                    page.get_by_text(
-                        "当前还没有选定可用活动。本机已有资料可以先比较；没有适用资料时，需要你明确允许有限研究后才能查找，暂不编造路线。",
-                        exact=True,
-                    )
-                ).to_be_visible()
-                assert page.get_by_role(
-                    "button", name="补充研究，查找真实玩法", exact=True
-                ).is_disabled()
+                expect(page.get_by_role("heading", name="先完成一次模型配置", exact=True)).to_be_visible()
                 page.get_by_role("button", name="新建独立旅行", exact=True).click()
                 idea.fill("去虚构湖城玩三天")
                 page.route("**/api/v1/preview", lambda r: r.abort())
@@ -131,15 +123,15 @@ def main():
                 expect(idea).to_have_value("去虚构湖城玩三天")
                 page.unroute("**/api/v1/preview")
                 page.get_by_role("button", name="重新连接本机工作台", exact=True).click()
-                expect(page.get_by_role("button", name="开始规划", exact=True)).to_be_enabled()
+                expect(page.get_by_role("button", name="查资料并生成旅行建议", exact=True)).to_be_enabled()
                 expect(idea).to_have_value("去虚构湖城玩三天")
                 page.set_viewport_size({"width": 390, "height": 844})
                 page.screenshot(path=str(output / "narrow.png"))
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
-                page.get_by_role("button", name="开始规划", exact=True).focus()
-                expect(page.get_by_role("button", name="开始规划", exact=True)).to_be_focused()
+                page.get_by_role("button", name="查资料并生成旅行建议", exact=True).focus()
+                expect(page.get_by_role("button", name="查资料并生成旅行建议", exact=True)).to_be_focused()
                 page.route(
-                    "**/api/v1/preview/planning",
+                    "**/api/v1/preview/automatic-planning",
                     lambda r: (
                         r.fulfill(
                             status=503,
@@ -154,7 +146,7 @@ def main():
                         else r.continue_()
                     ),
                 )
-                page.get_by_role("button", name="开始规划", exact=True).click()
+                page.get_by_role("button", name="查资料并生成旅行建议", exact=True).click()
                 expect(page.get_by_role("alert")).to_contain_text("合成本机保存失败")
                 expect(idea).to_have_value("去虚构湖城玩三天")
                 assert not external and not errors

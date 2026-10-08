@@ -18,6 +18,7 @@ def main():
     p.add_argument("--control", type=Path, required=True)
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--product", action="store_true")
+    p.add_argument("--automatic-synthetic", action="store_true")
     args = p.parse_args()
     attempts = []
     def audit(event, values):
@@ -34,6 +35,27 @@ def main():
     from travel_agent.preview.api import PreviewConfig
     from travel_agent.settings import Settings
     import uvicorn
+    if args.product and not args.automatic_synthetic:
+        import travel_agent.preview.worker as worker
+        def missing_configuration():
+            raise ValueError("CONFIGURED_120_SECOND_PROVIDER_REQUIRED")
+        worker.configured_provider = missing_configuration
+    if args.automatic_synthetic:
+        # This switch exists ONLY in the deny-network test server, never product CLI.
+        from automatic_fakes import config, Model, Reader, research, planning
+        import travel_agent.preview.worker as worker
+        import travel_agent.planning.suggestions as suggestions
+        from travel_agent.planning.automatic import run_task
+        worker.configured_provider = config
+        suggestions.configured_provider = config
+        def launch(database, jid, **options):
+            if not options.get("automatic"):
+                raise AssertionError("UNEXPECTED_TEST_DISPATCH")
+            def run():
+                model, reader = Model(), Reader()
+                run_task(database, jid, research_runner=research(model, reader), planning_runner=planning(model))
+            threading.Thread(target=run,daemon=True).start()
+        suggestions.launch = launch
     key_file = args.control.with_suffix(".key")
     if not key_file.exists():
         key_file.write_bytes(secrets.token_bytes(32))

@@ -7053,6 +7053,19 @@
     "PlanView": {
       "additionalProperties": false,
       "properties": {
+        "automatic_task": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Automatic Task"
+        },
         "guide_view": {
           "anyOf": [
             {
@@ -8654,6 +8667,87 @@
         "reason"
       ],
       "title": "GuideContextUse",
+      "type": "object"
+    },
+    "AutomaticStart": {
+      "additionalProperties": false,
+      "properties": {
+        "request": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Request",
+          "type": "string"
+        },
+        "destination": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Destination",
+          "type": "string"
+        },
+        "travel_kind": {
+          "default": "CITY",
+          "enum": [
+            "CITY",
+            "REGIONAL"
+          ],
+          "title": "Travel Kind",
+          "type": "string"
+        },
+        "consent": {
+          "const": "PRIVATE_RESEARCH_AND_ADVICE_V1",
+          "title": "Consent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request",
+        "consent"
+      ],
+      "title": "AutomaticStart",
+      "type": "object"
+    },
+    "AutomaticAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "continue",
+            "cancel",
+            "revise"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 0,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "text": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Text",
+          "type": "string"
+        },
+        "consent": {
+          "anyOf": [
+            {
+              "const": "PRIVATE_RESEARCH_AND_ADVICE_V1",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consent"
+        }
+      },
+      "required": [
+        "action",
+        "expected_revision"
+      ],
+      "title": "AutomaticAction",
       "type": "object"
     }
   }

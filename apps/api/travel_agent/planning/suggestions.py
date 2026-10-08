@@ -744,7 +744,7 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             )
 
 
-def launch(database: Path, jid: str, *, research: bool = False) -> None:
+def launch(database: Path, jid: str, *, research: bool = False, automatic: bool = False) -> None:
     owner = str(database.resolve())
     identity = (owner, jid)
     with _launch_lock:
@@ -757,7 +757,7 @@ def launch(database: Path, jid: str, *, research: bool = False) -> None:
         command = [
             sys.executable,
             str(PROJECT_ROOT / "scripts/product_preview.py"),
-            "job-worker" if research else "worker",
+            "task-worker" if automatic else "job-worker" if research else "worker",
             "--job",
             jid,
             "--workspace",
@@ -773,16 +773,28 @@ def launch(database: Path, jid: str, *, research: bool = False) -> None:
                 _workers[identity] = process
         except OSError:
             with Database(database) as db:
+                if automatic:
+                    db.connection.execute(
+                        "UPDATE planning_tasks SET status='BLOCKED',summary_json=?,finished_at=? WHERE task_id=? AND status='QUEUED'",
+                        ('{"reason":"WORKER_NOT_STARTED"}', db.stamp(), jid),
+                    )
+                    db.connection.execute(
+                        "UPDATE research_continuations SET finished_at=coalesce(finished_at,?) WHERE continuation_id=(SELECT grant_id FROM planning_tasks WHERE task_id=?)",
+                        (db.stamp(), jid),
+                    )
                 db.connection.execute(
                     "UPDATE preview_jobs SET status='FAILED',summary_json=? WHERE job_id=? AND status='QUEUED'",
                     ('{"reason":"WORKER_NOT_STARTED"}', jid),
                 )
             return
-        end = monotonic() + (1200 if research else 180)
+        end = monotonic() + (1500 if automatic else 1200 if research else 180)
         while process.poll() is None:
             with Database(database) as db:
                 row = db.connection.execute(
-                    "SELECT cancel_requested,status FROM preview_jobs WHERE job_id=?", (jid,)
+                    "SELECT CASE WHEN status IN ('CANCELED','INTERRUPTED','BLOCKED') THEN 1 ELSE 0 END,status FROM planning_tasks WHERE task_id=?"
+                    if automatic
+                    else "SELECT cancel_requested,status FROM preview_jobs WHERE job_id=?",
+                    (jid,),
                 ).fetchone()
                 stop = (
                     row is None
@@ -791,11 +803,19 @@ def launch(database: Path, jid: str, *, research: bool = False) -> None:
                     or monotonic() >= end
                 )
                 if stop:
+                    if automatic:
+                        from .automatic import invalidate
+
+                        task = db.connection.execute(
+                            "SELECT session_id FROM planning_tasks WHERE task_id=?", (jid,)
+                        ).fetchone()
+                        if task:
+                            invalidate(db, task[0], "TASK_DEADLINE")
                     db.connection.execute(
                         "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1,summary_json=? WHERE job_id=? AND status IN ('QUEUED','RUNNING')",
                         ('{"reason":"CANCELED_OR_TOTAL_DEADLINE"}', jid),
                     )
-                    if research:
+                    if research or automatic:
                         # The reader observes cancellation between API calls and closes
                         # its browser in finally; no asyncio task.cancel into Playwright.
                         try:
@@ -807,6 +827,11 @@ def launch(database: Path, jid: str, *, research: bool = False) -> None:
                     return
             sleep(0.25)
         with Database(database) as db:
+            if automatic:
+                db.connection.execute(
+                    "UPDATE planning_tasks SET status='INTERRUPTED',summary_json=?,finished_at=? WHERE task_id=? AND status IN ('QUEUED','RUNNING')",
+                    ('{"reason":"WORKER_EXITED"}', db.stamp(), jid),
+                )
             db.connection.execute(
                 "UPDATE preview_jobs SET status='FAILED',summary_json=? WHERE job_id=? AND status IN ('QUEUED','RUNNING')",
                 ('{"reason":"WORKER_EXITED"}', jid),
@@ -840,6 +865,9 @@ def shutdown_workers(database: Path) -> None:
     )
 
     with Database(database) as db:
+        from .automatic import recover
+
+        recover(db)
         db.connection.execute(
             "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1,summary_json=? WHERE continuation_id IN (?,?,?,?,?) AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
             (
