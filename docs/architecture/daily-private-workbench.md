@@ -62,3 +62,15 @@ Set-Location E:\workSpace\travel-agent-project\travel-agent
 已有配置目录缺失数据库、数据库损坏或未知模式立即报错，不从旧库静默重建，也不拿空库冒充恢复。当前历史库、profile、旧静态构建和备份保留；不能覆盖当前库恢复耗尽额度。
 
 KnowledgeCard、原文独立清理后的知识保留、酒店报价、供应商保证与完整旅行可行性仍未完成。本轮不扩展这些能力。
+
+## 2026-10-08 普通根入口与本机重新打开契约
+
+以上阶段说明按历史语义保留。当前入口初始化显式区分 loading/ready/auth_required/offline/error，失败不能退成旧预览产品。只有 ready 后才按服务能力选择实际产品页面。未提交想法仅保存在当前浏览器本机，不成为长期偏好；成功建立旅行后清除未提交副本。
+
+`PlanCreate.destination` 现在可省略；程序仅从 request 的明确区域表达提取目的地，歧义返回 DESTINATION_REQUIRED，不能挑任意缓存城市。明确传入的 destination 优先，原 parse_preferences 继续处理天数与驾驶意愿。没有资料时显示缺资料下一步，不生成无来源路线。
+
+运行中的服务支持 `serve --open` 和 `open` 重新打开。启动器用本工作区私有 preview-auth.key 派生 `local-entry-renewal` HMAC，通过 loopback POST `/local-entry` 的 X-Local-Entry-Proof 证明本机文件所有者身份。该启动器内部协议与 `/bootstrap` 一样不属于浏览器业务 API；只在 daily_workbench 启用，拒绝任何 Origin、非 loopback 客户端、错误 Host、查询参数或无效证明。证明不进入浏览器、普通日志、业务工具或模型输入。
+
+每次只签发五分钟一次性 ticket，最多保留八个待使用入口。返回 URL 只供启动器正常打开并保存在本机忽略目录；不签发业务许可。浏览器仍须通过 bootstrap 取得端口隔离的 HttpOnly、SameSite=Strict Cookie；写业务 API 仍须正确 Origin、CSRF 和幂等键。过期入口的 HTML 导航回到根页面显示恢复提示；API 客户端仍收到 401，均不赋予会话。
+
+重开已运行服务不停止任务、不改草稿、预算或来源；当前 root 浏览、重连、刷新也不会重新派发任何业务调用。不存在从网页无凭据恢复登录、公开恢复凭据或自动绕过会话的接口。

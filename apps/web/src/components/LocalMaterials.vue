@@ -11,7 +11,7 @@ watch(()=>props.plan.session_id,()=>{choice.value='';selected.value=[];opened.va
 watch(()=>props.plan.draft.activities.length,n=>{opened.value=!n})
 </script>
 <template>
-  <section v-if="plan.local_materials" class="card local-materials">
+  <section v-if="plan.local_materials" id="local-materials" class="card local-materials">
     <div class="heading"><h2>先用已有资料</h2><button class="quiet" :disabled="busy" @click="opened=!opened">{{opened?'收起选材':'查看或修改选材'}}</button></div>
     <p>资料卡、历史组合或主动研究都从这里开始。本地浏览与选择不需要外部许可。</p>
     <p v-if="!opened">当前 {{plan.draft.activities.length}} 个项目；来源、条件与历史建议保留。需要时可展开修改。</p>

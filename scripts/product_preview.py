@@ -9,6 +9,34 @@ import threading
 from _bootstrap import enter
 
 
+def reopen(workspace: Path, port: int) -> None:
+    """Renew with local-owner proof; never start workers or touch trip data."""
+    import http.client
+    import json
+    import webbrowser
+    from urllib.parse import urlsplit
+    from travel_agent.preview.local_entry import entry_proof
+
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        key = (workspace / "preview-auth.key").read_bytes()
+        connection.request("POST", "/local-entry", headers={"X-Local-Entry-Proof": entry_proof(key)})
+        response = connection.getresponse()
+        if response.status != 200:
+            raise ValueError("LOCAL_ENTRY_UNAVAILABLE")
+        url = json.loads(response.read(2048))["entry_url"]
+        target = urlsplit(url)
+        if target.scheme != "http" or target.netloc != f"127.0.0.1:{port}" or target.path != "/bootstrap":
+            raise ValueError("LOCAL_ENTRY_UNAVAILABLE")
+        (workspace / "entry.url").write_text(url, encoding="utf8")
+        webbrowser.open(url)
+        print("已重新打开本机旅行工作台；原服务、草稿和任务保留。")
+    except (OSError, ValueError, KeyError):
+        raise SystemExit("无法重新打开本机入口：请确认该工作区服务已启动且版本已更新。原数据未改变。") from None
+    finally:
+        connection.close()
+
+
 def prepare_runtime(workspace: Path, *, initialize_empty: bool = False) -> Path:
     """Explicit empty install; never recover a missing configured database as empty."""
     import sqlite3
@@ -47,6 +75,7 @@ def main() -> None:
         default="serve",
         choices=[
             "serve",
+            "open",
             "authorize-synthetic",
             "authorize-private",
             "worker",
@@ -75,6 +104,9 @@ def main() -> None:
     scope = args.account_scope.strip()
     if not scope or len(scope) > 80:
         raise ValueError("ACCOUNT_SCOPE_REQUIRED")
+    if args.action == "open":
+        reopen(workspace, args.port)
+        return
     os.environ["LLM_TIMEOUT_SECONDS"] = "120"
     # Only configured model variables are inherited. No secret is logged or exposed.
     if os.name == "nt":
@@ -177,6 +209,9 @@ def main() -> None:
 
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
+        if args.open:
+            reopen(workspace, args.port)
+            return
         raise SystemExit("WORKBENCH_ALREADY_RUNNING") from None
     with Database(database) as db:
         db.connection.execute(

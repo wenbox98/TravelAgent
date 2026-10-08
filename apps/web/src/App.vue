@@ -5,7 +5,10 @@ import ResearchPanel from './components/ResearchPanel.vue'
 import ReviewPanel from './components/ReviewPanel.vue'
 import RoutePanel from './components/RoutePanel.vue'
 import PlanningPanel from './components/PlanningPanel.vue'
-import { readIndex, request, roleLabel, type View, type Research, type Option } from './api'
+import TripIntake from './components/TripIntake.vue'
+import { readIndex, request, RequestError, roleLabel, type View, type Research, type Option } from './api'
+const connection=ref<'loading'|'ready'|'auth_required'|'offline'|'error'>('loading')
+const entryReason=computed(()=>connection.value==='auth_required'?'需要重新打开本机入口；旅行想法已保留。':connection.value==='offline'?'本机服务未连接；启动后可继续，输入已保留。':connection.value==='error'?'暂未读到工作台状态；输入已保留。':'正在连接本机工作台…')
 const view = ref<View | null>(null)
 const researches = ref<Research[]>([])
 const mode = ref('')
@@ -43,11 +46,16 @@ async function run(action: (ticket: number) => Promise<void>) {
   finally { if (ticket === generation) busy.value = false }
 }
 async function load() {
+  if(busy.value)return
+  connection.value='loading'
   await run(async ticket => {
+    try {
     const result = await readIndex()
     if (ticket !== generation) return
     researches.value = result.researches; mode.value = result.mode; workbenchAvailable.value = result.workbench_available; replayAvailable.value = result.replay_available; routeCheckAvailable.value = result.route_check_available; productFlow.value = result.product_flow_available
+    connection.value='ready'
     if (result.session) { apply(result.session, ticket); status.value = '已从本机恢复选择和资料。' }
+    } catch(e) {connection.value=e instanceof RequestError&&['AUTH_REQUIRED','CSRF_DENIED'].includes(e.code)?'auth_required':e instanceof RequestError&&['OFFLINE','TIMEOUT'].includes(e.code)?'offline':'error';throw e}
   })
 }
 async function start() {
@@ -70,10 +78,18 @@ onMounted(load)
 </script>
 <template>
   <main>
-    <header><a class="brand" href="/">TravelAgent<span>先看方向，再做决定</span></a><span class="badge">{{ productFlow ? '本机旅行草稿' : mode === 'SYNTHETIC_DEMO' ? 'SYNTHETIC_DEMO · 合成演示' : mode === 'CACHED_PRIVATE_PREVIEW' ? 'CACHED_PRIVATE_PREVIEW · 本机私人资料' : '本机开发预览' }}</span></header>
-    <PlanningPanel v-if="productFlow && !showHistory" />
+    <header><a class="brand" href="/">TravelAgent<span>先看方向，再做决定</span></a><span class="badge">{{ connection!=='ready'?'本机旅行工作台':productFlow ? '本机旅行草稿' : mode === 'SYNTHETIC_DEMO' ? 'SYNTHETIC_DEMO · 合成演示' : mode === 'CACHED_PRIVATE_PREVIEW' ? 'CACHED_PRIVATE_PREVIEW · 本机私人资料' : '本机开发预览' }}</span></header>
+    <section v-if="connection!=='ready'" class="connection-state">
+      <h1>先有一个旅行想法</h1><p>写下想法，连接本机工作台后继续。</p>
+      <TripIntake :busy="busy" :ready="false" :reason="entryReason" />
+      <section class="card" aria-label="连接本机工作台"><h2>{{connection==='auth_required'?'重新打开本机入口':connection==='offline'?'连接本机服务':'连接状态'}}</h2><p role="alert">{{error||entryReason}}</p>
+      <template v-if="connection==='auth_required'"><p>在项目目录运行下面的本机启动命令。服务已运行时会直接打开新的有效入口，原草稿和任务保留；无需停止服务。</p><code>.venv\Scripts\python.exe scripts\product_preview.py serve --open</code><p>新入口打开后，当前页也可继续连接。无需复制 Cookie 或清空数据。</p></template>
+      <p v-else-if="connection==='offline'">在本机启动工作台后，使用下方按钮重新连接。</p>
+      <button class="quiet" :disabled="busy" @click="load">{{busy?'正在连接…':'重新连接本机工作台'}}</button></section>
+    </section>
+    <PlanningPanel v-if="connection==='ready' && productFlow && !showHistory" @reconnect="load" />
     <button v-if="productFlow" class="quiet" @click="showHistory = !showHistory">{{ showHistory ? '返回当前旅行规划' : '查看历史测试资料（不会作为新旅行偏好）' }}</button>
-    <template v-if="!productFlow || showHistory">
+    <template v-if="connection==='ready' && (!productFlow || showHistory)">
     <p v-if="productFlow" class="notice">历史测试：原五天、不自驾和包车输入只属于旧回归会话，不是长期偏好。</p>
     <p class="notice">缓存驱动开发预览；尚未核实当前行程可行性。{{ workbenchAvailable ? '浏览资料保持零外部调用；只有主动研究并满足门槛时才访问授权服务。' : '本轮仅使用已审核的本地资料，不启动小红书、不调用模型。' }}</p>
     <section class="intro"><p class="eyebrow">从已知的线索，找想去的方向</p><h1>先有一个旅行想法。</h1><p>不用先填完问卷。先比较来源支持的草案，再补充天数和驾驶意愿。预算、人数与交通方式可以暂时未知。</p></section>
@@ -131,6 +147,6 @@ onMounted(load)
     <section v-else-if="!busy && mode" class="card empty"><h2>先选一份已有研究</h2><p>页面将从数据库中的已审核证据生成草案。未给预算或人数，也能先看。</p></section>
     <RoutePanel v-if="routeCheckAvailable && view" :session="view" />
     </template>
-    <footer>G0 仅保留历史验收；G1 仍 NOT PASS。此页面不是完整旅行产品或发布验收。缓存显示不会探测小红书或模型；{{ routeCheckAvailable || productFlow ? '地图仅作显式分段参考，报价未接入。' : '本页地图与报价未接入。' }}</footer>
+    <footer>本机私人旅行草稿。来源条件、未知价格与待核实交通会保留；浏览和刷新不会自动发起研究。<details><summary>开发验收与能力说明</summary>G0 保留历史验收；G1 仍 NOT PASS。建议不等于现实可行性保证。报价未接入。</details></footer>
   </main>
 </template>

@@ -7003,8 +7003,8 @@
           "type": "boolean"
         },
         "destination": {
+          "default": "",
           "maxLength": 80,
-          "minLength": 1,
           "title": "Destination",
           "type": "string"
         },
@@ -7047,9 +7047,6 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "destination"
-      ],
       "title": "PlanCreate",
       "type": "object"
     },

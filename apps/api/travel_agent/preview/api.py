@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import secrets
 import sqlite3
-import time
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -69,7 +68,8 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
     cookie_name = f"ta_preview_{port}" if config.local_replay or config.route_check or config.product_flow else "ta_preview"
     cookie = hmac.digest(config.auth_key, b"preview-session", "sha256").hex()
     csrf = hmac.digest(config.auth_key, b"preview-csrf", "sha256").hex()
-    expires, used = time.monotonic() + 300, False
+    from .local_entry import EntryTickets, entry_proof
+    tickets = EntryTickets(config.ticket)
     local_requests = dict(read=0, mutation=0, bootstrap=0, static=0, other=0)
 
     @app.middleware("http")
@@ -99,14 +99,28 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
 
     @app.get("/bootstrap")
     async def bootstrap(request: Request) -> Any:
-        nonlocal used
-        if (request.headers.get("host") != f"127.0.0.1:{port}" or used or time.monotonic() > expires
-            or not secrets.compare_digest(request.query_params.get("ticket", ""), config.ticket)):
+        if (request.headers.get("host") != f"127.0.0.1:{port}"
+            or not tickets.consume(request.query_params.get("ticket", ""))):
+            if "text/html" in request.headers.get("accept", ""):
+                # An expired link returns to the recoverable UI, never grants auth.
+                return RedirectResponse("/", status_code=303)
             return error("AUTH_REQUIRED", 401)
-        used = True
         response = RedirectResponse("/", status_code=303)
         response.set_cookie(cookie_name, cookie, httponly=True, samesite="strict", secure=False, path="/")
         return response
+
+    if config.daily_workbench:
+        @app.post("/local-entry")
+        async def renew_entry(request: Request) -> Any:
+            # Native launcher only: no browser origin, no cookie/CSRF shortcut.
+            proof = request.headers.get("x-local-entry-proof", "")
+            if (request.headers.get("host") != f"127.0.0.1:{port}"
+                or request.headers.get("origin") is not None
+                or request.client is None or request.client.host not in {"127.0.0.1", "::1"}
+                or request.query_params
+                or not proof.isascii() or not secrets.compare_digest(proof, entry_proof(config.auth_key))):
+                return error("LOCAL_ENTRY_DENIED", 403)
+            return {"entry_url": origin + "/bootstrap?ticket=" + tickets.issue()}
 
     @app.exception_handler(RequestValidationError)
     @app.exception_handler(ValidationError)

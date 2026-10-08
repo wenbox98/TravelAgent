@@ -18,7 +18,7 @@ function authorize() {
 }
 </script>
 <template>
-  <section v-if="plan.operation" class="card stage operation-panel">
+  <section v-if="plan.operation" id="operation-permission" class="card stage operation-panel">
     <div class="stage-title"><h2>本次旅行的外部操作</h2><button class="quiet" :disabled="busy" @click="editing = !editing">{{ plan.operation.history.length ? '明确追加额度' : '设置有限操作许可' }}</button></div>
     <p>模型：{{ configuration(plan.operation.model_configuration) }}；地图：{{ configuration(plan.operation.map_configuration) }}。配置存在不代表已授权。</p>
     <p>研究：{{ availability(plan.operation.research_status) }}；地图：{{ availability(plan.operation.map_status) }}。规划是否可执行还取决于当前项目和修改条件。</p>

@@ -235,6 +235,10 @@ class PlanningService:
         return row, state
 
     def create(self, body: PlanCreate, key: str) -> dict[str, Any]:
+        if not body.destination:
+            from .intake import destination_from_idea
+
+            body = body.model_copy(update={"destination": destination_from_idea(body.request)})
         mode: Mode = "SYNTHETIC_DEMO" if body.demo else "CACHED_PRIVATE_PREVIEW"
         service = PreviewService(self.db, self.scope, mode)
         payload = ["planning-create", body.model_dump()]

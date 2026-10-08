@@ -27,16 +27,27 @@ export type Index = {mode: string; csrf_token: string; researches: Research[]; s
 export type Job = {job_id: string; session_id: string; status: string; request_revision: number; cancel_requested: boolean; new_evidence_count: number; reviewed: number; pending: number; rejected: number; reason: string | null; can_adopt: boolean}
 export type Workbench = {enabled: boolean; configured: boolean; budget: {used: Record<string, number>; remaining: Record<string, number>; gate: string; closed: boolean}; jobs: Job[]; data_use: string}
 let csrf = ''
+export class RequestError extends Error {
+  constructor(message:string, public code:string, public status:number=0){super(message);this.name='RequestError'}
+}
 export async function readIndex(): Promise<Index> {
-  const result = await request<Index>('/api/v1/preview'); csrf = result.csrf_token; return result
+  const result = await request<Index>('/api/v1/preview')
+  if(!result||typeof result.csrf_token!=='string'||typeof result.product_flow_available!=='boolean')throw new RequestError('本机服务响应不完整；输入已保留，请重新连接工作台。','INVALID_RESPONSE')
+  csrf = result.csrf_token; return result
 }
 export async function request<T>(url: string, body?: unknown, key?: string): Promise<T> {
-  const response = await fetch(url, {credentials: 'same-origin', cache: 'no-store',
+  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),15000)
+  try {
+  const response = await fetch(url, {credentials: 'same-origin', cache: 'no-store', signal:controller.signal,
     ...(body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json',
       'X-CSRF-Token': csrf, 'Idempotency-Key': key || crypto.randomUUID()}, body: JSON.stringify(body)})})
-  const result = await response.json()
-  if (!response.ok) throw new Error(result.error?.message || '本地服务暂不可用，操作未确认。')
+  const result = await response.json().catch(()=>({}))
+  if (!response.ok) throw new RequestError(result.error?.message || '本地服务暂不可用，操作未确认。',result.error?.code||'SERVICE_ERROR',response.status)
   return result as T
+  } catch(e) {
+    if(e instanceof RequestError) throw e
+    throw new RequestError(controller.signal.aborted?'本机请求等待超时；结果可能已保存，请先读取状态，勿重复派发。':'暂时连接不到本机服务；输入已保留，请确认工作台已启动。',controller.signal.aborted?'TIMEOUT':'OFFLINE')
+  } finally {clearTimeout(timer)}
 }
 export const roleLabel = (value: string): string => ({AUTHOR_PROPOSED_PLAN: '作者未出行的计划',
   GUIDE_SUGGESTION: '攻略建议 · 未确认亲历', AUTHOR_RECORDED_TRIP: '作者记载的历史经历', UNKNOWN: '来源性质未知'}[value] || '来源性质未知')

@@ -86,12 +86,15 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
 
     @app.post("/api/v1/preview/planning", response_model=PlanView)
     def create(body: PlanCreate, request: Request) -> Any:
-        with Database(config.database) as db:
-            return present(
-                PlanningService(
-                    db, config.account_scope, daily_workbench=config.daily_workbench
-                ).create(body, request.headers.get("idempotency-key", ""))
-            )
+        try:
+            with Database(config.database) as db:
+                return present(
+                    PlanningService(
+                        db, config.account_scope, daily_workbench=config.daily_workbench
+                    ).create(body, request.headers.get("idempotency-key", ""))
+                )
+        except ValueError as exc:
+            return error(str(exc) if str(exc) == "DESTINATION_REQUIRED" else "INVALID_INPUT", 422)
 
     @app.get("/api/v1/preview/planning/{session_id}", response_model=PlanView)
     def read(session_id: str) -> Any:

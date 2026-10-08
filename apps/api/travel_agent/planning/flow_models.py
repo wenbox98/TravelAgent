@@ -104,7 +104,7 @@ class PlanDraft(StrictModel):
 class PlanCreate(StrictModel):
     planning_mode: Literal["DETAILED", "ADVISORY"] | None = None
     knowledge_first: bool = False
-    destination: str = Field(min_length=1, max_length=80)
+    destination: str = Field(default="", max_length=80)
     request: str = Field(default="", max_length=500)
     travel_kind: Literal["CITY", "REGIONAL"] = "CITY"
     demo: Literal["CITY", "REGIONAL", "OTHER_CITY", "GUIDE_MULTI_DAY"] | None = None
