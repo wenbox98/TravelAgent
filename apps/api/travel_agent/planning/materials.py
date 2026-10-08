@@ -77,7 +77,7 @@ def references(db: Any, scope: str, sid: str) -> list[dict[str, Any]]:
                 and e["claim_id"] not in [*p["reused_claim_ids"], *p.get("reused_context_ids", [])]
             ):
                 continue
-            if e["topic"] in {"ROUTE", "EXPERIENCE", "DURATION", "TRANSPORT", "RISK"}:
+            if e["topic"] in {"ROUTE", "EXPERIENCE", "DURATION", "TRANSPORT", "RISK", "SEASON", "TRADEOFF"}:
                 from .local_materials import reference_binding
 
                 bound = p.get("reused_reference_bindings", {}).get(e["claim_id"])

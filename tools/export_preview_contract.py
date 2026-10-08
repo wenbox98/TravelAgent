@@ -16,9 +16,12 @@ from travel_agent.planning.guide_models import GuideResponse, GuideExport  # noq
 from travel_agent.planning.automatic_models import AutomaticStart, AutomaticAction  # noqa: E402
 
 
+from travel_agent.planning.conversation import ConversationAction  # noqa: E402
+
+
 def definitions():
     result = {}
-    for model in (AutomaticStart, AutomaticAction, GuideResponse, GuideExport, LibraryAction, LibraryResponse, PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse):
+    for model in (ConversationAction, AutomaticStart, AutomaticAction, GuideResponse, GuideExport, LibraryAction, LibraryResponse, PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse):
         schema = model.model_json_schema()
         result.update(schema.pop("$defs", {}))
         result[model.__name__] = schema
@@ -38,6 +41,7 @@ def main():
     path = ROOT / "contracts/openapi.yaml"
     api = yaml.safe_load(path.read_text(encoding="utf-8"))
     routes = [
+        ('/api/v1/preview/conversation/{session_id}', 'post', 'changePlanningConversation', 'ConversationAction', 'PlanView'),
         ('/api/v1/preview/automatic-planning', 'post', 'startAutomaticPlanning', 'AutomaticStart', 'PlanView'),
         ('/api/v1/preview/automatic-planning/{session_id}', 'post', 'changeAutomaticPlanning', 'AutomaticAction', 'PlanView'),
         ("/api/v1/preview/knowledge", "post", "manageLocalKnowledge", "LibraryAction", "LibraryResponse"),

@@ -30,7 +30,7 @@ def start(s, text="我想去合成青谷玩7天", key=None):
     return s.start(AutomaticStart(request=text, consent=CONSENT), key or str(uuid4()))
 
 
-def test_single_click_real_chain_counts_results_followup_and_recovery(automatic):
+def test_single_click_synthetic_chain_retains_partial_results_and_supplements_cache(automatic):
     s = automatic
     key = str(uuid4())
     v = start(s, key=key)
@@ -42,13 +42,17 @@ def test_single_click_real_chain_counts_results_followup_and_recovery(automatic)
         s.db.path, tid, research_runner=research(model, reader), planning_runner=planning(model)
     )
     v = s.plans.get(v["session_id"])
-    assert v["automatic_task"]["status"] == "COMPLETED", v["automatic_task"]
+    assert v["automatic_task"]["status"] == "PARTIAL", v["automatic_task"]
     assert v["job"]["proposals"] and v["job"]["can_preview"]
     assert v["adopted"] is None
-    assert reader.calls == ["CONNECT", "SEARCH", "DETAIL"]
-    assert len(model.calls) == 3
-    assert v["automatic_task"]["new_body_count"] == 1
-    assert v["automatic_task"]["budget"]["used"]["model"] == 3
+    assert reader.calls == ["CONNECT", "SEARCH", "DETAIL", "DETAIL", "SEARCH", "SEARCH"]
+    assert v["automatic_task"]["candidate_count"] == 6
+    assert v["automatic_task"]["unique_candidate_count"] == 2
+    assert v["automatic_task"]["coverage"]["gaps"]
+    assert v["automatic_task"]["search_count"] == 3
+    assert len(model.calls) == 5
+    assert v["automatic_task"]["new_body_count"] == 2
+    assert v["automatic_task"]["budget"]["used"]["model"] == 5
     run_task(s.db.path, tid, research_runner=lambda *_: pytest.fail("replayed"))
     v = s.plans.mutate(
         v["session_id"],
@@ -77,13 +81,15 @@ def test_single_click_real_chain_counts_results_followup_and_recovery(automatic)
     run_task(
         s.db.path,
         v["automatic_task"]["task_id"],
-        research_runner=lambda *_: pytest.fail("unnecessary research"),
+        research_runner=research(model, reader),
         planning_runner=planning(model),
     )
     v = s.plans.get(v["session_id"])
-    assert v["automatic_task"]["status"] == "COMPLETED", v["automatic_task"]
-    assert len(model.calls) == 4 and v["adopted"] == adopted
-    assert v["operation"]["cumulative_used"]["model"] == 4
+    assert v["automatic_task"]["status"] == "PARTIAL", v["automatic_task"]
+    assert len(model.calls) == 6 and v["adopted"] == adopted
+    assert v["automatic_task"]["search_count"] == 3
+    assert any(g["key"] == "TRANSPORT" for g in v["automatic_task"]["coverage"]["gaps"])
+    assert v["operation"]["cumulative_used"]["model"] == 6
     with Database(s.db.path) as db:
         recover(db)
         restored = PlanningService(db, "owner").get(v["session_id"])
@@ -314,7 +320,8 @@ def test_cached_reviewed_material_reuses_but_test_trip_is_not_default_fallback(
     )
     reused = start(s)
     assert reused["draft"]["activities"]
-    assert reused["automatic_task"]["limits"]["search"] == 0
+    assert reused["automatic_task"]["limits"]["search"] == 3
+    assert not reused["automatic_task"]["coverage"]["sufficient"]
     s.action(
         reused["session_id"],
         AutomaticAction(action="cancel", expected_revision=reused["revision"]),
@@ -326,4 +333,86 @@ def test_cached_reviewed_material_reuses_but_test_trip_is_not_default_fallback(
     fresh = start(s)
     assert not fresh["draft"]["activities"]
     assert fresh["automatic_task"]["cache_source_count"] == 0
-    assert fresh["automatic_task"]["limits"]["search"] == 1
+    assert fresh["automatic_task"]["limits"]["search"] == 3
+
+
+def test_identical_bodies_count_actual_reads_but_not_new_coverage_or_model(automatic):
+    from dataclasses import replace
+    from test_model_context_review import BODY
+
+    class CopyReader(Reader):
+        def detail(self, candidate, number):
+            return replace(super().detail(candidate, number), body=BODY)
+
+    s = automatic
+    v = start(s)
+    model, reader = Model(), CopyReader()
+    run_task(
+        s.db.path,
+        v["automatic_task"]["task_id"],
+        research_runner=research(model, reader),
+        planning_runner=planning(model),
+    )
+    v = s.plans.get(v["session_id"])
+    task = v["automatic_task"]
+    assert task["status"] == "PARTIAL" and task["new_body_count"] == 2
+    assert task["duplicate_body_count"] == 1 and task["accepted_source_count"] == 1
+    assert len(model.calls) == 3  # One extract, review, plan; the copy is not reprocessed.
+    assert task["coverage"]["distinct_content_groups"] == 1
+
+
+def test_explicit_supplement_keeps_prior_usage_and_same_conditions(automatic):
+    s = automatic
+    v = start(s)
+    model, reader = Model(), Reader()
+    run_task(
+        s.db.path,
+        v["automatic_task"]["task_id"],
+        research_runner=research(model, reader),
+        planning_runner=planning(model),
+    )
+    v = s.plans.get(v["session_id"])
+    used = v["operation"]["cumulative_used"]
+    v = s.action(
+        v["session_id"],
+        AutomaticAction(action="research_more", expected_revision=v["revision"], consent=CONSENT),
+        str(uuid4()),
+    )
+    assert v["automatic_task"]["status"] == "QUEUED"
+    assert v["draft"]["days"] == 7 and v["operation"]["cumulative_used"] == used
+    assert v["automatic_task"]["limits"]["search"] == 3
+    run_task(
+        s.db.path,
+        v["automatic_task"]["task_id"],
+        research_runner=research(model, reader),
+        planning_runner=planning(model),
+    )
+    v = s.plans.get(v["session_id"])
+    assert v["automatic_task"]["status"] == "PARTIAL" and v["job"]["proposals"]
+    assert v["operation"]["cumulative_used"]["model"] == used["model"] + 1
+
+
+def test_new_trip_uses_valid_cards_without_treating_partial_cache_as_sufficient(automatic):
+    s = automatic
+    original = start(s)
+    model, reader = Model(), Reader()
+    run_task(
+        s.db.path,
+        original["automatic_task"]["task_id"],
+        research_runner=research(model, reader),
+        planning_runner=planning(model),
+    )
+    v = start(s)
+    assert v["draft"]["activities"] and v["automatic_task"]["coverage"]["gaps"]
+    _, state = s.plans.load(v["session_id"])
+    assert state["planning"]["knowledge_mode"]
+    run_task(
+        s.db.path,
+        v["automatic_task"]["task_id"],
+        research_runner=research(model, reader),
+        planning_runner=planning(model),
+    )
+    v = s.plans.get(v["session_id"])
+    assert v["automatic_task"]["search_count"] == 3
+    assert v["automatic_task"]["status"] == "PARTIAL", v["automatic_task"]
+    assert v["job"]["proposals"] and v["job"]["can_preview"]

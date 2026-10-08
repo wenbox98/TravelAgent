@@ -7,6 +7,7 @@ from travel_agent.preview.api import PreviewConfig, error
 from .automatic import AutomaticService
 from .automatic_models import AutomaticAction, AutomaticStart
 from .flow_models import PlanView
+from .conversation import ConversationAction, action as conversation_action
 
 
 def install_automatic(app: FastAPI, config: PreviewConfig, present: Any) -> None:
@@ -16,6 +17,23 @@ def install_automatic(app: FastAPI, config: PreviewConfig, present: Any) -> None
 
             launch(config.database, view["automatic_task"]["task_id"], automatic=True)
         return present(view)
+
+    @app.post("/api/v1/preview/conversation/{session_id}", response_model=PlanView)
+    def converse(session_id: str, body: ConversationAction, request: Request) -> Any:
+        try:
+            if not config.daily_workbench:
+                raise ValueError("DAILY_TRIP_REQUIRED")
+            with Database(config.database) as db:
+                view = conversation_action(
+                    db,
+                    config.account_scope,
+                    session_id,
+                    body,
+                    request.headers.get("idempotency-key", ""),
+                )
+            return dispatch(view)
+        except ValueError as exc:
+            return error(str(exc), 409)
 
     @app.post("/api/v1/preview/automatic-planning", response_model=PlanView)
     def start(body: AutomaticStart, request: Request) -> Any:

@@ -68,7 +68,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         if len(outbound_blocks(blocks)) != len(blocks):
             continue
         source = e["source_id"]
-        if source not in lengths and len(lengths) >= 2:
+        if source not in lengths and len(lengths) >= p.get("automatic_material_source_limit", 2):
             continue
         if lengths.get(source, 0) + len(text) > 6000:
             continue
@@ -136,7 +136,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     data = assemble(p, draft, selected, discovery_mode, refs)
     from .scoped_context import attach_context
 
-    attach_context(data, lengths)
+    attach_context(data, lengths, max_sources=p.get("automatic_material_source_limit", 2))
     return data
 
 
@@ -147,7 +147,7 @@ def assemble(
     discovery_mode: bool,
     refs: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    return {
+    result = {
         "protocol_version": p.get("protocol_version", 1),
         "discovery_mode": discovery_mode,
         "spatial_intent": draft.spatial.intent,
@@ -200,6 +200,16 @@ def assemble(
         )
         + "仅安排已提供活动，保留锁定预约、首项时间、交通和硬截止。停留与休息为AI建议，交通耗时/开放/预约/票价未知，不得编造。遵循adjustment改选。若活动为空，可从ROUTE/EXPERIENCE引用逐字选择短公共地点名，以grounded_activities提供candidate-N及证据ID，再在proposals引用candidate-N。不得新增来源中不存在的地点。不要把作者计划当历史经历或当前保证。",
     }
+    if p.get("conversation_model_context"):
+        result["conversation"] = p["conversation_model_context"]
+        excluded = set(result["conversation"].get("excluded_activity_ids", []))
+        result["activities"] = [a for a in result["activities"] if a["activity_id"] not in excluded]
+        if draft.activities and not result["activities"]:
+            raise ValueError("CONVERSATION_ALL_ACTIVITIES_EXCLUDED")
+        result["instructions"] += (
+            " conversation是本次可修改的用户选择和最小对话摘要，不能作为来源事实。优先考虑selected方向，比较excluded的取舍而不照抄已排除方案；只安排本次allowed activities，保护锁定项。无法落实时保留缺口，不假装修改成功。"
+        )
+    return result
 
 
 def ground(

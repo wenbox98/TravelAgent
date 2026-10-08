@@ -5,14 +5,14 @@ from pydantic import Field, field_validator
 from travel_agent.preview.models import StrictModel
 from travel_agent.preview.projection import safe_text
 
-CONSENT = "PRIVATE_RESEARCH_AND_ADVICE_V1"
+CONSENT: Literal["PRIVATE_RESEARCH_AND_ADVICE_V2"] = "PRIVATE_RESEARCH_AND_ADVICE_V2"
 
 
 class AutomaticStart(StrictModel):
     request: str = Field(min_length=1, max_length=500)
     destination: str = Field(default="", max_length=80)
     travel_kind: Literal["CITY", "REGIONAL"] = "CITY"
-    consent: Literal["PRIVATE_RESEARCH_AND_ADVICE_V1"]
+    consent: Literal["PRIVATE_RESEARCH_AND_ADVICE_V2"]
 
     @field_validator("request", "destination")
     @classmethod
@@ -21,10 +21,10 @@ class AutomaticStart(StrictModel):
 
 
 class AutomaticAction(StrictModel):
-    action: Literal["continue", "cancel", "revise"]
+    action: Literal["continue", "cancel", "revise", "research_more", "refine"]
     expected_revision: int = Field(ge=0)
     text: str = Field(default="", max_length=500)
-    consent: Literal["PRIVATE_RESEARCH_AND_ADVICE_V1"] | None = None
+    consent: Literal["PRIVATE_RESEARCH_AND_ADVICE_V2"] | None = None
 
     @field_validator("text")
     @classmethod

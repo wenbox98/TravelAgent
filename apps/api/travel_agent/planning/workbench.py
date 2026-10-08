@@ -225,7 +225,8 @@ def authorize(db: Any, scope: str, sid: str, p: dict[str, Any], proposal: Any) -
         ),
         knowledge_bindings=[
             r for a in p["draft"]["activities"] for r in a.get("knowledge_refs", [])
-        ],
+        ]
+        + p.get("automatic_context_cards", []),
         research_ids=sorted(p.get("research_ids", [])),
         recipients=[
             h

@@ -130,6 +130,11 @@ def source_independence(evidence: tuple[EvidenceBundle, ...]) -> SourceIndepende
 def evidence_conflicts(evidence: tuple[EvidenceBundle, ...]) -> tuple[EvidenceConflict, ...]:
     claims = [(bundle["source_id"], claim) for bundle in evidence for claim in bundle["claims"]
               if is_grounded(bundle, claim)]
+    return reference_conflicts(claims)
+
+
+def reference_conflicts(claims: list[tuple[str, dict[str, Any]]]) -> tuple[EvidenceConflict, ...]:
+    """Same conservative conflict check for already verified minimal references."""
     result: list[EvidenceConflict] = []
     positive = ("宽松", "轻松", "充裕", "足够", "不赶")
     negative = ("很赶", "太赶", "赶路", "不够", "紧张", "来不及")

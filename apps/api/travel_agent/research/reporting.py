@@ -104,7 +104,7 @@ def unassociated_statements(evidence: tuple[EvidenceBundle, ...], *, now: dateti
     attached = {s["claim_id"] for d in build_directions(evidence, now=now)
                 for key in ("route_evidence", "experiences", "duration_clues", "limitations") for s in d[key]}
     return [_statement(b, c, now) for b in evidence for c in b["claims"]
-            if c["claim_id"] not in attached and c["topic"] in {"EXPERIENCE", "DURATION", "TRANSPORT"}
+            if c["claim_id"] not in attached and c["topic"] in {"EXPERIENCE", "DURATION", "TRANSPORT", "SEASON", "TRADEOFF"}
             and is_grounded(b, c)]
 
 

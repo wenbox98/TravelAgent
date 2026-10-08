@@ -1355,6 +1355,47 @@ paths:
           application/json:
             schema:
               $ref: ./domain.schema.json#/$defs/AutomaticAction
+  /api/v1/preview/conversation/{session_id}:
+    post:
+      operationId: changePlanningConversation
+      summary: 日常私人工作台：新旅行无隐含授权；页面有限许可、追加/撤销复用耐久账本；本地复用/修改/恢复零外部调用；历史规则保留
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/PlanView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/ConversationAction
 components:
   securitySchemes:
     LocalSession:

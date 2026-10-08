@@ -137,6 +137,7 @@ def run_job(
         data = json.loads(j["request_json"])
         budget = BoundedBudget(store, j["continuation_id"])
         ordinary = budget.state()["gate"].get("purpose") == "PRIVATE_OPERATION"
+        automatic = bool(budget.state()["gate"].get("automatic_task_id"))
         summary: dict[str, Any] = {}
         state = "FAILED"
         owned = reader is None
@@ -146,6 +147,11 @@ def run_job(
                 "UPDATE preview_jobs SET summary_json=json_set(coalesce(summary_json,'{}'),'$.stage',?) WHERE job_id=? AND status IN ('RUNNING','WAITING_LOGIN')",
                 (stage, job_id),
             )
+            if stage in {"LOGIN_CHECK", "LOGIN_REQUIRED", "LOGIN_AUTHENTICATED"}:
+                con.execute(
+                    "UPDATE preview_jobs SET summary_json=json_set(coalesce(summary_json,'{}'),'$.login_state',?) WHERE job_id=?",
+                    (stage, job_id),
+                )
 
         def active() -> None:
             if ordinary:
@@ -169,7 +175,7 @@ def run_job(
                     raise ResearchStopped("BUDGET_EXHAUSTED", "PLANNING_MODEL_RESERVED")
                 budget.reserve(kind, fingerprint)
                 progress(
-                    {"CONNECT": "LOGIN", "SEARCH": "SEARCH", "DETAIL": "READING"}.get(
+                    {"CONNECT": "LOGIN_CHECK", "SEARCH": "SEARCH", "DETAIL": "READING"}.get(
                         kind, "RESEARCH"
                     )
                 )
@@ -182,6 +188,7 @@ def run_job(
                 raise ValueError("GATE_NOT_PASS")
 
             def login_prompt() -> None:
+                progress("LOGIN_REQUIRED")
                 con.execute(
                     "UPDATE preview_jobs SET status='WAITING_LOGIN' WHERE job_id=?", (job_id,)
                 )
@@ -271,8 +278,6 @@ def run_job(
                         data["request"]["destination"],
                         data.get("spatial_intent", "UNDECIDED"),
                     )
-                    if budget.state()["gate"].get("automatic_task_id"):
-                        return any(a.spatial_status != "MISMATCH" for a in candidates)
                     return (
                         sum(a.spatial_status == "MATCH" for a in candidates) >= 2
                         if data.get("spatial_intent") == "CITY_CORE"
@@ -303,9 +308,75 @@ def run_job(
                 continuation=Permits(),
                 extraction_dispatch=dispatch,
                 after_extraction=after,
-                activity_target=activity_target if product else None,
+                activity_target=activity_target if product and not automatic else None,
+                adaptive_queries=automatic,
+                deadline_seconds=2700 if automatic else None,
+                on_connected=lambda: progress("LOGIN_AUTHENTICATED"),
             )
             service.planner = FocusedPlanner(data["focus"])
+            coverage_evaluator = None
+            if automatic:
+                from travel_agent.planning.flow import PlanningService
+                from travel_agent.planning.guide_assessment import references
+                from travel_agent.research.advisory_coverage import (
+                    CoverageEvaluator,
+                    CoveragePlanner,
+                    REVIEWED,
+                )
+                from travel_agent.domain.models import EvidenceBundle
+
+                _, current_state = PlanningService(db, j["account_scope"]).load(j["session_id"])
+                base_refs = references(
+                    db, j["account_scope"], j["session_id"], current_state["planning"]
+                )
+
+                def filtered(evidence: Any) -> Any:
+                    # Only this task's newly read bodies enter extraction coverage.
+                    # Historical cards are separately revalidated above; no global raw fallback.
+                    allowed = {
+                        r[0]
+                        for r in con.execute(
+                            "SELECT DISTINCT c.source_id FROM research_runs r JOIN research_run_contents rc USING(run_id) JOIN source_contents c USING(content_id) WHERE r.research_id=? AND c.account_scope=?",
+                            (j["research_id"], j["account_scope"]),
+                        )
+                    }
+                    result = []
+                    for b in evidence:
+                        if b["source_id"] not in allowed:
+                            continue
+                        claims = [
+                            c
+                            for c in b["claims"]
+                            if b["claim_metadata"]
+                            .get(c["claim_id"], {})
+                            .get("context_review_status")
+                            in REVIEWED
+                        ]
+                        if claims:
+                            result.append(
+                                EvidenceBundle(
+                                    b.to_dict()
+                                    | {
+                                        "claims": claims,
+                                        "claim_metadata": {
+                                            c["claim_id"]: b["claim_metadata"][c["claim_id"]]
+                                            for c in claims
+                                        },
+                                    }
+                                )
+                            )
+                    return tuple(result)
+
+                service.evidence_filter = filtered
+                coverage_evaluator = CoverageEvaluator(
+                    base_refs,
+                    j["account_scope"],
+                    j["research_id"],
+                    data.get("spatial_intent", "UNDECIDED"),
+                    db.clock,
+                )
+                service.evaluator = coverage_evaluator
+                service.planner = CoveragePlanner(data["focus"], has_cache=bool(base_refs))
             if product and data.get("planning_protocol") == 2:
                 from travel_agent.planning.spatial import ScopedSelector
 
@@ -315,11 +386,19 @@ def run_job(
                 research_id=j["research_id"],
                 revision=0,
                 account_scope=j["account_scope"],
-                budget=ResearchBudget(1, budget.state()["limits"]["DETAIL"]),
+                budget=ResearchBudget(
+                    budget.state()["limits"]["SEARCH"], budget.state()["limits"]["DETAIL"]
+                ),
             )
             accepted = {c["claim_id"] for b in report.evidence for c in b["claims"]} - before
             counts = [o.get("counts", {}) for o in service.extraction_attempts]
             summary = {
+                **json.loads(
+                    con.execute(
+                        "SELECT summary_json FROM preview_jobs WHERE job_id=?", (job_id,)
+                    ).fetchone()[0]
+                    or "{}"
+                ),
                 "new_evidence_count": len(accepted),
                 "reviewed": len(accepted),
                 "pending": sum(c.get("context_review_pending", 0) for c in counts),
@@ -327,7 +406,18 @@ def run_job(
                 "reason": report.diagnostic,
                 "report": report.safe_summary(),
                 "budget": budget.summary(),
+                "unique_candidate_count": len(service.unique_candidates),
+                "duplicate_body_count": service.duplicate_bodies,
+                "query_progress": [
+                    {k: v for k, v in q.items() if not k.startswith("_") and k != "detail_before"}
+                    for q in service.query_progress
+                ],
             }
+            if coverage_evaluator:
+                summary["advisory_coverage"] = coverage_evaluator.last
+                summary["research_stop"] = report.stop_reason
+            if report.stop_reason == "NEED_LOGIN":
+                summary["login_state"] = "EXPIRED_OR_REQUIRED"
             state = (
                 "VERIFICATION_REQUIRED"
                 if report.stop_reason == "VERIFICATION_REQUIRED"
@@ -352,8 +442,14 @@ def run_job(
                             "TOTAL",
                             "LOGIN",
                             "SEARCH",
+                            "SEARCH_2",
+                            "SEARCH_3",
                             "DETAIL_1",
                             "DETAIL_2",
+                            "DETAIL_3",
+                            "DETAIL_4",
+                            "DETAIL_5",
+                            "DETAIL_6",
                             "OUTSIDE_WINDOW",
                         )
                     }

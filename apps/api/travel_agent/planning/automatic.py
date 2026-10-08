@@ -20,7 +20,124 @@ from .flow_models import OperationAuthorization, PlanCreate, PlanDraft
 from .workbench import authorize, DailyBudget
 
 ACTIVE = {"QUEUED", "RUNNING", "WAITING_CONFIGURATION"}
-LIMITS = dict(connect=1, search=1, detail=2, model=5, map_place=0, map_route=0)
+
+
+def request_for(p: dict[str, Any]) -> Any:
+    from travel_agent.research.models import ResearchRequest
+
+    d = p["draft"]
+    return ResearchRequest(
+        destination=p["destination"],
+        days=d.get("days"),
+        no_self_drive=d.get("driving") == "NO",
+        transport=d.get("transport"),
+    )
+
+
+def coverage(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
+    from travel_agent.research.advisory_coverage import assess
+    from .guide_assessment import references
+
+    return assess(references(db, scope, sid, p), request_for(p), p["draft"]["spatial"]["intent"])
+
+
+def card_context(db: Any, scope: str, p: dict[str, Any]) -> None:
+    """Related knowledge stays independently bound, never becomes place attributes."""
+    from travel_agent.knowledge.planning import verify
+    from travel_agent.knowledge.store import Library, binding
+
+    p.pop("automatic_context_cards", None)
+    cards = verify(db, scope, p)
+    sources = {s["source_id"] for c in cards for s in c["sources"]}
+    existing = {c["card_id"] for c in cards}
+    lengths = {
+        s: sum(
+            len(c["text"]) + sum(map(len, c["conditions"]))
+            for c in cards
+            if s in {v["source_id"] for v in c["sources"]}
+        )
+        for s in sources
+    }
+    selected = []
+    for c in Library(db, scope).search(destination=p["destination"], kind="SOURCE_REFERENCE")[
+        "cards"
+    ]:
+        ids = {s["source_id"] for s in c["sources"]}
+        n = len(c["text"]) + sum(map(len, c["conditions"]))
+        if (
+            c["card_id"] in existing
+            or not ids <= sources
+            or any(lengths[s] + n > 3000 for s in ids)
+        ):
+            continue
+        selected.append(binding(c))
+        for s in ids:
+            lengths[s] += n
+    p["automatic_context_cards"] = selected
+
+
+def merge_research(db: Any, scope: str, sid: str, state: dict[str, Any], rid: str) -> None:
+    p = state["planning"]
+    for name in ("research_ids", "own_research_ids"):
+        p[name] = sorted(set(p.get(name, []) + [rid]))
+    if not p.get("knowledge_mode"):
+        save(db, sid, state, bump=False)
+        _activities(db, scope, sid, state)
+        return
+    # New reviewed research has already been organized by the existing worker.
+    # Keep old valid cards, add only cards from sources actually read by this job.
+    from travel_agent.knowledge.planning import templates, verify
+    from travel_agent.knowledge.store import Library, binding
+
+    read_sources = {
+        r[0]
+        for r in db.connection.execute(
+            "SELECT DISTINCT c.source_id FROM research_runs r JOIN research_run_contents rc USING(run_id) JOIN source_contents c USING(content_id) WHERE r.research_id=? AND c.account_scope=?",
+            (rid, scope),
+        )
+    }
+    items = list(p["draft"]["activities"])
+    seen = {a["activity_id"] for a in items}
+    for c in Library(db, scope).search(destination=p["destination"], kind="SOURCE_REFERENCE")[
+        "cards"
+    ]:
+        if (
+            c["spatial_status"] == "MISMATCH"
+            or not {s["source_id"] for s in c["sources"]} <= read_sources
+        ):
+            continue
+        for a in templates(c):
+            if a.activity_id not in seen:
+                items.append(a.model_dump())
+                seen.add(a.activity_id)
+    library = Library(db, scope)
+
+    def item_sources(a: Any) -> set[str]:
+        return {s["source_id"] for r in a["knowledge_refs"] for s in library.get(r)["sources"]}
+
+    items.sort(
+        key=lambda a: (
+            not (a.get("locked") or a.get("locked_start")),
+            not bool(item_sources(a) & read_sources),
+        )
+    )
+    selected: list[dict[str, Any]] = []
+    sources: set[str] = set()
+    for a in items:
+        ids = item_sources(a)
+        if len(sources | ids) <= 6 and len(selected) < 12:
+            selected.append(a)
+            sources |= ids
+        elif a.get("locked") or a.get("locked_start"):
+            raise ValueError("PLANNING_LOCKED_CONSTRAINT")
+    p["automatic_previous_materials"] = p["draft"]["activities"]
+    p["draft"]["activities"] = selected
+    card_context(db, scope, p)
+    cards = verify(db, scope, p)
+    db.connection.execute(
+        "UPDATE research_continuations SET gate_json=json_set(gate_json,'$.knowledge_bindings',json(?)) WHERE continuation_id=?",
+        (json.dumps([binding(c) for c in cards]), p["operation_grant"]),
+    )
 
 
 def save(db: Any, sid: str, state: dict[str, Any], *, bump: bool = True) -> int:
@@ -74,6 +191,8 @@ def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
     """Select currently valid minimal references, never copy historical preferences."""
     p = state["planning"]
     if p["draft"]["activities"]:
+        if p.get("knowledge_mode"):
+            card_context(db, scope, p)
         from .guide_assessment import references as guide_references
 
         p["automatic_cache_sources"] = len(
@@ -93,8 +212,8 @@ def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
         if (
             not items
             or c["spatial_status"] == "MISMATCH"
-            or len(sources | ids) > 2
-            or len(selected) + len(items) > 8
+            or len(sources | ids) > 6
+            or len(selected) + len(items) > 12
         ):
             continue
         sources |= ids
@@ -103,6 +222,7 @@ def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
         p.update(knowledge_mode=True, knowledge_include_test=False)
         p["draft"]["activities"] = [a.model_dump() for a in selected]
         verify(db, scope, p)
+        card_context(db, scope, p)
         p["automatic_cache_sources"] = len(sources)
         return
     # Use raw evidence only through the existing reviewed/versioned projection.
@@ -138,15 +258,36 @@ def _activities(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
     p = state["planning"]
     draft = PlanDraft.model_validate(p["draft"])
     refs = references(db, scope, sid)
+    previous = {a["activity_id"]: a for a in p["draft"]["activities"]}
     allowed_sources: set[str] = set()
-    chosen = []
-    for a in activities(refs, p["destination"], draft.spatial.intent):
+    chosen: list[dict[str, Any]] = []
+    candidates = activities(refs, p["destination"], draft.spatial.intent)
+    candidates.sort(
+        key=lambda a: (
+            not (
+                previous.get(a.activity_id, {}).get("locked")
+                or previous.get(a.activity_id, {}).get("locked_start")
+            )
+        )
+    )
+    for a in candidates:
         ids = {e["source_id"] for e in refs if e["claim_id"] in a.evidence_ids}
-        if a.spatial_status == "MISMATCH" or len(allowed_sources | ids) > 2:
+        old = previous.get(a.activity_id)
+        locked = old and (old.get("locked") or old.get("locked_start"))
+        if a.spatial_status == "MISMATCH" or len(allowed_sources | ids) > 6 or len(chosen) >= 12:
+            if locked:
+                raise ValueError("PLANNING_LOCKED_CONSTRAINT")
             continue
         allowed_sources |= ids
-        chosen.append(a.model_dump())
-    p["draft"]["activities"] = chosen[:8]
+        chosen.append(old or a.model_dump())
+    if any(
+        (a.get("locked") or a.get("locked_start"))
+        and a["activity_id"] not in {c["activity_id"] for c in chosen}
+        for a in previous.values()
+    ):
+        raise ValueError("PLANNING_LOCKED_CONSTRAINT")
+    p["automatic_previous_materials"] = list(previous.values())
+    p["draft"]["activities"] = chosen
 
 
 class AutomaticService:
@@ -197,14 +338,26 @@ class AutomaticService:
         _, state = self.plans.load(sid)
         p = state["planning"]
         invalidate(self.db, sid)
+        p["automatic_material_source_limit"] = 6
         _cached(self.db, self.scope, sid, state)
         tid = "automatic-" + uuid4().hex
         p.pop("automatic_last_intent_key", None)
         p["automatic_task_id"] = tid
         p["automatic_generation"] = p.get("automatic_generation", 0) + 1
-        limits = dict(LIMITS)
-        # A follow-up with usable material needs one advisory call, no site access.
-        if p["draft"]["activities"]:
+        from travel_agent.research.advisory_coverage import limits as research_limits
+
+        limits = research_limits(p["draft"].get("days"), p["travel_kind"] == "REGIONAL")
+        p["automatic_coverage"] = coverage(self.db, self.scope, sid, p)
+        from .conversation import message, model_context, state as conversation_state
+
+        if not any(
+            m["role"] == "USER" and m["text"] == text
+            for m in conversation_state(p)["messages"][-3:]
+        ):
+            message(p, "USER", text)
+        p["conversation_model_context"] = model_context(p)
+        # Only sufficient, currently validated material avoids fresh research.
+        if p["automatic_coverage"]["sufficient"]:
             limits.update(connect=0, search=0, detail=0, model=1)
         status = "QUEUED"
         grant = None
@@ -264,6 +417,11 @@ class AutomaticService:
                 return self.plans.get(sid)
             if body.consent != CONSENT:
                 raise ValueError("OPERATION_NOT_AUTHORIZED")
+            if self.db.connection.execute(
+                "SELECT 1 FROM planning_tasks WHERE account_scope=? AND session_id!=? AND status IN ('QUEUED','RUNNING','WAITING_CONFIGURATION')",
+                (self.scope, sid),
+            ).fetchone():
+                raise ValueError("AUTOMATIC_ALREADY_RUNNING")
             if body.action == "continue":
                 prior = self.db.connection.execute(
                     "SELECT status FROM planning_tasks WHERE task_id=?",
@@ -271,7 +429,7 @@ class AutomaticService:
                 ).fetchone()
                 if prior and prior[0] != "WAITING_CONFIGURATION":
                     raise ValueError("AUTOMATIC_NO_RETRY")
-            else:
+            elif body.action == "revise":
                 if not body.text:
                     raise ValueError("INVALID_INPUT")
                 draft = revise(PlanDraft.model_validate(p["draft"]), body.text)
@@ -297,6 +455,9 @@ class AutomaticService:
                 p.setdefault("automatic_input_history", []).append(p["request"])
                 p["request"] = body.text
                 save(self.db, sid, state, bump=False)
+            elif body.action == "research_more":
+                if p.get("automatic_coverage", {}).get("sufficient"):
+                    raise ValueError("AUTOMATIC_CLARIFY_CHANGE")
             self._create(sid, payload, key, body.text or p["request"])
             return self.plans.get(sid)
 
@@ -367,7 +528,7 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
     ).fetchone()
     if research and row["status"] == "RUNNING" and row["stage"] == "RESEARCH":
         stage = (
-            "LOGIN"
+            "LOGIN_REQUIRED"
             if research[0] == "WAITING_LOGIN"
             else json.loads(research[1] or "{}").get("stage", stage)
         )
@@ -393,6 +554,7 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
                 )
             )
     budget = DailyBudget(db, row["grant_id"]).summary() if row["grant_id"] else None
+    research_summary = json.loads(research[1] or "{}") if research else {}
     if not research:
         from .guide_assessment import references
 
@@ -424,6 +586,16 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
         budget=budget,
         generated=summary.get("generated", False),
         changes=p.get("automatic_changes", []),
+        coverage=research_summary.get("advisory_coverage") or p.get("automatic_coverage"),
+        login_state=research_summary.get("login_state", "NOT_CHECKED"),
+        search_count=budget["used"]["search"] if budget else 0,
+        candidate_count=research_summary.get("report", {}).get("candidate_count", 0),
+        unique_candidate_count=research_summary.get("unique_candidate_count", 0),
+        accepted_source_count=research_summary.get("report", {}).get("source_count", 0),
+        duplicate_body_count=research_summary.get("duplicate_body_count", 0),
+        query_progress=research_summary.get("query_progress", []),
+        body_attempts=budget["used"]["detail"] if budget else 0,
+        research_stop=research_summary.get("research_stop"),
         created_at=row["created_at"],
         finished_at=row["finished_at"],
     )
@@ -480,7 +652,7 @@ def run_task(
                 from .suggestions import launch
 
                 launch(database, jid, research=research)
-            deadline = monotonic() + (1200 if research else 190)
+            deadline = monotonic() + (2850 if research else 190)
             while True:
                 current()
                 child = db.connection.execute(
@@ -495,7 +667,7 @@ def run_task(
         try:
             _, state = current()
             p = state["planning"]
-            if not p["draft"]["activities"]:
+            if not coverage(db, scope, sid, p)["sufficient"]:
                 from travel_agent.preview.jobs import JobService
 
                 with db.transaction():
@@ -505,7 +677,8 @@ def run_task(
                     job = jobs.create(
                         sid, row["revision"], p["destination"], tid + "-research", ready=True
                     )
-                    p["knowledge_mode"] = False
+                    if not p["draft"]["activities"]:
+                        p["knowledge_mode"] = False
                     p["research_job_id"] = job["job_id"]
                     checkpoint(state, "RESEARCH")
                     db.connection.execute(
@@ -514,17 +687,18 @@ def run_task(
                     )
                 child = await_job(job["job_id"], True)
                 info = json.loads(child["summary_json"] or "{}")
-                if child["status"] not in {"COMPLETED", "PARTIAL"} or not info.get(
-                    "new_evidence_count"
-                ):
+                if child["status"] not in {"COMPLETED", "PARTIAL", "NEEDS_REVIEW"} or info.get(
+                    "research_stop"
+                ) in {"VERIFICATION_REQUIRED", "NEED_LOGIN", "SOURCE_UNAVAILABLE", "ERROR"}:
                     raise ValueError("RESEARCH_" + (info.get("reason") or child["status"]))
                 with db.transaction():
                     _, state = current()
                     p = state["planning"]
-                    for name in ("research_ids", "own_research_ids"):
-                        p[name] = sorted(set(p.get(name, []) + [child["research_id"]]))
-                    save(db, sid, state, bump=False)
-                    _activities(db, scope, sid, state)
+                    merge_research(db, scope, sid, state, child["research_id"])
+                    p["automatic_coverage"] = info.get("advisory_coverage") or coverage(
+                        db, scope, sid, p
+                    )
+                    p["automatic_research_stop"] = info.get("research_stop")
                     checkpoint(state, "MATERIALS")
             with db.transaction():
                 row, state = current()
@@ -545,13 +719,28 @@ def run_task(
             if child["status"] not in {"COMPLETED", "PARTIAL"} or not summary.get("proposals"):
                 raise ValueError("PLANNING_" + (summary.get("reason") or child["status"]))
             with db.transaction():
-                current()
+                _, state = current()
+                from .conversation import message, options
+                from .suggestions import job_view
+
+                message(
+                    state["planning"],
+                    "ASSISTANT",
+                    "已整理出新的建议；来源与交通缺口保留，请先比较取舍。尚未覆盖已采用攻略。",
+                    options=options(job_view(db, scope, jid)),
+                    origin="AI_PROPOSED",
+                )
+                save(db, sid, state, bump=False)
                 db.connection.execute(
-                    "UPDATE planning_tasks SET status='COMPLETED',stage='RESULT',summary_json=?,finished_at=? WHERE task_id=? AND status='RUNNING'",
+                    "UPDATE planning_tasks SET status=?,stage='RESULT',summary_json=?,finished_at=? WHERE task_id=? AND status='RUNNING'",
                     (
+                        "COMPLETED"
+                        if p.get("automatic_coverage", {}).get("sufficient")
+                        else "PARTIAL",
                         json.dumps(
                             dict(
                                 generated=True,
+                                material_coverage=p.get("automatic_coverage"),
                                 reason="有限建议，来源、交通与逐日缺口仍以结果为准。",
                             )
                         ),

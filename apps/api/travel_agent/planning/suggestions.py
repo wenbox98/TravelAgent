@@ -787,7 +787,7 @@ def launch(database: Path, jid: str, *, research: bool = False, automatic: bool 
                     ('{"reason":"WORKER_NOT_STARTED"}', jid),
                 )
             return
-        end = monotonic() + (1500 if automatic else 1200 if research else 180)
+        end = monotonic() + (3300 if automatic else 2850 if research else 180)
         while process.poll() is None:
             with Database(database) as db:
                 row = db.connection.execute(

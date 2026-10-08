@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any, Literal, Protocol
+from time import monotonic
 
 from travel_agent.domain.models import SourcePolicy, EvidenceBundle
 from travel_agent.domain.source_policy import is_private
@@ -12,8 +13,15 @@ from travel_agent.providers.diagnostics import Diagnostic
 from .extractor import EvidenceExtractor, policy_allows_model
 from .ephemeral import EphemeralSourceContent
 from .models import (
-    Candidate, CandidateChoice, DetailMaterial, ResearchBudget, ResearchGap,
-    ResearchReport, ResearchRequest, ResearchStopped, StopReason,
+    Candidate,
+    CandidateChoice,
+    DetailMaterial,
+    ResearchBudget,
+    ResearchGap,
+    ResearchReport,
+    ResearchRequest,
+    ResearchStopped,
+    StopReason,
 )
 from .planning import CandidateSelector, QueryPlanner, SufficiencyEvaluator
 from .store import EvidenceStore
@@ -47,20 +55,34 @@ class ResearchService:
         }
         return ResearchGap(code, descriptions.get(code, "正文材料仍存在未验证信息"))
 
-    def __init__(self, store: EvidenceStore, reader: ResearchReader,
-                 extractor: EvidenceExtractor, policy: SourcePolicy,
-                 *, selector: CandidateSelector | None = None,
-                 checkpoint: Callable[[dict[str, int]], None] | None = None,
-                 temporary_read_allowed: bool = False,
-                 model_batch_id: str | None = None, model_max_attempts: int = 4,
-                 after_extraction: Callable[[dict[str, Any]], None] | None = None,
-                 continuation: Any = None,
-                 activity_target: Callable[[tuple[EvidenceBundle, ...]], bool] | None = None,
-                 extraction_dispatch: Callable[[str, tuple[str, ...]], dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        store: EvidenceStore,
+        reader: ResearchReader,
+        extractor: EvidenceExtractor,
+        policy: SourcePolicy,
+        *,
+        selector: CandidateSelector | None = None,
+        checkpoint: Callable[[dict[str, int]], None] | None = None,
+        temporary_read_allowed: bool = False,
+        model_batch_id: str | None = None,
+        model_max_attempts: int = 4,
+        after_extraction: Callable[[dict[str, Any]], None] | None = None,
+        continuation: Any = None,
+        activity_target: Callable[[tuple[EvidenceBundle, ...]], bool] | None = None,
+        extraction_dispatch: Callable[[str, tuple[str, ...]], dict[str, Any]] | None = None,
+        adaptive_queries: bool = False,
+        evidence_filter: Callable[[tuple[EvidenceBundle, ...]], tuple[EvidenceBundle, ...]]
+        | None = None,
+        deadline_seconds: float | None = None,
+        on_connected: Callable[[], None] | None = None,
+    ) -> None:
         self.store, self.reader, self.extractor, self.policy = store, reader, extractor, policy
         self.selector = selector or CandidateSelector()
         self.selector.allow_external = self.selector.allow_external and policy_allows_model(
-            policy, external=True, now=datetime.now(timezone.utc),
+            policy,
+            external=True,
+            now=datetime.now(timezone.utc),
         )
         self.checkpoint = checkpoint or (lambda _: None)
         self.temporary_read_allowed = temporary_read_allowed
@@ -70,18 +92,38 @@ class ResearchService:
         self.activity_target = activity_target
         self.continuation, self.extraction_dispatch = continuation, extraction_dispatch
         self.extraction_attempts: list[dict[str, Any]] = []
+        self.adaptive_queries, self.evidence_filter = adaptive_queries, evidence_filter
+        self.deadline_seconds = deadline_seconds
+        self.on_connected = on_connected
+        self.unique_candidates: set[str] = set()
+        self.duplicate_bodies = 0
+        self.query_progress: list[dict[str, Any]] = []
 
-    def run(self, request: ResearchRequest, *, research_id: str, revision: int,
-            account_scope: str, budget: ResearchBudget = ResearchBudget()) -> ResearchReport:
+    def run(
+        self,
+        request: ResearchRequest,
+        *,
+        research_id: str,
+        revision: int,
+        account_scope: str,
+        budget: ResearchBudget = ResearchBudget(),
+    ) -> ResearchReport:
         run_id = self.store.begin(research_id, revision, request.to_dict(), account_scope)
         policy_error = False
         try:
             self.store.register_policy(run_id, revision, self.policy)
-        except (ValueError, PermissionError):
+        except ValueError, PermissionError:
             policy_error = True
+
         # Lookup precedes even connect. Empty budgets are a genuinely offline mode.
-        evidence = self.store.lookup(research_id, request.destination, account_scope) if not policy_error else ()
+        def lookup() -> tuple[EvidenceBundle, ...]:
+            found = self.store.lookup(research_id, request.destination, account_scope)
+            return self.evidence_filter(found) if self.evidence_filter else found
+
+        evidence = lookup() if not policy_error else ()
+        deadline = monotonic() + self.deadline_seconds if self.deadline_seconds else None
         cached = len(evidence)
+
         def assess(current_evidence: tuple[EvidenceBundle, ...]) -> tuple[ResearchGap, ...]:
             result = self.evaluator.gaps(request, current_evidence)
             if self.activity_target is not None and not self.activity_target(current_evidence):
@@ -91,13 +133,20 @@ class ResearchService:
         gaps = assess(evidence)
         attempted = {bundle["source_id"] for bundle in evidence}
         if self.continuation is not None:
-            attempted.update(row[0] for row in self.store.db.connection.execute(
-                "SELECT source_id FROM sources WHERE account_scope=?", (account_scope,)))
+            attempted.update(
+                row[0]
+                for row in self.store.db.connection.execute(
+                    "SELECT source_id FROM sources WHERE account_scope=?", (account_scope,)
+                )
+            )
         modes: list[str] = []
         choices: list[CandidateChoice] = []
         candidate_count = query_count = 0
-        extra_gaps = {code: self._material_gap(code)
-                      for bundle in evidence for code in bundle["missing_fields"]}
+        extra_gaps = {
+            code: self._material_gap(code)
+            for bundle in evidence
+            for code in bundle["missing_fields"]
+        }
         diagnostic: str | None = None
         self.extraction_attempts = []
         extraction_diagnostics: list[dict[str, Any]] = []
@@ -106,21 +155,54 @@ class ResearchService:
         def current() -> None:
             if not self.store.is_current(run_id, revision):
                 raise ResearchStopped("ERROR", "STALE_REVISION")
+            if deadline is not None and monotonic() >= deadline:
+                raise ResearchStopped("BUDGET_EXHAUSTED", "RESEARCH_DEADLINE")
 
         def finish(reason: StopReason) -> ResearchReport:
+            update_progress()
             obsolete = not self.store.is_current(run_id, revision)
             report = ResearchReport(
-                research_id, revision, run_id, request, evidence,
+                research_id,
+                revision,
+                run_id,
+                request,
+                evidence,
                 tuple({gap.gap_id: gap for gap in (*gaps, *extra_gaps.values())}.values()),
-                "ERROR" if obsolete else reason, self.store.operations(run_id), cached,
-                query_count, candidate_count, tuple(modes), obsolete,
-                "STALE_REVISION" if obsolete else diagnostic, tuple(choices),
+                "ERROR" if obsolete else reason,
+                self.store.operations(run_id),
+                cached,
+                query_count,
+                candidate_count,
+                tuple(modes),
+                obsolete,
+                "STALE_REVISION" if obsolete else diagnostic,
+                tuple(choices),
                 assessed_at=self.store.db.stamp(),
                 extraction_diagnostics=tuple(extraction_diagnostics),
-                extraction_results=tuple({"status": r["status"], **r["counts"]} for r in self.extraction_attempts if "counts" in r),
+                extraction_results=tuple(
+                    {"status": r["status"], **r["counts"]}
+                    for r in self.extraction_attempts
+                    if "counts" in r
+                ),
             )
-            self.store.finish(run_id, revision, [g.to_dict() for g in report.gaps], report.safe_summary())
+            self.store.finish(
+                run_id, revision, [g.to_dict() for g in report.gaps], report.safe_summary()
+            )
             return report
+
+        def update_progress() -> None:
+            if self.query_progress:
+                from .quality import normalize_claim
+
+                progress = self.query_progress[-1]
+                facts = {
+                    (c["topic"], normalize_claim(c["text"])) for b in evidence for c in b["claims"]
+                }
+                progress["body_reads"] = (
+                    self.store.operations(run_id)["detail"] - progress["detail_before"]
+                )
+                progress["new_facts"] = len(facts - progress["_facts_before"])
+                progress["remaining_gaps"] = [g.gap_id for g in gaps]
 
         def reserve(kind: Literal["SEARCH", "DETAIL"], fingerprint: str, limit: int) -> None:
             current()
@@ -133,8 +215,11 @@ class ResearchService:
             current()
 
         def read(candidate: Candidate, fallback: bool = False) -> DetailMaterial:
-            reserve("DETAIL", candidate.source_id + (":fallback" if fallback else ""),
-                    budget.max_feed_details)
+            reserve(
+                "DETAIL",
+                candidate.source_id + (":fallback" if fallback else ""),
+                budget.max_feed_details,
+            )
             result = self.reader.detail(candidate, self.store.operations(run_id)["detail"])
             current()
             if result.source_id != candidate.source_id or not result.identity_match:
@@ -155,8 +240,10 @@ class ResearchService:
         now = datetime.now(timezone.utc)
         expires = self.policy["expires_at"]
         transient_allowed = bool(
-            self.temporary_read_allowed and self.policy["basis"] == "UNKNOWN"
-            and self.policy["allow_read"] and self.policy["allow_inference"]
+            self.temporary_read_allowed
+            and self.policy["basis"] == "UNKNOWN"
+            and self.policy["allow_read"]
+            and self.policy["allow_inference"]
             and (expires is None or datetime.fromisoformat(expires) > now)
         )
         if not transient_allowed and not policy_allows_model(self.policy, external=False, now=now):
@@ -168,29 +255,79 @@ class ResearchService:
                 self.continuation.reserve("CONNECT", "ordinary-session")
             self.reader.connect()
             current()
+            if self.on_connected:
+                self.on_connected()
             while gaps:
+                update_progress()
                 operations = self.store.operations(run_id)
-                if (operations["search"] >= budget.max_search_operations
-                    or operations["detail"] >= budget.max_feed_details):
+                if (
+                    operations["search"] >= budget.max_search_operations
+                    or operations["detail"] >= budget.max_feed_details
+                ):
                     return finish("BUDGET_EXHAUSTED")
-                queries = self.planner.plan(request, evidence, gaps, self.store.queries(research_id))
+                queries = self.planner.plan(
+                    request, evidence, gaps, self.store.queries(research_id)
+                )
                 if not queries:
                     return finish("NO_USEFUL_CANDIDATES")
                 query = queries[0]
-                reserve("SEARCH", sha256(self.planner.normalize(query.text).encode()).hexdigest(),
-                        budget.max_search_operations)
-                if not self.store.record_query(run_id, revision, self.planner.normalize(query.text)):
+                reserve(
+                    "SEARCH",
+                    sha256(self.planner.normalize(query.text).encode()).hexdigest(),
+                    budget.max_search_operations,
+                )
+                if not self.store.record_query(
+                    run_id, revision, self.planner.normalize(query.text)
+                ):
                     current()
                     return finish("NO_USEFUL_CANDIDATES")
                 query_count += 1
+                from .quality import normalize_claim
+
+                self.query_progress.append(
+                    dict(
+                        search_number=query_count,
+                        target_gaps=list(query.gap_ids),
+                        detail_before=operations["detail"],
+                        _facts_before={
+                            (c["topic"], normalize_claim(c["text"]))
+                            for b in evidence
+                            for c in b["claims"]
+                        },
+                    )
+                )
                 candidates = self.reader.search(query.text)
                 current()
                 candidate_count += len(candidates)
-                self.selector.allow_external = self.selector.allow_external and policy_allows_model(
-                    self.policy, external=True, now=datetime.now(timezone.utc),
+                self.unique_candidates.update(c.source_id for c in candidates)
+                self.query_progress[-1].update(
+                    observed_candidates=len(candidates),
+                    unique_candidates=len({c.source_id for c in candidates}),
                 )
-                selected = self.selector.select(candidates, request, gaps, attempted, query_context=query.text)
-                for choice in selected:
+                self.selector.allow_external = self.selector.allow_external and policy_allows_model(
+                    self.policy,
+                    external=True,
+                    now=datetime.now(timezone.utc),
+                )
+                selected = self.selector.select(
+                    candidates, request, gaps, attempted, query_context=query.text
+                )
+                # Leave room for different gap-directed queries, rather than spending
+                # the entire body allowance on the first search page.
+                per_query = max(
+                    1,
+                    (
+                        budget.max_feed_details
+                        - operations["detail"]
+                        + budget.max_search_operations
+                        - operations["search"]
+                        - 1
+                    )
+                    // max(1, budget.max_search_operations - operations["search"]),
+                )
+                for index, choice in enumerate(selected):
+                    if self.adaptive_queries and index >= per_query:
+                        break
                     if self.store.operations(run_id)["detail"] >= budget.max_feed_details:
                         return finish("BUDGET_EXHAUSTED")
                     choices.append(choice)
@@ -201,10 +338,16 @@ class ResearchService:
                         material = read(candidate)
                     except ResearchStopped as error:
                         # Exactly one technical fallback, same source, same charged budget.
-                        if (was_text_first and error.fallback_eligible and not fallback_used
+                        if (
+                            was_text_first
+                            and not self.adaptive_queries
+                            and error.fallback_eligible
+                            and not fallback_used
                             and error.reason == "SOURCE_UNAVAILABLE"
-                            and error.code in {"PARSE_ERROR", "BROWSER_ERROR", "UNKNOWN", "EMPTY_BODY"}
-                            and self.store.operations(run_id)["detail"] < budget.max_feed_details):
+                            and error.code
+                            in {"PARSE_ERROR", "BROWSER_ERROR", "UNKNOWN", "EMPTY_BODY"}
+                            and self.store.operations(run_id)["detail"] < budget.max_feed_details
+                        ):
                             fallback_used = True
                             self.reader.disable_text_first()
                             material = read(candidate, fallback=True)
@@ -214,37 +357,72 @@ class ResearchService:
                     content_id = None
                     if is_private(self.policy) and self.policy["allow_persist_raw"]:
                         try:
-                            content_id = self.store.save_source(run_id, revision, material, self.policy,
-                                                                request.destination)
+                            content_id = self.store.save_source(
+                                run_id, revision, material, self.policy, request.destination
+                            )
                         except Exception:
                             diagnostic = "SOURCE_SAVE_FAILED"
-                            extraction_diagnostics.append(Diagnostic(stage="STORAGE", category=diagnostic).safe_dict())
+                            extraction_diagnostics.append(
+                                Diagnostic(stage="STORAGE", category=diagnostic).safe_dict()
+                            )
                             return finish("ERROR")
                     content = EphemeralSourceContent(material.body, material.dom_body)
                     try:
                         state_body, dom_body = content.read()
                         if content_id is not None:
+                            if (
+                                self.adaptive_queries
+                                and self.store.db.connection.execute(
+                                    "SELECT 1 FROM source_contents a JOIN source_contents b ON a.content_hash=b.content_hash WHERE a.content_id=? AND a.account_scope=b.account_scope AND a.source_id!=b.source_id",
+                                    (content_id,),
+                                ).fetchone()
+                            ):
+                                self.duplicate_bodies += 1
+                                continue  # Count the actual read, but no new model or coverage credit.
                             if self.continuation is not None:
                                 from .material_eligibility import skip_reason
+
                                 code = skip_reason(request, gaps, state_body, dom_body)
                                 if code:
                                     extra_gaps[code] = self._material_gap(code)
                                     continue
                             outcome = ExtractionRecovery(self.store, self.extractor).execute(
-                                run_id=run_id, revision=revision, content_id=content_id, account_scope=account_scope,
-                                policy=self.policy, batch_id=self.model_batch_id or research_id,
-                                max_attempts=self.model_max_attempts, research_gaps=tuple(g.gap_id for g in gaps),
-                                dispatch=self.extraction_dispatch)
+                                run_id=run_id,
+                                revision=revision,
+                                content_id=content_id,
+                                account_scope=account_scope,
+                                policy=self.policy,
+                                batch_id=self.model_batch_id or research_id,
+                                max_attempts=self.model_max_attempts,
+                                research_gaps=tuple(g.gap_id for g in gaps),
+                                dispatch=self.extraction_dispatch,
+                            )
                             safe_outcome = {k: v for k, v in outcome.items() if k != "result"}
-                            if self.after_extraction is not None and outcome["status"] in {"PENDING_REVIEW", "PARTIAL_SUCCESS", "SUCCEEDED"}:
+                            if self.after_extraction is not None and outcome["status"] in {
+                                "PENDING_REVIEW",
+                                "PARTIAL_SUCCESS",
+                                "SUCCEEDED",
+                            }:
                                 self.after_extraction(safe_outcome)
-                                safe_outcome.update({k: v for k, v in ExtractionRecovery(self.store, self.extractor).outcome(outcome["attempt_id"]).items() if k != "result"})
+                                safe_outcome.update(
+                                    {
+                                        k: v
+                                        for k, v in ExtractionRecovery(self.store, self.extractor)
+                                        .outcome(outcome["attempt_id"])
+                                        .items()
+                                        if k != "result"
+                                    }
+                                )
                             outcome.update(safe_outcome)
                             self.extraction_attempts.append(safe_outcome)
                             if outcome.get("diagnostic") is not None:
                                 extraction_diagnostics.append(outcome["diagnostic"])
                             if outcome["status"] in {"PENDING_REVIEW", "NO_ACCEPTED_EVIDENCE"}:
-                                diagnostic = "CONTEXT_REVIEW_REQUIRED" if outcome["status"] == "PENDING_REVIEW" else "NO_ACCEPTED_EVIDENCE"
+                                diagnostic = (
+                                    "CONTEXT_REVIEW_REQUIRED"
+                                    if outcome["status"] == "PENDING_REVIEW"
+                                    else "NO_ACCEPTED_EVIDENCE"
+                                )
                                 if self.continuation is not None and (
                                     outcome["status"] == "NO_ACCEPTED_EVIDENCE"
                                     or outcome.get("continue_after_pending_review", False)
@@ -258,7 +436,7 @@ class ResearchService:
                             # A supervised child commits candidates, not an in-memory ExtractionResult.
                             diagnostic = None
                             modes.append(outcome["mode"])
-                            evidence = self.store.lookup(research_id, request.destination, account_scope)
+                            evidence = lookup()
                             for b in evidence:
                                 for code in b["missing_fields"]:
                                     extra_gaps[code] = self._material_gap(code)
@@ -270,38 +448,50 @@ class ResearchService:
                             continue
                         else:
                             extracted = self.extractor.extract(
-                            source_id=material.source_id, source_title=material.title,
-                            body=state_body, dom_body=dom_body, completeness=material.completeness,
-                            fetched_at=material.fetched_at, source_published_at=material.published_at,
-                            policy=self.policy, source_type=material.source_type,
-                            destination=request.destination, image_count=material.image_count,
-                            temporary_read_allowed=self.temporary_read_allowed,
-                            research_gaps=tuple(gap.gap_id for gap in gaps),
-                        )
+                                source_id=material.source_id,
+                                source_title=material.title,
+                                body=state_body,
+                                dom_body=dom_body,
+                                completeness=material.completeness,
+                                fetched_at=material.fetched_at,
+                                source_published_at=material.published_at,
+                                policy=self.policy,
+                                source_type=material.source_type,
+                                destination=request.destination,
+                                image_count=material.image_count,
+                                temporary_read_allowed=self.temporary_read_allowed,
+                                research_gaps=tuple(gap.gap_id for gap in gaps),
+                            )
                     finally:
                         content.close()
                     current()
                     modes.append(extracted.mode)
                     snapshot = {
-                        "completeness": material.completeness, "body_chars": len(material.body),
-                        "image_count": material.image_count, "identity_match": material.identity_match,
-                        "published_at": material.published_at, "fetched_at": material.fetched_at,
+                        "completeness": material.completeness,
+                        "body_chars": len(material.body),
+                        "image_count": material.image_count,
+                        "identity_match": material.identity_match,
+                        "published_at": material.published_at,
+                        "fetched_at": material.fetched_at,
                         "extraction_mode": extracted.mode,
                         "evidence_count": len(extracted.bundle["claims"]),
                     }
                     saved = content_id is not None or self.store.save_detail(
-                        run_id, revision, material, extracted, self.policy, snapshot)
+                        run_id, revision, material, extracted, self.policy, snapshot
+                    )
                     if not saved:
                         current()
                         diagnostic = "SOURCE_POLICY_STORAGE_DENIED"
                         return finish("SOURCE_UNAVAILABLE")
-                    evidence = self.store.lookup(research_id, request.destination, account_scope)
+                    evidence = lookup()
                     for gap_code in extracted.gaps:
                         extra_gaps[gap_code] = self._material_gap(gap_code)
                     gaps = assess(evidence)
                     if not gaps and "IMAGE_INFORMATION_REQUIRED" not in extra_gaps:
                         return finish("EVIDENCE_SUFFICIENT")
                 if not selected:
+                    if self.adaptive_queries:
+                        continue
                     return finish("NO_USEFUL_CANDIDATES")
                 if not gaps:
                     return finish("SOURCE_UNAVAILABLE")

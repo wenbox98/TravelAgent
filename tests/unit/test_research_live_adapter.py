@@ -411,3 +411,29 @@ def test_verification_after_human_prompt_stops_without_retry(reader):
         reader.connect()
     assert error.value.reason == "VERIFICATION_REQUIRED"
     assert reader.login.connect_calls == 1
+
+
+
+def test_profile_is_not_login_and_search_detail_wait_for_normal_human_login(reader):
+    session = reader._session
+    reader.login.state.status = "SESSION_PRESENT_UNVERIFIED"
+    reader.login.after_connect = "WAITING_USER"
+    assert reader.profile.exists()
+    with pytest.raises(ResearchStopped, match="NEED_LOGIN"):
+        reader.search("合成关键词")
+    with pytest.raises(ResearchStopped, match="NEED_LOGIN"):
+        reader.detail(Candidate(SOURCE_ID, None, "normal", True), 1)
+    def prompt():
+        assert reader.backend.search_calls == reader.backend.detail_calls == 0
+        assert reader._session is session and reader.login.connect_calls == 1
+        reader.login.state.status = "AUTHENTICATED"
+    reader.login_prompt = prompt
+    reader.connect()
+    candidate = reader.search("合成关键词")[0]
+    reader.detail(candidate, 1)
+    assert reader._session is session and reader.login.connect_calls == 1
+    assert reader.backend.search_calls == reader.backend.detail_calls == 1
+    reader.login.state.status = "LOGIN_REQUIRED"
+    with pytest.raises(ResearchStopped, match="NEED_LOGIN"):
+        reader.detail(candidate, 2)
+    assert reader.backend.detail_calls == reader.login.connect_calls == 1

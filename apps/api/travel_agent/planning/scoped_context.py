@@ -167,7 +167,9 @@ def view(
     return result
 
 
-def attach_context(data: dict[str, Any], source_lengths: dict[str, int]) -> None:
+def attach_context(
+    data: dict[str, Any], source_lengths: dict[str, int], *, max_sources: int = 2
+) -> None:
     """Charge repeated context text too; never truncate away conditions to fit."""
     rows = derive(data["activities"], data["references"])["backgrounds"]
     lengths = dict(source_lengths)
@@ -179,7 +181,7 @@ def attach_context(data: dict[str, Any], source_lengths: dict[str, int]) -> None
             + len(row["subject"])
             + sum(map(len, row["conditions"]))
         )
-    if len(lengths) > 2 or any(n > 6000 for n in lengths.values()):
+    if len(lengths) > max_sources or any(n > 6000 for n in lengths.values()):
         raise ValueError("PLANNING_CONTEXT_INPUT_LIMIT")
     data["scoped_context"] = rows
 

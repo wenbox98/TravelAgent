@@ -81,17 +81,25 @@ def main():
             page.screenshot(path=str(output / "first-screen.png"))
             # One user click: no permit form, no source/activity/model relay.
             page.get_by_role("button", name="查资料并生成旅行建议", exact=True).click()
-            expect(page.get_by_role("heading", name="先看看这几种玩法", exact=True)).to_be_visible(
+            expect(page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)).to_be_visible(
                 timeout=30000
             )
             expect(
                 page.get_by_text("本次新生成的AI建议 · 当前可行性未核实", exact=True)
             ).to_be_visible()
-            expect(page.get_by_text("成功取得新正文 1 篇", exact=False)).to_be_visible()
+            if page.locator("details.research-message").get_attribute("open") is None:
+                page.get_by_text("研究进展与资料依据", exact=False).click()
+            expect(page.get_by_text("成功取得新正文 2 篇", exact=False)).to_be_visible()
             expect(page.get_by_role("button", name="采用这版建议", exact=True)).to_be_enabled()
             page.screenshot(path=str(output / "result.png"), full_page=True)
             page.get_by_text("查看本次资料依据", exact=True).click()
             expect(page.get_by_role("link", name="合成青谷游玩路线1", exact=True)).to_be_visible()
+            page.get_by_role("button", name="偏向这个方案", exact=True).click()
+            expect(page.get_by_text("已记住暂定方向：", exact=False)).to_be_visible()
+            page.get_by_role("button", name="为什么推荐这些", exact=True).click()
+            expect(page.get_by_text("依据现有资料回答 · 本地", exact=True)).to_be_visible()
+            page.get_by_role("button", name="撤回选择", exact=True).click()
+            page.get_by_role("button", name="偏向这个方案", exact=True).click()
             # Preview/cancel does not regenerate.
             page.get_by_role("button", name="预览这版", exact=True).click()
             expect(page.get_by_role("heading", name="建议攻略", exact=True)).to_be_visible()
@@ -100,9 +108,9 @@ def main():
             expect(
                 page.get_by_text("已采用这版；尚未核实的交通和预约继续保留。", exact=True)
             ).to_be_visible()
-            page.get_by_label("补充或修改想法", exact=True).fill("只有5天，不想自驾，想轻松一点")
-            page.get_by_role("button", name="按补充调整建议", exact=True).click()
-            expect(page.get_by_role("heading", name="先看看这几种玩法", exact=True)).to_be_visible(
+            page.get_by_label("继续聊聊这次旅行", exact=True).fill("只有5天，不想自驾，想轻松一点")
+            page.get_by_role("button", name="发送", exact=True).click()
+            expect(page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)).to_be_visible(
                 timeout=30000
             )
             expect(
@@ -110,9 +118,11 @@ def main():
                     "已识别：合成青谷 · 5 天。人数、预算和日期可以以后再补。", exact=True
                 )
             ).to_be_visible()
-            expect(page.get_by_text("本次没有派发小红书搜索", exact=False)).to_be_visible()
+            if page.locator("details.research-message").get_attribute("open") is None:
+                page.get_by_text("研究进展与资料依据", exact=False).click()
+            expect(page.get_by_text("本次已派发小红书搜索", exact=False)).to_be_visible()
             page.reload()
-            expect(page.get_by_role("heading", name="先看看这几种玩法", exact=True)).to_be_visible()
+            expect(page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)).to_be_visible()
             page.set_viewport_size({"width": 390, "height": 844})
             assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
             page.screenshot(path=str(output / "followup.png"), full_page=True)
@@ -132,7 +142,8 @@ def main():
             {
                 "single_click_to_proposal": "PASS",
                 "preview_cancel_adopt": "PASS",
-                "followup_cached": "PASS",
+                "choice_question_revert_next_round": "PASS",
+                "followup_partial_cache_supplement": "PASS",
                 "refresh_restore": "PASS",
                 "external_calls": 0,
                 "synthetic_only": True,

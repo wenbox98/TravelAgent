@@ -14,8 +14,16 @@ def card_references(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for c in cards:
         related = c.get("scoped_references", []) if c["kind"] == "SOURCE_REFERENCE" else []
         own: dict[str, Any] = next((r for r in related if r["claim_id"] in c["evidence_links"]), {})
+        source: dict[str, Any] = (
+            next(iter(c.get("sources", [])), {}) if len(c.get("sources", [])) == 1 else {}
+        )
         main = dict(
             own,
+            source_id=own.get("source_id") or source.get("source_id"),
+            source_title=own.get("source_title") or source.get("title"),
+            source_url=own.get("source_url") or source.get("url"),
+            retrieved_at=own.get("retrieved_at") or source.get("retrieved_at"),
+            locator=own.get("locator") or next(iter(c.get("locators", [])), None),
             claim_id=c["card_id"],
             text=c["text"],
             conditions=c["conditions"],
@@ -94,6 +102,16 @@ def verify(
             cards[c["card_id"]] = c
     if not cards:
         raise ValueError("PLANNING_REFERENCE_UNAVAILABLE")
+    sources = {s["source_id"] for c in cards.values() for s in c["sources"]}
+    for ref in p.get("automatic_context_cards", []):
+        c = library.get(ref, outbound=outbound)
+        if (
+            c["destination"] != p["destination"]
+            or c["test_input"]
+            or not {s["source_id"] for s in c["sources"]} <= sources
+        ):
+            raise ValueError("KNOWLEDGE_SCOPE_MISMATCH")
+        cards[c["card_id"]] = c
     return list(cards.values())
 
 
@@ -162,18 +180,22 @@ def payload(db: Any, scope: str, p: dict[str, Any]) -> dict[str, Any]:
                 historical_only=True,
                 completeness=sorted({s["completeness"] for s in c["sources"]}),
             )
-        if len(lengths) > 2 or any(n > 6000 for n in lengths.values()):
+        if len(lengths) > p.get("automatic_material_source_limit", 2) or any(
+            n > 6000 for n in lengths.values()
+        ):
             raise ValueError("KNOWLEDGE_INPUT_LIMIT")
         result = assemble(
             p, draft, selected, any(c["kind"] != "SOURCE_REFERENCE" for c in cards), []
         )
         result["knowledge_bindings"] = [binding(c) for c in cards]
         result["knowledge_mode"] = True
-        for a, original in zip(result["activities"], draft.activities, strict=True):
+        originals = {a.activity_id: a for a in draft.activities}
+        for a in result["activities"]:
+            original = originals[a["activity_id"]]
             a["knowledge_citation_ids"] = [r.card_id for r in original.knowledge_refs]
         from travel_agent.planning.scoped_context import attach_context
 
-        attach_context(result, lengths)
+        attach_context(result, lengths, max_sources=p.get("automatic_material_source_limit", 2))
         result["instructions"] += (
             " 知识卡为历史有限条目；名称提及、来源参考和已采用节奏不是实测事实。仅使用本次列出的知识卡引用，不推测原文，不改写适用条件。"
         )

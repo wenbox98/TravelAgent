@@ -232,7 +232,11 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         lodging_context=lodging_context(draft),
         protocol_version=4,
         planning_mode="ADVISORY",
-        selected_activity_ids=[a.activity_id for a in draft.activities],
+        selected_activity_ids=[
+            a.activity_id
+            for a in draft.activities
+            if a.activity_id in {v["activity_id"] for v in data["activities"]}
+        ],
         days=draft.days,
         first_day=draft.first_day,
         first_period=draft.first_period,
@@ -262,6 +266,10 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         "只保护明确锁定时刻、预约、返回硬截止和交通限制。名称提及不是体验，停留是AI建议。"
         "食宿用策略，不编商家或当前事实；金额仅作预算预留，不是报价。"
     )
+    if data.get("conversation"):
+        data["instructions"] += (
+            " conversation是本次用户可修改的选择、排除和对话摘要，不是来源事实；优先考虑暂定方向，活动排除优先于旧方向。只用当前activities，不能照抄已排除方案。未知条件保持未知，不能虚称已落实。"
+        )
     from .guide_assessment import materials
 
     data["planning_context"] = dict(
@@ -323,6 +331,11 @@ def validate(raw: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
             # UNKNOWN is allowed in an advisory city shortlist, never MISMATCH.
             checked["discovery_mode"] = True
             _check(value, checked)
+            order = [a.activity_id for a in p.activities]
+            if any(
+                order == e.get("order") for e in data.get("conversation", {}).get("excluded", [])
+            ):
+                raise Rejected("CONVERSATION_EXCLUDED_COMBINATION", "activities")
             from .scoped_context import validate_uses
 
             validate_uses(value, checked)

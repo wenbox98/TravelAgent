@@ -7053,6 +7053,19 @@
     "PlanView": {
       "additionalProperties": false,
       "properties": {
+        "conversation": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversation"
+        },
         "automatic_task": {
           "anyOf": [
             {
@@ -8694,7 +8707,7 @@
           "type": "string"
         },
         "consent": {
-          "const": "PRIVATE_RESEARCH_AND_ADVICE_V1",
+          "const": "PRIVATE_RESEARCH_AND_ADVICE_V2",
           "title": "Consent",
           "type": "string"
         }
@@ -8713,7 +8726,9 @@
           "enum": [
             "continue",
             "cancel",
-            "revise"
+            "revise",
+            "research_more",
+            "refine"
           ],
           "title": "Action",
           "type": "string"
@@ -8732,7 +8747,7 @@
         "consent": {
           "anyOf": [
             {
-              "const": "PRIVATE_RESEARCH_AND_ADVICE_V1",
+              "const": "PRIVATE_RESEARCH_AND_ADVICE_V2",
               "type": "string"
             },
             {
@@ -8748,6 +8763,86 @@
         "expected_revision"
       ],
       "title": "AutomaticAction",
+      "type": "object"
+    },
+    "ConversationAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "message",
+            "select",
+            "exclude",
+            "clear",
+            "exclude_activity",
+            "restore_activity",
+            "continue"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 0,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "expected_conversation_version": {
+          "minimum": 0,
+          "title": "Expected Conversation Version",
+          "type": "integer"
+        },
+        "option_id": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Option Id"
+        },
+        "activity_id": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activity Id"
+        },
+        "text": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Text",
+          "type": "string"
+        },
+        "consent": {
+          "anyOf": [
+            {
+              "const": "PRIVATE_RESEARCH_AND_ADVICE_V2",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consent"
+        }
+      },
+      "required": [
+        "action",
+        "expected_revision",
+        "expected_conversation_version"
+      ],
+      "title": "ConversationAction",
       "type": "object"
     }
   }

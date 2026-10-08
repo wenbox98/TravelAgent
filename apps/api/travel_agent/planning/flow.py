@@ -503,8 +503,10 @@ class PlanningService:
             else None
         )
         from .automatic import task_view
+        from .conversation import view as conversation_view
 
         return {
+            "conversation": conversation_view(p, job),
             "automatic_task": task_view(self.db, self.scope, sid, p),
             "guide_view": guide_view,
             "local_guide_review": local_review(self.db, self.scope, sid, p) if guide_view else None,
