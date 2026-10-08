@@ -21,7 +21,10 @@ assert(result.includes('每轮研究进展')&&result.includes('新增2条去重�
 const ready=await render({status:'COMPLETED',generated:true,stage:'RESULT',coverage:{meaning:'仅材料覆盖',activity_count:8,gaps:[]}})
 assert(ready.includes('先看看这几种玩法')&&!ready.includes('继续补充研究'))
 console.log('PASS AutomaticPlanning: local/login/progress, partial proposal, actual counts, gaps, explicit supplement')
-const overview=await render({status:'BLOCKED',reason:'NO_REVIEWED_PLAY_MATERIAL'},{reference_overview:{available:true,valid:true,selected_current:false,current:{version:1,meaning:'本地整理，非新模型攻略',gaps:['具体玩法未知'],cards:[{option_id:'r1',title:'一份来源内的路线参考',source_count:1,entries:[{citation_id:'c1',text:'自编来源路线',conditions:['作者尚未出发'],role_label:'作者计划，未证实成行',review:'MODEL_CONTEXT_REVIEWED',source_title:'合成参考'}]}]}},conversation:{version:1,messages:[{message_id:'m1',role:'ASSISTANT',origin:'AI_CACHED_ADVICE',text:'自编缓存问答',gaps:['接驳未知']}],selected:null,excluded:[],excluded_activities:[],options:[],pending_ai_question:null}})
-assert(overview.includes('先看已有路线参考')&&overview.includes('作者尚未出发')&&overview.includes('同源条目不算独立对照'))
-assert(overview.includes('发送并让AI回答（1次）')&&overview.includes('AI缓存问答 · 建议与解释，非事实核实')&&overview.includes('api.deepseek.com'))
+const overview=await render({status:'BLOCKED',reason:'NO_REVIEWED_PLAY_MATERIAL'},{reference_overview:{available:true,valid:true,selected_current:false,current:{version:1,meaning:'本地整理，非新模型攻略',gaps:['具体玩法未知'],direction_count:3,source_count:1,unassigned_reference_count:0,cards:[{option_id:'r1',title:'有已证实对象的路线参考',summary:'具体活动仍待核实',role_label:'作者计划，未证实成行',condition_excerpts:[{text:'作者尚未出发',truncated:false}],source_count:1,entries:[{citation_id:'c1',text:'自编来源路线',conditions:['作者尚未出发'],role_label:'作者计划，未证实成行',review:'MODEL_CONTEXT_REVIEWED',source_title:'合成参考'}]}]}},conversation:{version:1,messages:[{message_id:'m1',role:'ASSISTANT',origin:'AI_CACHED_ADVICE',text:'自编缓存问答',gaps:['接驳未知']}],selected:null,excluded:[],excluded_activities:[],options:[],pending_ai_question:null}})
+assert(overview.includes('先看已有路线参考')&&overview.includes('作者尚未出发')&&overview.includes('3个路线备选来自1个来源'))
+assert(overview.includes('>发送</button>')&&overview.includes('本轮不选')&&overview.includes('查看依据')&&overview.includes('AI缓存问答 · 建议与解释，非事实核实')&&overview.includes('api.deepseek.com'))
 console.log('PASS AutomaticPlanning: cited local overview without activities and single-submit AI question disclosure')
+
+assert(!overview.includes('确认这些条件（仅本地保存）'))
+console.log('PASS unified submit: concise choices, object/source counts and bounded purpose disclosure')

@@ -38,18 +38,19 @@ class Answer(StrictModel):
 
 def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> dict[str, Any]:
     from .conversation import model_context
-    from .reference_overview import references, view as overview_view
+    from .reference_overview import references, choices, project
     from travel_agent.research.canonical import body_blocks
     from travel_agent.research.model_input import outbound_blocks
     from travel_agent.research.extractor import policy_allows_model
     from travel_agent.research.store import EvidenceStore
 
     context = model_context(p)
-    overview = overview_view(db, scope, sid, p)
-    chosen = overview["selected"] if overview["selected_current"] else None
-    context["selected_reference"] = chosen
-    selected = (chosen or {}).get("bindings", {})
     rows = references(db, scope, sid, p)
+    context.update(choices(rows, p))
+    chosen = context["selected_reference"]
+    selected = (chosen or {}).get("bindings", {})
+    excluded = {cid for v in context["excluded_references"] for cid in v["citation_ids"]}
+    rows = [r for r in rows if r["claim_id"] not in excluded]
     rows.sort(key=lambda r: r["claim_id"] not in selected)
     totals: dict[str, int] = {}
     minimal = []
@@ -111,6 +112,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> 
     probe = deepcopy(p)
     probe["request"] = question
     safe_question = model_context(probe)["user_inputs"][-1]
+    sent_ids = {r["citation_id"] for r in minimal}
     result = dict(
         protocol="CACHED_QUESTION_V1",
         question=safe_question,
@@ -128,7 +130,13 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> 
         walking_conditions={k: p["draft"][k] for k in ("walking_allowed", "walking_origin")},
         conversation=context,
         references=minimal,
-        instructions="回答用户本次问题；引用只来自references，条件和作者角色保留。advice是可修改建议，不生成新的来源事实，不保证开放、价格、班次或可行性。资料不足列入gaps，可提出后续研究建议但不能调用工具。proposed_conditions只解释本次意图，未经用户确认不改变行程。",
+        route_options=[
+            dict(option_id=c["option_id"], citation_ids=list(c["bindings"]))
+            for c in project(rows, p)["cards"]
+            if set(c["bindings"]) <= sent_ids
+        ],
+        iteration_decision=p.get("conversation_iteration_decision"),
+        instructions="回答用户本次问题，结合conversation中的当前路线选择与排除。selected_reference是暂定方向；excluded_references本轮不选，不照抄为推荐。route_options仅是有证明对象的备选，不能凭ID推断活动或套用其他对象的时长。引用只来自references，条件和作者角色保留。advice是可修改建议，不生成新的来源事实，不保证开放、价格、班次或可行性。资料不足列入gaps，可提出后续研究建议但不能调用工具。proposed_conditions只解释本次意图，未经用户确认不改变行程。",
     )
     if SENSITIVE_RESEARCH_TEXT.search(json.dumps(result, ensure_ascii=False)):
         raise ValueError("QUESTION_SENSITIVE_INPUT")
@@ -136,7 +144,15 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> 
 
 
 def create(
-    db: Any, scope: str, sid: str, p: dict[str, Any], revision: int, question: str, key: str
+    db: Any,
+    scope: str,
+    sid: str,
+    p: dict[str, Any],
+    revision: int,
+    question: str,
+    key: str,
+    *,
+    consent: str = CONSENT,
 ) -> str:
     from .workbench import authorize
 
@@ -160,7 +176,9 @@ def create(
         OperationAuthorization(confirm=True, tasks=["QUESTION"], model=1, hours=1),
     )
     jid = "question-" + uuid4().hex
-    request = dict(task="cached_travel_question_v1", payload=data, question=question)
+    request = dict(
+        task="cached_travel_question_v1", payload=data, question=question, consent=consent
+    )
     db.connection.execute(
         "INSERT INTO preview_jobs VALUES(?,?,?,?,?,?,?,?,?,?,0,NULL,?,NULL)",
         (
@@ -278,11 +296,19 @@ def run(database: Path, jid: str, provider: Any = None) -> None:
                     citations=citations,
                     gaps=answer.gaps,
                     intent=answer.intent,
-                    proposed_conditions=answer.proposed_conditions.model_dump(exclude_none=True),
+                    proposed_conditions={
+                        k: v
+                        for k, v in answer.proposed_conditions.model_dump(exclude_none=True).items()
+                        if p["draft"].get(k) != v
+                    },
                 )
                 p.pop("pending_ai_question", None)
                 p["proposed_conversation_conditions"] = dict(
-                    values=answer.proposed_conditions.model_dump(exclude_none=True),
+                    values={
+                        k: v
+                        for k, v in answer.proposed_conditions.model_dump(exclude_none=True).items()
+                        if p["draft"].get(k) != v
+                    },
                     draft_hash=fingerprint(p["draft"]),
                     answer_job_id=jid,
                 )

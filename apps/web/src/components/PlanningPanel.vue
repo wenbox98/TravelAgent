@@ -64,7 +64,7 @@ async function automatic(action:string,text='') {
 async function talk(action:string,optionId?:string,text?:string,activityId?:string){
  if(!data.value||busy.value||edited.value)return
  busy.value=true;error.value='';++generation
- const body={action,option_id:optionId,activity_id:activityId,text:text||'',expected_revision:data.value.revision,expected_conversation_version:data.value.conversation?.version||0,consent:action==='ask'?'PRIVATE_CACHED_QUESTION_V1':'PRIVATE_RESEARCH_AND_ADVICE_V2'}
+ const body={action,option_id:optionId,activity_id:activityId,text:text||'',expected_revision:data.value.revision,expected_conversation_version:data.value.conversation?.version||0,consent:['submit','confirm_update'].includes(action)?'PRIVATE_CONVERSATION_LOOP_V1':action==='ask'?'PRIVATE_CACHED_QUESTION_V1':'PRIVATE_RESEARCH_AND_ADVICE_V2'}
  const url='/api/v1/preview/conversation/'+data.value.session_id
  const signature=JSON.stringify([url,body]);let key:string=crypto.randomUUID()
  try{

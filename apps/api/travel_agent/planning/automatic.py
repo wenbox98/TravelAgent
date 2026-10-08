@@ -36,9 +36,11 @@ def request_for(p: dict[str, Any]) -> Any:
 
 def coverage(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     from travel_agent.research.advisory_coverage import assess
-    from .guide_assessment import references
+    from .reference_overview import references, focused
 
-    return assess(references(db, scope, sid, p), request_for(p), p["draft"]["spatial"]["intent"])
+    return assess(
+        focused(references(db, scope, sid, p), p), request_for(p), p["draft"]["spatial"]["intent"]
+    )
 
 
 def card_context(db: Any, scope: str, p: dict[str, Any]) -> None:
@@ -350,7 +352,9 @@ class AutomaticService:
         )
         return dict(session_id=sid) if sid else None
 
-    def _create(self, sid: str, payload: Any, key: str, text: str) -> None:
+    def _create(
+        self, sid: str, payload: Any, key: str, text: str, *, followup: bool = False
+    ) -> None:
         _, state = self.plans.load(sid)
         p = state["planning"]
         invalidate(self.db, sid)
@@ -362,8 +366,18 @@ class AutomaticService:
         p["automatic_generation"] = p.get("automatic_generation", 0) + 1
         from travel_agent.research.advisory_coverage import limits as research_limits
 
+        consent_version = "PRIVATE_CONVERSATION_LOOP_V1" if followup else CONSENT
         limits = research_limits(p["draft"].get("days"), p["travel_kind"] == "REGIONAL")
+        if followup:
+            limits.update(search=1, detail=2, model=5)
         p["automatic_coverage"] = coverage(self.db, self.scope, sid, p)
+        if followup:
+            p["conversation_iteration_decision"] = dict(
+                p.get("conversation_iteration_decision") or {},
+                purpose="UPDATE_ADVICE",
+                will_research=not p["automatic_coverage"]["sufficient"],
+                gap_keys=[g["key"] for g in p["automatic_coverage"]["gaps"]],
+            )
         from .conversation import message, model_context, state as conversation_state
 
         if not any(
@@ -371,11 +385,13 @@ class AutomaticService:
             for m in conversation_state(p)["messages"][-3:]
         ):
             message(p, "USER", text)
-        p["conversation_model_context"] = model_context(p)
-        from .reference_overview import view as reference_view
+        from .reference_overview import choices, references, derive, project
 
-        if not reference_view(self.db, self.scope, sid, p)["selected_current"]:
-            p["conversation_model_context"]["selected_reference"] = None
+        rows = references(self.db, self.scope, sid, p)
+        p["reference_model_choices"] = choices(rows, p)
+        if project(rows, p)["cards"]:
+            derive(self.db, self.scope, sid, p)
+        p["conversation_model_context"] = model_context(p)
         # Only sufficient, currently validated material avoids fresh research.
         if p["automatic_coverage"]["sufficient"]:
             limits.update(connect=0, search=0, detail=0, model=1)
@@ -394,7 +410,7 @@ class AutomaticService:
             grant = p["operation_grant"]
             self.db.connection.execute(
                 "UPDATE research_continuations SET gate_json=json_set(gate_json,'$.automatic_task_id',?,'$.automatic_generation',?,'$.consent',?) WHERE continuation_id=?",
-                (tid, p["automatic_generation"], CONSENT, grant),
+                (tid, p["automatic_generation"], consent_version, grant),
             )
         except (ValueError, RuntimeError) as exc:
             if str(exc) not in {"CONFIGURED_120_SECOND_PROVIDER_REQUIRED", "NOT_CONFIGURED"}:
@@ -410,7 +426,7 @@ class AutomaticService:
                 revision,
                 key,
                 fingerprint(payload),
-                json.dumps(dict(text=text, consent=CONSENT, limits=limits)),
+                json.dumps(dict(text=text, consent=consent_version, limits=limits)),
                 status,
                 "CACHE",
                 grant,
@@ -418,7 +434,9 @@ class AutomaticService:
             ),
         )
 
-    def action(self, sid: str, body: AutomaticAction, key: str) -> dict[str, Any]:
+    def action(
+        self, sid: str, body: AutomaticAction, key: str, *, followup: bool = False
+    ) -> dict[str, Any]:
         payload = ["automatic-action", sid, body.model_dump()]
         with self.db.transaction():
             if self._receipt(key, payload):
@@ -478,7 +496,7 @@ class AutomaticService:
             elif body.action == "research_more":
                 if p.get("automatic_coverage", {}).get("sufficient"):
                     raise ValueError("AUTOMATIC_CLARIFY_CHANGE")
-            self._create(sid, payload, key, body.text or p["request"])
+            self._create(sid, payload, key, body.text or p["request"], followup=followup)
             return self.plans.get(sid)
 
 

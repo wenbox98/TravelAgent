@@ -203,11 +203,28 @@ def assemble(
     if p.get("conversation_model_context"):
         result["conversation"] = p["conversation_model_context"]
         excluded = set(result["conversation"].get("excluded_activity_ids", []))
+        excluded_citations = {
+            cid
+            for c in result["conversation"].get("excluded_references", [])
+            for cid in c["citation_ids"]
+        }
+        for a in draft.activities:
+            citations = (
+                set(a.evidence_ids) | {r.card_id for r in a.knowledge_refs} | set(a.discovery_ids)
+            )
+            if citations & excluded_citations:
+                if a.locked or a.locked_start:
+                    raise ValueError("PLANNING_LOCKED_CONSTRAINT")
+                excluded.add(a.activity_id)
+        result["references"] = [
+            r for r in result["references"] if r["claim_id"] not in excluded_citations
+        ]
+        result["allowed_citation_ids"] = sorted(r["claim_id"] for r in result["references"])
         result["activities"] = [a for a in result["activities"] if a["activity_id"] not in excluded]
         if draft.activities and not result["activities"]:
             raise ValueError("CONVERSATION_ALL_ACTIVITIES_EXCLUDED")
         result["instructions"] += (
-            " conversation是本次可修改的用户选择和最小对话摘要，不能作为来源事实。优先考虑selected方向，比较excluded的取舍而不照抄已排除方案；只安排本次allowed activities，保护锁定项。无法落实时保留缺口，不假装修改成功。"
+            " conversation是本次可修改的用户选择和最小对话摘要，不能作为来源事实。优先考虑selected方案及selected_reference路线对象；excluded/excluded_references是本轮排除方向，不照抄。路线对象只约束方向，不能变成每个地点特色；时长仅适用于原证明对象。只安排本次allowed activities，保护锁定项。无法落实时保留缺口，不假装修改成功。"
         )
     return result
 

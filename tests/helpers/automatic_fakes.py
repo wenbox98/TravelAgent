@@ -25,7 +25,15 @@ class Model(Provider):
     def structured(self, task, data, schema):
         if task == "cached_travel_question_v1":
             self.calls.append(task)
-            return dict(advice="合成离线问答：可以缩短天数并优先比较轻松安排。", citation_ids=[r["citation_id"] for r in data["references"][:1]], gaps=["交通仍需核实"], intent="MIXED", proposed_conditions=dict(days=5, driving="NO", pace="RELAXED"))
+            return dict(
+                advice="合成离线问答：可以缩短天数并优先比较轻松安排。",
+                citation_ids=[r["citation_id"] for r in data["references"][:1]],
+                gaps=["交通仍需核实"],
+                intent="MIXED",
+                proposed_conditions=dict(
+                    days=3 if "3天" in data["question"] else 5, driving="NO", pace="RELAXED"
+                ),
+            )
         if task == "planning_advisory_v4":
             self.calls.append(task)
             out = proposal(data)

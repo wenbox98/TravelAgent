@@ -71,6 +71,14 @@ def main():
             page = context.new_page()
             errors = []
             page.on("pageerror", lambda e: errors.append(type(e).__name__))
+
+            def failed_response(response):
+                if response.status >= 400 and "/api/v1/preview/conversation/" in response.url:
+                    print(
+                        "SYNTHETIC_CONVERSATION_HTTP", response.status, response.json(), flush=True
+                    )
+
+            page.on("response", failed_response)
             page.goto(
                 origin
                 + "/bootstrap?ticket="
@@ -81,9 +89,9 @@ def main():
             page.screenshot(path=str(output / "first-screen.png"))
             # One user click: no permit form, no source/activity/model relay.
             page.get_by_role("button", name="查资料并生成旅行建议", exact=True).click()
-            expect(page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)).to_be_visible(
-                timeout=30000
-            )
+            expect(
+                page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)
+            ).to_be_visible(timeout=30000)
             expect(
                 page.get_by_text("本次新生成的AI建议 · 当前可行性未核实", exact=True)
             ).to_be_visible()
@@ -109,19 +117,40 @@ def main():
                 page.get_by_text("已采用这版；尚未核实的交通和预约继续保留。", exact=True)
             ).to_be_visible()
             page.get_by_label("继续聊聊这次旅行", exact=True).fill("只有5天，不想自驾，想轻松一点")
-            page.get_by_role("button", name="发送并让AI回答（1次）", exact=True).click()
-            expect(page.get_by_text("AI缓存问答 · 建议与解释，非事实核实",exact=True)).to_be_visible(timeout=30000)
-            page.get_by_role("button",name="确认这些条件（仅本地保存）",exact=True).click()
-            page.get_by_role("button",name="按当前取舍更新建议",exact=True).click()
-            expect(page.get_by_role("button",name="按当前取舍更新建议",exact=True)).to_be_enabled(timeout=30000)
-            expect(page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)).to_be_visible(
+            page.get_by_role("button", name="发送", exact=True).click()
+            expect(page.get_by_role("button", name="按当前取舍更新建议", exact=True)).to_be_enabled(
                 timeout=30000
             )
+            expect(
+                page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)
+            ).to_be_visible(timeout=30000)
             expect(
                 page.get_by_text(
                     "已识别：合成青谷 · 5 天。人数、预算和日期可以以后再补。", exact=True
                 )
             ).to_be_visible()
+            expect(page.get_by_role("button", name="确认并更新建议", exact=True)).to_have_count(0)
+            page.get_by_label("继续聊聊这次旅行", exact=True).fill(
+                "如果只有3天，不自驾会不会太赶？"
+            )
+            page.get_by_role("button", name="发送", exact=True).click()
+            expect(
+                page.get_by_text("AI缓存问答 · 建议与解释，非事实核实", exact=True)
+            ).to_be_visible(timeout=30000)
+            expect(
+                page.get_by_text(
+                    "已识别：合成青谷 · 5 天。人数、预算和日期可以以后再补。", exact=True
+                )
+            ).to_be_visible()
+            page.get_by_role("button", name="确认并更新建议", exact=True).click()
+            expect(
+                page.get_by_text(
+                    "已识别：合成青谷 · 3 天。人数、预算和日期可以以后再补。", exact=True
+                )
+            ).to_be_visible(timeout=30000)
+            expect(page.get_by_role("button", name="按当前取舍更新建议", exact=True)).to_be_enabled(
+                timeout=30000
+            )
             if page.locator("details.research-message").get_attribute("open") is None:
                 page.get_by_text("研究进展与资料依据", exact=False).click()
             expect(page.get_by_text("本次已派发小红书搜索", exact=False)).to_be_visible()
@@ -136,7 +165,9 @@ def main():
             key_leg.get_by_role("button", name="核实这段移动参考（1次）", exact=True).click()
             expect(key_leg.get_by_text("估算约10分钟", exact=False)).to_be_visible()
             page.reload()
-            expect(page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)).to_be_visible()
+            expect(
+                page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)
+            ).to_be_visible()
             page.set_viewport_size({"width": 390, "height": 844})
             assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
             page.screenshot(path=str(output / "followup.png"), full_page=True)

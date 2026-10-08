@@ -158,6 +158,17 @@ def run_job(
                 from travel_agent.planning.workbench import check_active
 
                 check_active(db, budget.state())
+            if "route_choices" in data:
+                from travel_agent.planning.flow import PlanningService
+                from travel_agent.planning.reference_overview import choices, references
+
+                _, latest = PlanningService(db, j["account_scope"]).load(j["session_id"])
+                p = latest["planning"]
+                if (
+                    choices(references(db, j["account_scope"], j["session_id"], p), p)
+                    != data["route_choices"]
+                ):
+                    raise ResearchStopped("ERROR", "ROUTE_CHOICES_CHANGED")
             r = con.execute(
                 "SELECT status,cancel_requested FROM preview_jobs WHERE job_id=?", (job_id,)
             ).fetchone()
@@ -317,7 +328,6 @@ def run_job(
             coverage_evaluator = None
             if automatic:
                 from travel_agent.planning.flow import PlanningService
-                from travel_agent.planning.guide_assessment import references
                 from travel_agent.research.advisory_coverage import (
                     CoverageEvaluator,
                     CoveragePlanner,
@@ -326,9 +336,20 @@ def run_job(
                 from travel_agent.domain.models import EvidenceBundle
 
                 _, current_state = PlanningService(db, j["account_scope"]).load(j["session_id"])
-                base_refs = references(
+                from travel_agent.planning.reference_overview import (
+                    focused,
+                    choices,
+                    references as route_references,
+                )
+
+                route_rows = route_references(
                     db, j["account_scope"], j["session_id"], current_state["planning"]
                 )
+                if "route_choices" in data and data["route_choices"] != choices(
+                    route_rows, current_state["planning"]
+                ):
+                    raise ResearchStopped("ERROR", "ROUTE_CHOICES_CHANGED")
+                base_refs = focused(route_rows, current_state["planning"])
 
                 def filtered(evidence: Any) -> Any:
                     # Only this task's newly read bodies enter extraction coverage.

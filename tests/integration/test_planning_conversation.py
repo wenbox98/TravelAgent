@@ -222,3 +222,76 @@ def test_plain_language_exclusion_uses_current_identity_and_can_revert(conversat
     v = send(s, v, "restore_activity", activity_id=a["activity_id"])
     assert not v["conversation"]["excluded_activities"]
     assert v["operation"]["cumulative_used"] == usage
+
+
+def test_status_projection_cannot_mix_completed_task_and_old_conversation(
+    conversation, monkeypatch
+):
+    """A writer completes between the first read and later task projection."""
+    import json
+    import threading
+    from fastapi.testclient import TestClient
+    from travel_agent.preview.api import PreviewConfig
+    from travel_agent.main import create_app
+    from travel_agent.settings import Settings
+    from travel_agent.planning.flow import PlanningService
+
+    s, v, _, _ = conversation
+    trigger, committed = threading.Event(), threading.Event()
+    previous_version = v["conversation"]["version"]
+    original = PlanningService.load
+    observed = []
+    errors = []
+
+    def complete():
+        trigger.wait(3)
+        try:
+            with Database(s.db.path) as db, db.transaction():
+                row, state = original(PlanningService(db, "owner"), v["session_id"])
+                state["planning"]["conversation"]["version"] += 1
+                db.connection.execute(
+                    "UPDATE preview_sessions SET state_json=? WHERE session_id=?",
+                    (json.dumps(state), v["session_id"]),
+                )
+                db.connection.execute(
+                    "UPDATE planning_tasks SET status='BLOCKED' WHERE task_id=?",
+                    (v["automatic_task"]["task_id"],),
+                )
+            committed.set()
+        except Exception as e:
+            errors.append(type(e).__name__)
+
+    def intervened(self, sid):
+        result = original(self, sid)
+        if not observed:
+            observed.append(True)
+            trigger.set()
+            # Before the fix, the writer commits here and the rest of get()
+            # observes its new task status with the previous conversation.
+            committed.wait(0.15)
+        return result
+
+    cfg = PreviewConfig(
+        s.db.path,
+        "owner",
+        "CACHED_PRIVATE_PREVIEW",
+        b"fixture",
+        product_flow=True,
+        daily_workbench=True,
+    )
+    with TestClient(
+        create_app(Settings.load(preferred_port=18775), preview=cfg),
+        base_url="http://127.0.0.1:18775",
+    ) as client:
+        client.get("/bootstrap?ticket=" + cfg.ticket)
+        thread = threading.Thread(target=complete)
+        monkeypatch.setattr(PlanningService, "load", intervened)
+        thread.start()
+        data = client.get("/api/v1/preview/planning/" + v["session_id"]).json()
+        thread.join(5)
+        assert committed.is_set() and not errors
+        assert data["conversation"]["version"] == previous_version
+        assert data["automatic_task"]["status"] == v["automatic_task"]["status"]
+        latest = client.get("/api/v1/preview/planning/" + v["session_id"]).json()
+        assert latest["conversation"]["version"] == previous_version + 1
+        assert latest["automatic_task"]["status"] == "BLOCKED"

@@ -123,7 +123,13 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
     @app.get("/api/v1/preview/planning/{session_id}", response_model=PlanView)
     def read(session_id: str) -> Any:
         with Database(config.database) as db:
-            return present(PlanningService(db, config.account_scope).get(session_id))
+            # Task completion and conversation state must be from one snapshot.
+            # Otherwise polling can see DONE with the previous conversation version,
+            # stop polling, then reject the user's next message as stale.
+            with db.transaction():
+                view = PlanningService(db, config.account_scope).get(session_id)
+            # Map presentation opens its own connection; keep it outside this lock.
+            return present(view)
 
     @app.get("/api/v1/preview/planning/{session_id}/guide-export", response_model=GuideExport)
     def export_guide(session_id: str) -> Any:

@@ -4,15 +4,19 @@
 
 ## 路线参考
 
-`reference_overview.references/project/derive/view/export` 只读取当前旅行关联资料和已选知识的合格引用。要求已有审核性质、作者角色与定位；不搜索全库同名目的地兜底，不读取待审或拒绝候选。按来源分组，至少有 ROUTE 才形成卡片，保留原文、条件、时长范围和已证明的路线对象关系；同源不等于条目间存在关联。
+`reference_overview.references/project/derive/view/export` 只读取当前旅行关联资料和已选知识的合格引用。要求已有审核性质、作者角色与定位；不搜索全库同名目的地兜底，不读取待审或拒绝候选。规则 `local-route-overview-3` 按来源、已证明对象、作用范围、对象定位和作者角色分组，至少有 ROUTE 才形成卡片。标题来自对象原文；DURATION/TRADEOFF 只有明确关联同一对象才附入，不能靠同源或同名拼接。没有关系的合格路线独立展示。方向数、来源数和未知作者独立性分别展示。
 
-`derive_overview` 是显式本地派生，保存规则版本、完整输入指纹、父任务及递增版本。选择、撤回和重选通过原 conversation revision/version 校验；草稿、绑定或规则变化使旧投影失效，旧历史不覆盖。旧自动任务的 BLOCKED 结果不改写。后续自动研究无具体活动但存在合格路线时，允许生成 LOCAL_REFERENCE_OVERVIEW/PARTIAL，仍不生成或采用攻略。
+`derive_overview` 是显式本地派生，保存规则版本、完整输入指纹、父任务及递增版本。选择、撤回、排除和恢复通过原 conversation revision/version 校验。草稿变化使旧投影失效；取舍另按当前来源、时长范围、完整引用绑定和规则版本复核，因此条件改变后有效取舍可以保留，资料改变则不可沿用。旧历史、旧失败和采用版不覆盖。后续自动研究无具体活动但存在合格路线时，允许生成 LOCAL_REFERENCE_OVERVIEW/PARTIAL，仍不生成或采用攻略。
 
 `GET /api/v1/preview/planning/{session_id}/reference-overview-export` 只导出当前有效的独立本地参考。文件名 `route-reference.md`，明确不是采用版；采用版攻略导出契约不变。GET、刷新和恢复均不派发任务。
 
 ## 一次缓存问答
 
-主输入框提交 `ConversationAction.ask`，携带 `PRIVATE_CACHED_QUESTION_V1`。按钮旁显示一次模型调用、必要缓存引用、接收方 DeepSeek、每来源6000字及无自动研究/重试。旧本地解释入口仍保留并标记 LOCAL_REFERENCE_EXPLANATION。问号不再吞掉明确陈述的约束；假设性提问不自动改行程。
+主输入框统一提交 `ConversationAction.submit`，携带 `PRIVATE_CONVERSATION_LOOP_V1`。服务端 `submission_intent` 分辨明确修改、明确补资料、更新及纯问题/假设。明确可解析条件直接经过原锁定项检查并保存，不先绕一次问答。纯提问只执行一次缓存回答，不改条件、不补资料；有宏观路线且没有具体活动的更新先走缓存路线讨论，不制造活动或宣称资料完整。模糊解释由模型提议，用户点击 `confirm_update` 一次确认并启动有界更新。旧 `ask/confirm_intent/message` API 兼容保留。
+
+主按钮附近用简短用途说明，详细收件方和次数可展开：缓存问题/路线讨论最多模型1次、小红书0；具体更新及明确补资料最多连接1、搜索1、正文2、模型5，缓存充分时缩为模型1及站点0。许可与旧用量关联，结束即关闭，不复用旧余额、不自动重试。此默认产品动作不是开发实测授权；开发者仍需另获用户的具体真实调用许可。
+
+路线卡默认最多显示三个方向，引用原文、审核代码和详细关系在可展开依据中；对话输入紧邻当前对话。原本的本地解释入口仍标记 LOCAL_REFERENCE_EXPLANATION。
 
 `questions.payload` 冻结当前有效选择/排除、最近过滤后的用户意图、天数/交通/节奏、已知预算和硬时间条件，以及至多两来源的最小合格引用。引用保留主题、时长范围及已证明的路线对象文字/作用范围，不由同源关系推断。逐条执行现有 SourcePolicy 与外发过滤，文本、条件与必要关系文字合计每来源最多6000字。无完整正文、BodyBlock、私址、凭据、地图返回或助手解释作为新事实。无合格引用时允许明确不足的建议，不能声称已核实。
 

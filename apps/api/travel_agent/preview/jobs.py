@@ -143,6 +143,7 @@ class JobService:
                     destination=planning["destination"],
                     days=draft.days,
                     no_self_drive=draft.driving == "NO",
+                    transport=draft.transport,
                 ).to_dict()
                 if draft.planning_mode == "ADVISORY":
                     req["research_question"] = "有哪些具体玩法、体验差异和取舍？"
@@ -163,6 +164,23 @@ class JobService:
                     focus += " 公共交通"
                 if draft.walking_allowed or draft.transport == "WALKING":
                     focus += " 步行"
+                from travel_agent.planning.reference_overview import references, choices, project
+
+                route_rows = references(self.db, self.scope, session, planning)
+                route_choices = choices(route_rows, planning)
+                selected = route_choices["selected_reference"]
+                if selected:
+                    from travel_agent.research.canonical import body_blocks
+                    from travel_agent.research.model_input import outbound_blocks
+
+                    title = next(
+                        c["title"]
+                        for c in project(route_rows, planning)["cards"]
+                        if c["option_id"] == selected["option_id"]
+                    )
+                    filtered = "\n".join(b.text for b in outbound_blocks(body_blocks(title)))
+                    if filtered == title.strip():
+                        focus += " " + filtered[:160]
                 data.update(
                     request=req,
                     preferences=prefs,
@@ -171,6 +189,7 @@ class JobService:
                     city_area_requested=draft.spatial.intent == "CITY_CORE",
                     spatial_intent=draft.spatial.intent,
                     planning_protocol=planning.get("protocol_version", 1),
+                    route_choices=route_choices,
                 )
             jid = "job-" + uuid4().hex
             research = "research-" + uuid4().hex
