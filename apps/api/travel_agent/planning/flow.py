@@ -504,8 +504,14 @@ class PlanningService:
         )
         from .automatic import task_view
         from .conversation import view as conversation_view
+        from .reference_overview import view as overview_view
+        from .questions import view as answer_view
+        from .critical_map import view as key_leg_view
 
         return {
+            "critical_map": key_leg_view(self.db, self.scope, sid, p) if daily(p) else None,
+            "answer_job": answer_view(self.db, self.scope, p) if daily(p) else None,
+            "reference_overview": overview_view(self.db, self.scope, sid, p) if daily(p) else None,
             "conversation": conversation_view(p, job),
             "automatic_task": task_view(self.db, self.scope, sid, p),
             "guide_view": guide_view,

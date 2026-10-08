@@ -174,12 +174,28 @@ def invalidate(db: Any, sid: str, reason: str = "CONDITIONS_CHANGED") -> None:
                 "UPDATE research_continuations SET finished_at=coalesce(finished_at,?) WHERE continuation_id=?",
                 (db.stamp(), r["grant_id"]),
             )
+    for row in db.connection.execute(
+        "SELECT job_id,continuation_id FROM preview_jobs WHERE session_id=? AND research_id LIKE 'question-%' AND status IN ('QUEUED','RUNNING')",
+        (sid,),
+    ).fetchall():
+        db.connection.execute(
+            "UPDATE preview_jobs SET status='CANCELED',cancel_requested=1,summary_json=? WHERE job_id=?",
+            (json.dumps(dict(reason=reason)), row["job_id"]),
+        )
+        db.connection.execute(
+            "UPDATE research_continuations SET finished_at=coalesce(finished_at,?) WHERE continuation_id=?",
+            (db.stamp(), row["continuation_id"]),
+        )
 
 
 def recover(db: Any) -> None:
     # Boot does not replay a pending dispatch. Operator can create a NEW intent later.
     for r in db.connection.execute(
         "SELECT DISTINCT session_id FROM planning_tasks WHERE status IN ('QUEUED','RUNNING')"
+    ).fetchall():
+        invalidate(db, r[0], "SERVER_STOPPED")
+    for r in db.connection.execute(
+        "SELECT DISTINCT session_id FROM preview_jobs WHERE research_id LIKE 'question-%' AND status IN ('QUEUED','RUNNING')"
     ).fetchall():
         invalidate(db, r[0], "SERVER_STOPPED")
     db.connection.execute(
@@ -356,6 +372,10 @@ class AutomaticService:
         ):
             message(p, "USER", text)
         p["conversation_model_context"] = model_context(p)
+        from .reference_overview import view as reference_view
+
+        if not reference_view(self.db, self.scope, sid, p)["selected_current"]:
+            p["conversation_model_context"]["selected_reference"] = None
         # Only sufficient, currently validated material avoids fresh research.
         if p["automatic_coverage"]["sufficient"]:
             limits.update(connect=0, search=0, detail=0, model=1)
@@ -704,7 +724,35 @@ def run_task(
                 row, state = current()
                 p = state["planning"]
                 if not p["draft"]["activities"]:
-                    raise ValueError("NO_REVIEWED_PLAY_MATERIAL")
+                    from .reference_overview import derive
+                    from .conversation import message
+
+                    try:
+                        derive(db, scope, sid, p)
+                    except ValueError:
+                        raise ValueError("NO_REVIEWED_PLAY_MATERIAL") from None
+                    message(
+                        p,
+                        "ASSISTANT",
+                        "已有可引用的路线参考，先比较原作者建议和条件。具体玩法与交通不足，尚未生成活动攻略；不会为凑天数编排项目。",
+                        origin="LOCAL_REFERENCE_OVERVIEW",
+                    )
+                    save(db, sid, state, bump=False)
+                    db.connection.execute(
+                        "UPDATE planning_tasks SET status='PARTIAL',stage='OVERVIEW',summary_json=?,finished_at=? WHERE task_id=? AND status='RUNNING'",
+                        (
+                            json.dumps(
+                                dict(
+                                    generated=False,
+                                    local_derived=True,
+                                    reason="ROUTE_REFERENCE_ONLY",
+                                )
+                            ),
+                            db.stamp(),
+                            tid,
+                        ),
+                    )
+                    return
                 from .suggestions import create_job
 
                 # Existing workers verify references, current conditions and each proposal.

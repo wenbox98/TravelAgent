@@ -1396,6 +1396,72 @@ paths:
           application/json:
             schema:
               $ref: ./domain.schema.json#/$defs/ConversationAction
+  /api/v1/preview/key-leg/{session_id}:
+    post:
+      operationId: checkExplicitKeyLeg
+      summary: 显式单段许可：公共地点最多2次、路径最多1次；实际POI需确认，无自动重试，刷新重启零派发
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/PlanView
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/CriticalMapAction
+  /api/v1/preview/planning/{session_id}/reference-overview-export:
+    get:
+      operationId: exportLocalRouteReference
+      summary: 当前有效引用的版本化本地路线参考导出；不是已采用攻略或新模型生成，零外部调用
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ReferenceOverviewExport
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
 components:
   securitySchemes:
     LocalSession:

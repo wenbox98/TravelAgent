@@ -9,6 +9,7 @@ import LocalMaterials from './LocalMaterials.vue'
 import AdvisoryGuide from './AdvisoryGuide.vue'
 import TripIntake from './TripIntake.vue'
 import AutomaticPlanning from './AutomaticPlanning.vue'
+import CriticalMap from './CriticalMap.vue'
 import {readIdea,storeIdea} from '../intake'
 import { originLabel, transportLabel, type Draft, type PlanView, type PlanIndex } from '../planning-api'
 const data = ref<PlanView | null>(null), form = ref<Draft | null>(null)
@@ -20,6 +21,7 @@ const pendingTrip=ref('')
 let generation = 0, poll: ReturnType<typeof setInterval> | undefined, saveTimer: ReturnType<typeof setTimeout> | undefined
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T
 const edited = computed(() => JSON.stringify(form.value) !== JSON.stringify(data.value?.draft))
+const externalRunning=computed(()=>['QUEUED','RUNNING'].includes(data.value?.automatic_task?.status||'')||['QUEUED','RUNNING'].includes(data.value?.answer_job?.status||'')||['QUEUED','RUNNING','WAITING_LOGIN'].includes(data.value?.research_job?.status||''))
 const label = computed(() => data.value?.directions.find(d => d.id === form.value?.direction)?.label || '尚未选择')
 const readable = (s: string) => (data.value?.draft.activities || []).reduce((text, a) => text.replaceAll(a.activity_id, a.name), s)
 const scopeLabel = (s:string) => ({MATCH:'来源支持范围匹配',MISMATCH:'来源指向当前范围以外',UNKNOWN:'范围待核实'}[s] || '范围待核实')
@@ -62,7 +64,7 @@ async function automatic(action:string,text='') {
 async function talk(action:string,optionId?:string,text?:string,activityId?:string){
  if(!data.value||busy.value||edited.value)return
  busy.value=true;error.value='';++generation
- const body={action,option_id:optionId,activity_id:activityId,text:text||'',expected_revision:data.value.revision,expected_conversation_version:data.value.conversation?.version||0,consent:'PRIVATE_RESEARCH_AND_ADVICE_V2'}
+ const body={action,option_id:optionId,activity_id:activityId,text:text||'',expected_revision:data.value.revision,expected_conversation_version:data.value.conversation?.version||0,consent:action==='ask'?'PRIVATE_CACHED_QUESTION_V1':'PRIVATE_RESEARCH_AND_ADVICE_V2'}
  const url='/api/v1/preview/conversation/'+data.value.session_id
  const signature=JSON.stringify([url,body]);let key:string=crypto.randomUUID()
  try{
@@ -75,6 +77,8 @@ async function talk(action:string,optionId?:string,text?:string,activityId?:stri
  finally{busy.value=false}
 }
 async function adoptAutomatic(i:number){await act('use_proposal',{proposal_index:i});if(data.value?.proposal_preview_active&&!error.value)await act('adopt')}
+async function exportReference(){if(!data.value)return;try{const value=await request<{filename:string;markdown:string}>('/api/v1/preview/planning/'+data.value.session_id+'/reference-overview-export');const url=URL.createObjectURL(new Blob([value.markdown],{type:'text/markdown;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=value.filename;a.click();URL.revokeObjectURL(url)}catch(e){error.value=e instanceof Error?e.message:'引用已变化，未导出'}}
+async function mapMode(mode:string){if(!form.value)return;form.value.inputs.mode=mode;form.value.transport=({TRANSIT:'PUBLIC_TRANSIT',WALKING:'WALKING',DRIVING:'SELF_DRIVE'} as Record<string,string>)[mode]||'UNKNOWN';if(mode==='DRIVING')form.value.driving='YES';await act('save')}
 async function create(demo: string | null = null) {
   if (busy.value) return
   if(data.value&&edited.value){error.value='当前旅行有未保存更改，请先保存后再建立新旅行。';return}
@@ -124,7 +128,7 @@ onMounted(async () => {
   window.addEventListener('beforeunload',protectLeave)
   await load()
   poll = setInterval(async () => {
-    if (!busy.value && !edited.value && data.value && (['QUEUED','RUNNING'].includes(data.value.automatic_task?.status||'') || (data.value.job && ['QUEUED', 'RUNNING'].includes(data.value.job.status)) || (data.value.research_job && ['QUEUED','RUNNING','WAITING_LOGIN'].includes(data.value.research_job.status)))) {
+    if (!busy.value && !edited.value && data.value && (['QUEUED','RUNNING'].includes(data.value.answer_job?.status||'') || ['QUEUED','RUNNING'].includes(data.value.automatic_task?.status||'') || (data.value.job && ['QUEUED', 'RUNNING'].includes(data.value.job.status)) || (data.value.research_job && ['QUEUED','RUNNING','WAITING_LOGIN'].includes(data.value.research_job.status)))) {
       const ticket = generation, sid = data.value.session_id
       try { const next = await request<PlanView>('/api/v1/preview/planning/' + sid); if (ticket === generation && sid === data.value?.session_id&&!edited.value) apply(next) } catch(e) { error.value=e instanceof Error?e.message:'暂时未读到任务进度；任务可能仍在运行，请读取状态，勿重复派发。' }
     }
@@ -141,7 +145,8 @@ onUnmounted(() => { ++generation; clearInterval(poll); clearTimeout(saveTimer);w
     <TripIntake v-if="creating || !data" :busy="busy" :ready="true" @start="beginIdea" @local="beginLocal" />
     <details class="card"><summary>历史旅行与合成场景</summary><label>恢复本次旅行<select :value="data?.session_id || ''" @change="load(($event.target as HTMLSelectElement).value)"><option value="">请选择</option><option v-for="t in index?.trips" :key="t.session_id" :value="t.session_id">{{ t.destination }} · {{ t.demo ? '合成测试' : '本机私人草稿' }}</option></select></label><p>以下仅用虚构活动，测试输入不作为你的真实旅行偏好。</p><div class="actions"><button class="quiet" :disabled="busy" @click="create('CITY')">成都城市公交 · 合成</button><button class="quiet" :disabled="busy" @click="create('REGIONAL')">区域交通未定 · 合成</button><button class="quiet" :disabled="busy" @click="create('OTHER_CITY')">苏州两日 · 合成</button><button class="quiet" :disabled="busy" @click="create('GUIDE_MULTI_DAY')">多日食宿预算 · 合成</button></div></details>
     <template v-if="data && form && !creating">
-      <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy" @run="automatic" @talk="talk" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
+      <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy" @run="automatic" @talk="talk" @export-reference="exportReference" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
+      <CriticalMap v-if="!data.demo&&data.critical_map" :plan="data" :busy="busy||edited||externalRunning" @updated="apply" @mode="mapMode" />
       <details v-if="data.guide_view && data.draft.activities.length && (!data.automatic_task || data.proposal_preview_active || data.adopted)" class="card" :open="data.proposal_preview_active"><summary>已保存攻略、修改与导出</summary><AdvisoryGuide :plan="data" :busy="busy" @action="act" /></details>
       <details class="card"><summary>高级：本地选材、手动操作与详细条件</summary>
       <LocalMaterials v-if="!data.demo" :plan="data" :busy="busy || edited" @action="act" @refresh="load" @newtrip="creating=true" />

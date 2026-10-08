@@ -42,7 +42,12 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
         return maps if state["planning"]["demo"] else private_maps
 
     def present(view: dict[str, Any]) -> dict[str, Any]:
-        legs = selected_maps(view["session_id"]).get(view["session_id"])["legs"]
+        map_view = selected_maps(view["session_id"]).get(view["session_id"])
+        legs = map_view["legs"]
+        if view.get("critical_map"):
+            from .critical_map import enrich
+
+            view["critical_map"] = enrich(view["critical_map"], map_view)
         draft = PlanDraft.model_validate(view["draft"])
         rows, gaps = timeline(draft, movement_references(draft, legs))
         view["timeline"] = rows
@@ -52,6 +57,21 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
     from .automatic_api import install_automatic
 
     install_automatic(app, config, present)
+
+    from .critical_map import CriticalMapAction
+
+    @app.post("/api/v1/preview/key-leg/{session_id}", response_model=PlanView)
+    def key_leg(session_id: str, body: CriticalMapAction, request: Request) -> Any:
+        from .critical_map import action
+
+        try:
+            if not config.daily_workbench:
+                raise ValueError("DAILY_TRIP_REQUIRED")
+            action(private_maps, session_id, body, request.headers.get("idempotency-key", ""))
+            with Database(config.database) as db:
+                return present(PlanningService(db, config.account_scope).get(session_id))
+        except ValueError as exc:
+            return error(str(exc), 409)
 
     @app.get("/api/v1/preview/planning-maps/{session_id}", response_model=MapView)
     def read_maps(session_id: str) -> Any:
@@ -116,6 +136,21 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
             return error(
                 str(exc) if str(exc) in STATUS_MESSAGES else "GUIDE_REFERENCE_UNAVAILABLE", 409
             )
+
+    from .reference_overview import ReferenceOverviewExport
+
+    @app.get(
+        "/api/v1/preview/planning/{session_id}/reference-overview-export",
+        response_model=ReferenceOverviewExport,
+    )
+    def export_overview(session_id: str) -> Any:
+        from .reference_overview import export
+
+        try:
+            with Database(config.database) as db:
+                return export(db, config.account_scope, session_id)
+        except ValueError as exc:
+            return error(str(exc), 409)
 
     @app.post("/api/v1/preview/planning/{session_id}", response_model=PlanView)
     def change(session_id: str, body: PlanAction, request: Request) -> Any:

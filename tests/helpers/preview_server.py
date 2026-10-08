@@ -48,7 +48,14 @@ def main():
         from travel_agent.planning.automatic import run_task
         worker.configured_provider = config
         suggestions.configured_provider = config
+        from test_critical_map import MapTransport
+        from travel_agent.providers.amap import AmapAdapter
+        AmapAdapter.from_env = staticmethod(MapTransport)
         def launch(database, jid, **options):
+            if options.get("question"):
+                from travel_agent.planning.questions import run as answer
+                threading.Thread(target=lambda:answer(database,jid,Model()),daemon=True).start()
+                return
             if not options.get("automatic"):
                 raise AssertionError("UNEXPECTED_TEST_DISPATCH")
             def run():

@@ -216,6 +216,7 @@ class PrivateFlowMapService(FlowMapService):
 
     def _result_allowed(self, db: Any, sid: str) -> bool:
         from .private_budget import PrivatePlanningBudget
+
         try:
             PrivatePlanningBudget.for_trip(db, sid).check_trip(self.scope, sid)
             return True
@@ -283,7 +284,9 @@ class PrivateFlowMapService(FlowMapService):
             view["message"] = "本次旅行尚无可用查询许可；历史额度保留。"
         return view
 
-    def mutate(self, action: MapAction, key: str, *, _suggested: bool = False) -> dict[str, Any]:
+    def mutate(
+        self, action: MapAction, key: str, *, _suggested: bool = False, _auto_confirm: bool = True
+    ) -> dict[str, Any]:
         from travel_agent.persistence.database import Database
         from .private_budget import PrivatePlanningBudget
         from .materials import references, candidate_from_name
@@ -312,8 +315,23 @@ class PrivateFlowMapService(FlowMapService):
                     if action.action == "route"
                     else {action.place_id}
                 )
+                critical = b.state()["gate"].get("critical_leg")
+                if critical and action.action == "route":
+                    selected_ids = set(critical["place_ids"])
                 if "RESEARCH" not in b.state()["gate"]["tasks"] and not selected_ids <= allowed_ids:
                     raise ValueError("OPERATION_MATERIAL_CHANGED")
+                if critical:
+                    from .critical_map import binding
+
+                    if (
+                        critical["draft_hash"] != binding(p)
+                        or (action.action == "route" and action.leg_id != critical["leg_id"])
+                        or (
+                            action.action != "route"
+                            and action.place_id not in critical["place_ids"]
+                        )
+                    ):
+                        raise ValueError("KEY_LEG_STALE_OR_CLOSED")
             from .discovery import checked, verify_activity
 
             leads = checked(db, self.scope, action.session_id, p)
@@ -340,6 +358,13 @@ class PrivateFlowMapService(FlowMapService):
                 raise ValueError("PRIVATE_ENDPOINT_NOT_AUTHORIZED")
             refs = {e["claim_id"]: e for e in references(db, self.scope, action.session_id)}
             for a in draft.activities:
+                if (
+                    daily(p)
+                    and critical
+                    and action.action == "route"
+                    and a.activity_id.lower() not in critical["place_ids"]
+                ):
+                    continue
                 if action.action != "route" and a.activity_id != action.place_id:
                     continue
                 if a.provenance == "SOURCE_MENTION":
@@ -371,9 +396,19 @@ class PrivateFlowMapService(FlowMapService):
                 if action.leg_id not in pairs:
                     raise ValueError("INVALID_INPUT")
                 adopted = PlanDraft.model_validate(p["adopted"]) if p["adopted"] else None
-                if not adopted or [(a.activity_id, a.day) for a in adopted.activities] != [
-                    (a.activity_id, a.day) for a in draft.activities
-                ]:
+                from .critical_map import binding
+
+                confirmed_order = p.get("critical_map_task") or {}
+                key_order = (
+                    confirmed_order.get("grant_id") == p.get("operation_grant")
+                    and confirmed_order.get("draft_hash") == binding(p)
+                    and confirmed_order.get("leg_id") == action.leg_id
+                )
+                if not key_order and (
+                    not adopted
+                    or [(a.activity_id, a.day) for a in adopted.activities]
+                    != [(a.activity_id, a.day) for a in draft.activities]
+                ):
                     raise ValueError("MAP_ADOPT_ORDER_FIRST")
                 allowed = (
                     {"TRANSIT"}
@@ -433,7 +468,7 @@ class PrivateFlowMapService(FlowMapService):
                     for a in all_places(TripInputs.model_validate(current["draft"]))
                 }
             result = self._view(db, action.session_id)
-        if target_lead and action.action == "resolve":
+        if _auto_confirm and target_lead and action.action == "resolve":
             place = next((v for v in result["places"] if v["place_id"] == action.place_id), None)
             choices = place["candidates"] if place else []
             import re

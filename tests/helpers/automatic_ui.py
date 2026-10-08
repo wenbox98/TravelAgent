@@ -109,7 +109,11 @@ def main():
                 page.get_by_text("已采用这版；尚未核实的交通和预约继续保留。", exact=True)
             ).to_be_visible()
             page.get_by_label("继续聊聊这次旅行", exact=True).fill("只有5天，不想自驾，想轻松一点")
-            page.get_by_role("button", name="发送", exact=True).click()
+            page.get_by_role("button", name="发送并让AI回答（1次）", exact=True).click()
+            expect(page.get_by_text("AI缓存问答 · 建议与解释，非事实核实",exact=True)).to_be_visible(timeout=30000)
+            page.get_by_role("button",name="确认这些条件（仅本地保存）",exact=True).click()
+            page.get_by_role("button",name="按当前取舍更新建议",exact=True).click()
+            expect(page.get_by_role("button",name="按当前取舍更新建议",exact=True)).to_be_enabled(timeout=30000)
             expect(page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)).to_be_visible(
                 timeout=30000
             )
@@ -121,6 +125,16 @@ def main():
             if page.locator("details.research-message").get_attribute("open") is None:
                 page.get_by_text("研究进展与资料依据", exact=False).click()
             expect(page.get_by_text("本次已派发小红书搜索", exact=False)).to_be_visible()
+            key_leg = page.get_by_role("region", name="关键路段核实", exact=True)
+            key_leg.get_by_role("combobox").first.select_option("WALKING")
+            expect(key_leg.get_by_role("combobox", name="先查看哪一段", exact=True)).to_be_visible()
+            key_leg.get_by_role("checkbox").check()
+            key_leg.get_by_role("button", name="核实这段地点（最多2次）", exact=True).click()
+            expect(key_leg.get_by_text("地点余额0次；路径余额1次。", exact=False)).to_be_visible()
+            for _ in range(2):
+                key_leg.get_by_role("button", name="选择这个地点", exact=True).first.click()
+            key_leg.get_by_role("button", name="核实这段移动参考（1次）", exact=True).click()
+            expect(key_leg.get_by_text("估算约10分钟", exact=False)).to_be_visible()
             page.reload()
             expect(page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)).to_be_visible()
             page.set_viewport_size({"width": 390, "height": 844})
@@ -145,6 +159,8 @@ def main():
                 "choice_question_revert_next_round": "PASS",
                 "followup_partial_cache_supplement": "PASS",
                 "refresh_restore": "PASS",
+                "cached_ai_single_submit": "PASS_FAKE_ONLY",
+                "key_leg_place_confirmation_route": "PASS_FAKE_ONLY",
                 "external_calls": 0,
                 "synthetic_only": True,
             }

@@ -744,7 +744,21 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
             )
 
 
-def launch(database: Path, jid: str, *, research: bool = False, automatic: bool = False) -> None:
+def _finish_answer_grant(db: Any, jid: str) -> None:
+    db.connection.execute(
+        "UPDATE research_continuations SET finished_at=coalesce(finished_at,?) WHERE continuation_id=(SELECT continuation_id FROM preview_jobs WHERE job_id=? AND research_id LIKE 'question-%' AND status NOT IN ('QUEUED','RUNNING'))",
+        (db.stamp(), jid),
+    )
+
+
+def launch(
+    database: Path,
+    jid: str,
+    *,
+    research: bool = False,
+    automatic: bool = False,
+    question: bool = False,
+) -> None:
     owner = str(database.resolve())
     identity = (owner, jid)
     with _launch_lock:
@@ -757,7 +771,13 @@ def launch(database: Path, jid: str, *, research: bool = False, automatic: bool 
         command = [
             sys.executable,
             str(PROJECT_ROOT / "scripts/product_preview.py"),
-            "task-worker" if automatic else "job-worker" if research else "worker",
+            "task-worker"
+            if automatic
+            else "job-worker"
+            if research
+            else "answer-worker"
+            if question
+            else "worker",
             "--job",
             jid,
             "--workspace",
@@ -786,6 +806,7 @@ def launch(database: Path, jid: str, *, research: bool = False, automatic: bool 
                     "UPDATE preview_jobs SET status='FAILED',summary_json=? WHERE job_id=? AND status='QUEUED'",
                     ('{"reason":"WORKER_NOT_STARTED"}', jid),
                 )
+                _finish_answer_grant(db, jid)
             return
         end = monotonic() + (3300 if automatic else 2850 if research else 180)
         while process.poll() is None:
@@ -815,6 +836,7 @@ def launch(database: Path, jid: str, *, research: bool = False, automatic: bool 
                         "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1,summary_json=? WHERE job_id=? AND status IN ('QUEUED','RUNNING')",
                         ('{"reason":"CANCELED_OR_TOTAL_DEADLINE"}', jid),
                     )
+                    _finish_answer_grant(db, jid)
                     if research or automatic:
                         # The reader observes cancellation between API calls and closes
                         # its browser in finally; no asyncio task.cancel into Playwright.
@@ -836,6 +858,7 @@ def launch(database: Path, jid: str, *, research: bool = False, automatic: bool 
                 "UPDATE preview_jobs SET status='FAILED',summary_json=? WHERE job_id=? AND status IN ('QUEUED','RUNNING')",
                 ('{"reason":"WORKER_EXITED"}', jid),
             )
+            _finish_answer_grant(db, jid)
 
     threading.Thread(target=supervise, daemon=True).start()
 

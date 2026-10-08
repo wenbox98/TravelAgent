@@ -11,14 +11,25 @@ from .automatic_models import CONSENT, AutomaticAction
 
 class ConversationAction(StrictModel):
     action: Literal[
-        "message", "select", "exclude", "clear", "exclude_activity", "restore_activity", "continue"
+        "message",
+        "select",
+        "exclude",
+        "clear",
+        "exclude_activity",
+        "restore_activity",
+        "continue",
+        "derive_overview",
+        "select_reference",
+        "clear_reference",
+        "ask",
+        "confirm_intent",
     ]
     expected_revision: int = Field(ge=0)
     expected_conversation_version: int = Field(ge=0)
     option_id: str | None = Field(default=None, max_length=100)
     activity_id: str | None = Field(default=None, max_length=100)
     text: str = Field(default="", max_length=500)
-    consent: Literal["PRIVATE_RESEARCH_AND_ADVICE_V2"] | None = None
+    consent: Literal["PRIVATE_RESEARCH_AND_ADVICE_V2", "PRIVATE_CACHED_QUESTION_V1"] | None = None
 
     @field_validator("text")
     @classmethod
@@ -70,6 +81,8 @@ def view(p: dict[str, Any], job: dict[str, Any] | None) -> dict[str, Any]:
         selected_current=bool(selected and selected["option_id"] in ids),
         choice_version=job["job_id"] if job else None,
         pending_question=question(p),
+        pending_ai_question=p.get("pending_ai_question"),
+        proposed_conditions=(p.get("proposed_conversation_conditions") or {}).get("values"),
     )
 
 
@@ -115,6 +128,7 @@ def model_context(p: dict[str, Any]) -> dict[str, Any]:
             minimal(t) for t in [*p.get("automatic_input_history", []), p["request"]][-5:]
         ],
         selected=c["selected"],
+        selected_reference=p.get("selected_reference_overview"),
         excluded=c["excluded"],
         excluded_activity_ids=c["excluded_activities"],
         recent_messages=[
@@ -162,10 +176,23 @@ def explain(
     return result, citations
 
 
+def explicit_change(text: str) -> bool:
+    """Recognize asserted edits, while questions about hypothetical edits remain local."""
+    if re.search(r"如果|假如|假设|是否|会不会|能不能|可不可以", text):
+        return False
+    return bool(
+        re.search(
+            r"(?:只有|改成|改为|调整为|我(?:有|只有)|最多)\s*\d+\s*天|"
+            r"不(?:想|要)?自驾|想自驾|(?:改用|选择)公共交通|(?:轻松|慢|悠闲)一点",
+            text,
+        )
+    )
+
+
 def action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) -> dict[str, Any]:
     from .automatic import AutomaticService, save, invalidate, revise
     from .flow_models import PlanDraft
-    from .guide_assessment import references
+    from .reference_overview import references
 
     service = AutomaticService(db, scope)
     payload = ["conversation", sid, body.model_dump()]
@@ -185,7 +212,104 @@ def action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) ->
             raise ValueError("STALE_CONVERSATION_VERSION")
         dispatch: Literal["refine", "revise", "research_more"] | None = None
         local_changed = False
-        if body.action in {"select", "exclude", "clear"}:
+        answer_job = None
+        if body.action == "ask":
+            from . import questions
+
+            if body.consent != questions.CONSENT:
+                raise ValueError("OPERATION_NOT_AUTHORIZED")
+            text = body.text or p.get("pending_ai_question")
+            if not text:
+                raise ValueError("INVALID_INPUT")
+            if body.text:
+                message(p, "USER", text)
+            p["pending_ai_question"] = text
+            answer_job = questions.create(db, scope, sid, p, row["revision"], text, key)
+            message(
+                p,
+                "ASSISTANT",
+                "正在用当前选择、条件和有效缓存引用回答这一个问题。只请求一次模型，不查新资料，也不自动改变条件或采用版。",
+                origin="AI_QUESTION_PENDING",
+            )
+        elif body.action == "confirm_intent":
+            from .advisory import check_transition
+
+            proposed = p.get("proposed_conversation_conditions") or {}
+            if not proposed.get("values") or proposed.get("draft_hash") != fingerprint(p["draft"]):
+                raise ValueError("STALE_QUESTION_INTENT")
+            before = PlanDraft.model_validate(p["draft"])
+            values = dict(p["draft"], **proposed["values"])
+            if values["driving"] == "NO" and values["transport"] == "SELF_DRIVE":
+                values["transport"] = "UNKNOWN"
+            for activity in values["activities"]:
+                if values["days"] is not None and activity["day"] > values["days"]:
+                    if activity.get("locked") or activity.get("locked_start"):
+                        raise ValueError("PLANNING_LOCKED_CONSTRAINT")
+                    activity["day"], activity["period"] = 1, "UNDECIDED"
+            values["guide"]["day_choices"] = [
+                c
+                for c in values["guide"]["day_choices"]
+                if values["days"] is None or c["day"] <= values["days"]
+            ]
+            values["inputs"]["mode"] = {
+                "PUBLIC_TRANSIT": "TRANSIT",
+                "SELF_DRIVE": "DRIVING",
+                "WALKING": "WALKING",
+            }.get(values["transport"], "UNKNOWN")
+            after = PlanDraft.model_validate(values)
+            check_transition(before, after)
+            p["draft"] = after.model_dump()
+            p.pop("proposed_conversation_conditions", None)
+            local_changed = True
+            message(
+                p,
+                "ASSISTANT",
+                "已按你确认的解释更新本次条件；没有联网，当前采用版保留。需要新建议时再单独更新。",
+                origin="USER_CONFIRMED_INTENT",
+            )
+        elif body.action == "derive_overview":
+            from .reference_overview import derive
+
+            derive(db, scope, sid, p)
+            message(
+                p,
+                "ASSISTANT",
+                "已按有效引用整理路线参考，条件和缺口保留；这是本地派生版本，没有请求模型，也没有修改历史失败或采用版。",
+                origin="LOCAL_REFERENCE_OVERVIEW",
+            )
+        elif body.action in {"select_reference", "clear_reference"}:
+            overview = current["reference_overview"]
+            card = next(
+                (
+                    r
+                    for r in (overview.get("current") or {}).get("cards", [])
+                    if r["option_id"] == body.option_id
+                ),
+                None,
+            )
+            if body.action == "select_reference":
+                if not overview["valid"] or not card:
+                    raise ValueError("REFERENCE_OVERVIEW_STALE")
+                p["selected_reference_overview"] = dict(
+                    option_id=card["option_id"],
+                    bindings=card["bindings"],
+                    version=overview["current"]["version"],
+                )
+                message(
+                    p,
+                    "ASSISTANT",
+                    "已记住这份路线参考。只作为下次讨论的暂定方向，不等于采用活动或已核实可行。",
+                    origin="LOCAL_REFERENCE_OVERVIEW",
+                )
+            else:
+                p.pop("selected_reference_overview", None)
+                message(
+                    p,
+                    "ASSISTANT",
+                    "已撤回路线参考选择，历史版本保留。",
+                    origin="LOCAL_REFERENCE_OVERVIEW",
+                )
+        elif body.action in {"select", "exclude", "clear"}:
             chosen = next(
                 (o for o in options(current["job"]) if o["option_id"] == body.option_id), None
             )
@@ -296,8 +420,14 @@ def action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) ->
                     "ASSISTANT",
                     "已按当前项目身份记住排除项，下一次更新将落实；没有联网，也未覆盖采用版。",
                 )
+            elif explicit_change(body.text):
+                # Punctuation is not an intent. Asserted constraints are evaluated
+                # before the question shortcut; hypothetical questions stay questions.
+                revise(PlanDraft.model_validate(p["draft"]), body.text)
+                dispatch = "revise"
             elif re.search(
-                r"为什么|依据|怎么选|对比|比较|区别|不同|[?？]|暂不确定|先给建议", body.text
+                r"为什么|依据|怎么选|对比|比较|区别|不同|暂不确定|先给建议|[?？]|如果|假如|假设|是否|会不会|能不能|可不可以",
+                body.text,
             ):
                 answer, citations = explain(
                     p, current["job"], references(db, scope, sid, p), body.text
@@ -309,12 +439,14 @@ def action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) ->
                     citations=citations,
                     origin="LOCAL_REFERENCE_EXPLANATION",
                 )
+                p["pending_ai_question"] = body.text
             else:
                 # Only advertised, deterministic modifications start a new bounded loop.
                 try:
                     revise(PlanDraft.model_validate(p["draft"]), body.text)
                     dispatch = "revise"
                 except ValueError:
+                    p["pending_ai_question"] = body.text
                     answer, citations = explain(
                         p, current["job"], references(db, scope, sid, p), body.text
                     )
@@ -343,11 +475,15 @@ def action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) ->
         else:
             # Local explanation changes conversation, not the proposal input/revision.
             # Selections change model input and must invalidate any active generation.
-            if body.action != "message" or local_changed:
+            if (body.action != "message" or local_changed) and not answer_job:
                 invalidate(db, sid, "CONVERSATION_CHANGED")
             # Completed proposals remain previewable after a local conversation event.
             p["conversation_intent_key"] = key
-        revision = save(db, sid, container, bump=bool(dispatch))
+        revision = save(db, sid, container, bump=bool(dispatch) or body.action == "confirm_intent")
+        if answer_job:
+            from .workbench import DailyBudget
+
+            DailyBudget(db, p["operation_grant"]).reserve("MODEL", answer_job)
         if dispatch:
             service.action(
                 sid,

@@ -12,6 +12,10 @@ from .conversation import ConversationAction, action as conversation_action
 
 def install_automatic(app: FastAPI, config: PreviewConfig, present: Any) -> None:
     def dispatch(view: Any) -> Any:
+        if (view.get("answer_job") or {}).get("status") == "QUEUED":
+            from .suggestions import launch
+
+            launch(config.database, view["answer_job"]["job_id"], question=True)
         if (view.get("automatic_task") or {}).get("status") == "QUEUED":
             from .suggestions import launch
 

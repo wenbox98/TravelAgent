@@ -14,6 +14,11 @@ from travel_agent.research.store import EvidenceStore
 KINDS = ("CONNECT", "SEARCH", "DETAIL", "MODEL", "MAP_PLACE", "MAP_ROUTE")
 PURPOSE = "PRIVATE_OPERATION"
 STATUS_MESSAGES = {
+    "KEY_LEG_INPUT_REQUIRED": "请先选定有来源依据的公共地点顺序与交通方式，再核实这一段。",
+    "KEY_LEG_STALE_OR_CLOSED": "本次路段条件已变化或许可已结束；原结果保留，不会自动重查。",
+    "STALE_QUESTION_INTENT": "问答之后条件已变化，这个解释不再覆盖当前条件。",
+    "REFERENCE_OVERVIEW_STALE": "当前引用或条件已变化，请重新整理本地路线参考。",
+    "REVIEWED_ROUTE_REFERENCE_REQUIRED": "还没有可独立整理的已审核路线引用；待审资料继续待审。",
     "AUTOMATIC_NO_RETRY": "这个任务已结束；不会自动重试。可补充新的旅行条件，或查看已保存结果与失败阶段。",
     "AUTOMATIC_CLARIFY_CHANGE": "这项补充还不能明确转成条件，请说明天数、交通或节奏的具体变化；未发起请求。",
     "DIAGNOSTIC_EXPIRED": "保留的诊断已过期，不能从报告重建回复；旧失败和采用版保留。",
@@ -149,6 +154,8 @@ class DailyBudget(BoundedBudget):
                 or identity.startswith(("extract:", "review:"))
                 else "MAP"
                 if kind.startswith("MAP_")
+                else "QUESTION"
+                if identity.startswith("question-")
                 else "PLANNING"
             )
             self.reserve_count(kind, identity, s["limits"])
@@ -182,7 +189,7 @@ def authorize(db: Any, scope: str, sid: str, p: dict[str, Any], proposal: Any) -
     if (
         (any(limits[k] for k in ("CONNECT", "SEARCH", "DETAIL")) and "RESEARCH" not in tasks)
         or (any(limits[k] for k in ("MAP_PLACE", "MAP_ROUTE")) and "MAP" not in tasks)
-        or (limits["MODEL"] and not set(tasks) & {"RESEARCH", "PLANNING", "REVISION"})
+        or (limits["MODEL"] and not set(tasks) & {"RESEARCH", "PLANNING", "REVISION", "QUESTION"})
     ):
         raise ValueError("INVALID_INPUT")
     config: dict[str, Any] = {"model_disabled": True}

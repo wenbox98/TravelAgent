@@ -9,7 +9,7 @@ const setup=compileScript(descriptor,{id:'automatic',inlineTemplate:true,templat
 const script=ts.transpileModule(setup.content,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from ['"]([^'"]+)['"]/g,(_,name)=>`from "${import.meta.resolve(name)}"`)
 const component=(await import('data:text/javascript;base64,'+Buffer.from(script).toString('base64'))).default
 const task={status:'RUNNING',stage:'LOGIN_CHECK',login_state:'LOGIN_CHECK',research_attempted:false,changes:[],sources:[],limits:{search:3,detail:6,model:13,connect:1},search_count:0,candidate_count:0,unique_candidate_count:0,new_body_count:0,body_attempts:0,cache_source_count:0,accepted_source_count:0,duplicate_body_count:0,query_progress:[],generated:false,coverage:null}
-async function render(t){return renderToString(createSSRApp(component,{plan:{destination:'合成北区',session_id:'fixture',draft:{days:7,activities:[]},combination_candidates:[],automatic_task:{...task,...t},job:{can_preview:true,proposals:[{title:'来源有限的玩法',reason:'合成参考',activities:[],unknowns:['交通未知']}]}},busy:false}))}
+async function render(t,extra={}){return renderToString(createSSRApp(component,{plan:{destination:'合成北区',session_id:'fixture',draft:{days:7,activities:[]},combination_candidates:[],automatic_task:{...task,...t},job:{can_preview:true,proposals:[{title:'来源有限的玩法',reason:'合成参考',activities:[],unknowns:['交通未知']}]},...extra},busy:false}))}
 assert((await render({})).includes('正在检查小红书登录'))
 const login=await render({stage:'LOGIN_REQUIRED',login_state:'LOGIN_REQUIRED'})
 assert(login.includes('小红书官方页面完成正常登录')&&login.includes('同一个任务'))
@@ -21,3 +21,7 @@ assert(result.includes('每轮研究进展')&&result.includes('新增2条去重�
 const ready=await render({status:'COMPLETED',generated:true,stage:'RESULT',coverage:{meaning:'仅材料覆盖',activity_count:8,gaps:[]}})
 assert(ready.includes('先看看这几种玩法')&&!ready.includes('继续补充研究'))
 console.log('PASS AutomaticPlanning: local/login/progress, partial proposal, actual counts, gaps, explicit supplement')
+const overview=await render({status:'BLOCKED',reason:'NO_REVIEWED_PLAY_MATERIAL'},{reference_overview:{available:true,valid:true,selected_current:false,current:{version:1,meaning:'本地整理，非新模型攻略',gaps:['具体玩法未知'],cards:[{option_id:'r1',title:'一份来源内的路线参考',source_count:1,entries:[{citation_id:'c1',text:'自编来源路线',conditions:['作者尚未出发'],role_label:'作者计划，未证实成行',review:'MODEL_CONTEXT_REVIEWED',source_title:'合成参考'}]}]}},conversation:{version:1,messages:[{message_id:'m1',role:'ASSISTANT',origin:'AI_CACHED_ADVICE',text:'自编缓存问答',gaps:['接驳未知']}],selected:null,excluded:[],excluded_activities:[],options:[],pending_ai_question:null}})
+assert(overview.includes('先看已有路线参考')&&overview.includes('作者尚未出发')&&overview.includes('同源条目不算独立对照'))
+assert(overview.includes('发送并让AI回答（1次）')&&overview.includes('AI缓存问答 · 建议与解释，非事实核实')&&overview.includes('api.deepseek.com'))
+console.log('PASS AutomaticPlanning: cited local overview without activities and single-submit AI question disclosure')

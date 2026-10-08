@@ -2,7 +2,7 @@
 import {computed,nextTick,ref,watch} from 'vue'
 import type {PlanView} from '../planning-api'
 const props=defineProps<{plan:PlanView;busy:boolean}>()
-const emit=defineEmits<{run:[action:string,text?:string];talk:[action:string,optionId?:string,text?:string,activityId?:string];preview:[index:number];adopt:[index:number]}>()
+const emit=defineEmits<{run:[action:string,text?:string];talk:[action:string,optionId?:string,text?:string,activityId?:string];preview:[index:number];adopt:[index:number];exportReference:[]}>()
 const text=ref(''),log=ref<HTMLElement|null>(null)
 watch(()=>props.plan.session_id,()=>text.value='')
 const conversation=computed(()=>props.plan.conversation)
@@ -10,10 +10,13 @@ watch(()=>conversation.value?.version,async()=>{await nextTick();if(log.value)lo
 const task=computed(()=>props.plan.automatic_task)
 const ready=computed(()=>['COMPLETED','PARTIAL'].includes(task.value?.status||'')&&task.value?.generated)
 const active=computed(()=>['QUEUED','RUNNING'].includes(task.value?.status||''))
+const answering=computed(()=>['QUEUED','RUNNING'].includes(props.plan.answer_job?.status||''))
+const overview=computed(()=>props.plan.reference_overview)
 const stage=computed(()=>({CACHE:'正在检查可用本机资料',RESEARCH:'正在查小红书',LOGIN:'等待正常登录',LOGIN_CHECK:'正在检查小红书登录',LOGIN_REQUIRED:'请在官方窗口完成正常登录',LOGIN_AUTHENTICATED:'小红书登录已确认',SEARCH:'正在查小红书',READING:'正在阅读笔记正文',EXTRACT:'正在提取必要资料',REVIEW:'正在审核来源上下文',MATERIALS:'正在组织暂定材料',PLANNING:'正在整理旅行建议',RESULT:'新的旅行建议已就绪'}[task.value?.stage||'']||'任务状态已保存'))
 const names=(id:string)=>props.plan.draft.activities.find(a=>a.activity_id===id)?.name||props.plan.combination_candidates.find(a=>a.activity_id===id)?.name||'来源活动'
 const problem=computed(()=>{
  const r=task.value?.reason||''
+ if(r==='ROUTE_REFERENCE_ONLY')return '资料支持下面的路线参考，暂不支持具体玩法安排；交通与当前可行性仍有缺口。'
  if(r.includes('VERIFICATION')||r.includes('DENIED')||r.includes('RATE_LIMIT'))return '网站需要验证或限制了访问，已停止。请查看官方页面；不会尝试规避，也不会自动重试。'
  if(r.includes('LOGIN'))return '尚未完成正常登录，未继续查找。已有资料和结果保留。'
  if(r==='USER_CANCELED')return '已停止本次任务，已有采用版保留。'
@@ -25,13 +28,22 @@ const problem=computed(()=>{
 </script>
 <template>
  <section class="card automatic-planning" aria-label="自动查资料与建议">
-  <h2>{{ready?(task?.status==='PARTIAL'?'资料有限，先看局部建议':'先看看这几种玩法'):active?stage:task?.status==='WAITING_CONFIGURATION'?'先完成一次模型配置':'查资料并给你初步建议'}}</h2>
-  <div class="conversation-log" ref="log" aria-label="旅行对话" role="log"><article v-for="m in conversation?.messages||[]" :key="m.message_id" :class="['bubble',m.role==='USER'?'user':'assistant']"><small>{{m.role==='USER'?'你':m.origin==='LOCAL_REFERENCE_EXPLANATION'?'依据现有资料回答 · 本地':'旅行助手'}}</small><p>{{m.text}}</p><details v-if="m.citations?.length"><summary>回答依据</summary><blockquote v-for="r in m.citations" :key="r.citation_id">{{r.text}}<small>{{r.source_title}} · {{r.role}} · {{r.review}}</small><p>{{r.conditions.join('；')}}</p></blockquote></details><small v-if="m.options?.length">历史方案版本保留；当前可选方案见下方，不自动重新采用。</small></article></div>
+  <h2>{{ready?(task?.status==='PARTIAL'?'资料有限，先看局部建议':'先看看这几种玩法'):overview?.valid?'先看已有路线参考':active?stage:task?.status==='WAITING_CONFIGURATION'?'先完成一次模型配置':'查资料并给你初步建议'}}</h2>
+  <div class="conversation-log" ref="log" aria-label="旅行对话" role="log"><article v-for="m in conversation?.messages||[]" :key="m.message_id" :class="['bubble',m.role==='USER'?'user':'assistant']"><small>{{m.role==='USER'?'你':m.origin==='AI_CACHED_ADVICE'?'AI缓存问答 · 建议与解释，非事实核实':m.origin==='LOCAL_REFERENCE_OVERVIEW'?'路线资料整理 · 本地':m.origin==='LOCAL_REFERENCE_EXPLANATION'?'依据现有资料回答 · 本地':'旅行助手'}}</small><p>{{m.text}}</p><p v-for="g in m.gaps||[]" :key="g">仍需确认：{{g}}</p><details v-if="m.citations?.length"><summary>回答依据</summary><blockquote v-for="r in m.citations" :key="r.citation_id">{{r.text}}<small>{{r.source_title}} · {{r.role}} · {{r.review}}</small><p>{{r.conditions.join('；')}}</p></blockquote></details><small v-if="m.options?.length">历史方案版本保留；当前可选方案见下方，不自动重新采用。</small></article></div>
   <p>已识别：{{plan.destination}} · {{plan.draft.days?`${plan.draft.days} 天`:'天数未定'}}。人数、预算和日期可以以后再补。</p>
   <template v-if="!task"><p>这次会先复用适用的本机资料；不足时查询小红书并阅读少量公开笔记，将过滤后的必要文字交给已配置的 DeepSeek 整理。</p><p>点击即启动本次有限任务；每来源最多6000字，不发送凭据、私址或地图返回。新建议不会覆盖采用版。</p><button :disabled="busy" @click="emit('run','continue')">查资料并生成旅行建议</button></template>
   <template v-else-if="task.status==='WAITING_CONFIGURATION'"><p>在本机用户环境变量配置 LLM_BASE_URL、LLM_MODEL 和 LLM_API_KEY，再正常重启工作台。密钥只在服务端读取，不填入本页面或聊天；无需额外测连接。</p><p>配置完成后仅需继续这一次任务，未产生任何外部调用。</p><button :disabled="busy" @click="emit('run','continue')">配置完成，继续本次任务</button></template>
   <template v-else-if="active"><p role="status">{{stage}}。页面可以刷新，任务不会重复派发。</p><p v-if="['LOGIN','LOGIN_REQUIRED'].includes(task.stage)">如果官方登录页面需要扫码，请在打开的小红书官方页面完成正常登录；完成后会继续同一个任务。</p><button class="quiet" :disabled="busy" @click="emit('run','cancel')">停止本次任务</button></template>
   <p v-else-if="!ready" class="warning" role="status">{{problem}} <small>停止阶段：{{task.stage}}；原因：{{task.reason||task.status}}。</small></p>
+  <section v-if="overview?.available||overview?.current" aria-label="本地路线参考">
+   <h3>已有资料能支持的路线参考</h3><p>先看来源怎么安排，再选想讨论的方向。路线参考与具体活动分开，资料不足仍可先比较。</p>
+   <button v-if="overview.available&&!overview.valid" class="quiet" :disabled="busy||active||answering" @click="emit('talk','derive_overview')">整理已有路线参考（本地）</button>
+   <p v-if="overview.current&&!overview.valid" class="warning">旧整理版本已保存，当前条件或引用变化后需重新整理；不会继续使用旧选择。</p>
+   <template v-if="overview.valid&&overview.current"><p>{{overview.current.meaning}} · 本地版本{{overview.current.version}}</p>
+    <article v-for="card in overview.current.cards" :key="card.option_id" class="option"><h4>{{card.title}}</h4><p>{{card.source_count}}个来源；同源条目不算独立对照；时长与路线的对应关系需单条证明。</p><blockquote v-for="r in card.entries" :key="r.citation_id"><p>{{r.text}}</p><small>{{r.role_label}} · {{r.review}} · {{r.source_title}}</small><p v-if="r.topic==='DURATION'">时长范围：{{r.duration_scope==='WHOLE_TRIP'?'整趟参考':r.duration_scope==='DAY_SEGMENT'?'日段参考':'未知'}}。</p><p>{{r.route_association?`关联对象：${r.route_association.object_quote}（${r.route_association.scope}）`:'未证明与其他条目的具体关联；不能因同源自动套用。'}}</p><p>条件：{{r.conditions.join('；')||'原引用未提供额外条件，不能据此确认当前适用。'}}</p></blockquote><button :disabled="busy||active||answering" @click="emit('talk','select_reference',card.option_id)">先讨论这份路线参考</button><button v-if="overview.selected_current&&overview.selected?.option_id===card.option_id" class="quiet" :disabled="busy||answering" @click="emit('talk','clear_reference')">撤回参考方向</button></article>
+    <p v-for="g in overview.current.gaps" :key="g" class="warning">仍缺：{{g}}</p><button class="quiet" :disabled="busy" @click="emit('exportReference')">导出本地路线参考</button>
+   </template>
+  </section>
   <details v-if="task" class="research-message"><summary>研究进展与资料依据 · 新正文 {{task.new_body_count}} 篇 · 复用 {{task.cache_source_count}} 个来源</summary>  <p v-if="task">本次{{task.research_attempted?'已派发小红书搜索':'没有派发小红书搜索'}}；搜索 {{task.search_count}} 次，观察候选 {{task.candidate_count}} 条，去重后 {{task.unique_candidate_count}} 个；成功取得新正文 {{task.new_body_count}} 篇，尝试读取 {{task.body_attempts}} 次；本轮采信来源 {{task.accepted_source_count}} 个，复用历史来源 {{task.cache_source_count}} 个。正文成功不代表所有结论已经接纳。</p>
   <p v-if="task">登录：{{({NOT_CHECKED:'本次尚未检查；缓存浏览不需要登录',LOGIN_CHECK:'正在检查',LOGIN_REQUIRED:'等待官方正常登录',LOGIN_AUTHENTICATED:'本次研究已确认登录',EXPIRED_OR_REQUIRED:'会话失效或需要登录，已停止'} as Record<string,string>)[task.login_state]||task.login_state}}。不同来源内容重复 {{task.duplicate_body_count}} 篇，不重复提取，也不算新覆盖。</p>
   <div v-if="task?.coverage"><p>{{task.coverage.meaning}} 已有玩法 {{task.coverage.activity_count}} 个，独立作者仍未核实。</p><p v-if="task.coverage.gaps.length" class="warning">当前仍缺：{{task.coverage.gaps.map(g=>g.label).join('；')}}。局部建议不能视为完整攻略。</p><p v-if="!active&&task.coverage.gaps.length">点击将按缺口建立新的有限任务：必要时检查登录、查找和读取公开笔记，过滤后的必要文字交给已配置的 DeepSeek；每来源最多6000字。本次仍按下方默认上限，旧用量和失败保留，不自动重试。</p></div>
@@ -46,10 +58,13 @@ const problem=computed(()=>{
   </div>
   <details v-if="task?.sources.length"><summary>查看本次资料依据</summary><article v-for="(s,i) in task.sources" :key="i"><h3><a v-if="s.url" :href="s.url" target="_blank" rel="noreferrer">{{s.title}}</a><span v-else>{{s.title}}</span></h3><p>{{s.origin==='CACHE'?'本次复用历史资料':'本次取得正文'}} · {{s.completeness||'完整度见原记录'}} · 取得时间 {{s.retrieved_at||'历史记录未提供'}}</p><p>原旅行时间与适用条件以引用为准，取得时间不是旅行发生时间。</p></article></details>
   <aside v-if="!active&&conversation?.pending_question" class="bubble assistant"><p>{{conversation.pending_question.text}}</p><button v-for="choice in conversation.pending_question.choices.filter(c=>c!=='继续补充研究'&&c!=='为什么推荐这些')" :key="choice" class="quiet" :disabled="busy" @click="emit('talk','message',undefined,choice)">{{choice}}</button><button class="quiet" :disabled="busy" @click="emit('talk','message',undefined,'为什么推荐这些')">为什么推荐这些</button></aside>
-  <form class="composer" v-if="conversation&&task?.status!=='WAITING_CONFIGURATION'" @submit.prevent="emit('talk','message',undefined,text)">
+  <form class="composer" v-if="conversation&&task?.status!=='WAITING_CONFIGURATION'" @submit.prevent="emit('talk','ask',undefined,text)">
    <label for="modify-idea">继续聊聊这次旅行</label><textarea id="modify-idea" v-model="text" maxlength="500" rows="2" placeholder="问问推荐依据，或补充：只有5天、不想自驾" />
-   <p>提问和点选先用本机资料，不改已采用攻略。提交明确条件修改或点击更新时才启动下一轮：优先复用，缺口才有限查小红书，必要文字交给已配置 DeepSeek，每来源最多6000字。沿用下方范围，无自动重试。</p>
-   <button :disabled="busy||active||!text.trim()">发送</button><button type="button" class="quiet" :disabled="busy||active||!conversation.selected&&!conversation.excluded.length&&!conversation.excluded_activities.length" @click="emit('talk','continue')">按当前取舍更新建议</button>
+   <p>发送即允许这一个缓存问答：最多1次模型请求，将本次条件、选择与至多两个来源的必要缓存引用交给现有DeepSeek（api.deepseek.com），每来源最多6000字。不查新资料，无自动重试；条件解释需你确认后生效。</p>
+   <button :disabled="busy||active||answering||!text.trim()">发送并让AI回答（1次）</button><button type="button" class="quiet" :disabled="busy||active||answering||!conversation.selected&&!conversation.excluded.length&&!conversation.excluded_activities.length" @click="emit('talk','continue')">按当前取舍更新建议</button>
+   <aside v-if="conversation.pending_ai_question"><p>需要AI进一步解释：{{conversation.pending_ai_question}}</p><p>点击仅授权回答这一个问题：最多1次请求，将本次条件、选择与至多两个来源的必要缓存引用交给现有DeepSeek（api.deepseek.com），每来源最多6000字；不查新资料，无自动重试。</p><button type="button" :disabled="busy||active||answering" @click="emit('talk','ask')">让AI用现有资料回答（1次）</button></aside>
+   <p v-if="answering" role="status">正在回答这个问题，刷新不会重复请求。</p><p v-if="plan.answer_job?.status==='FAILED'" class="warning">本次问答未完成：{{plan.answer_job.reason}}。失败已保留，不会自动重试。</p>
+   <aside v-if="conversation.proposed_conditions&&Object.keys(conversation.proposed_conditions).length"><p>AI理解的条件变化（尚未生效）：{{conversation.proposed_conditions}}</p><button type="button" class="quiet" :disabled="busy||answering" @click="emit('talk','confirm_intent')">确认这些条件（仅本地保存）</button><p>当前采用版不变；更新攻略仍需单独确认调用。</p></aside>
   </form>
   <details v-if="task?.query_progress.length"><summary>每轮研究进展</summary><p v-for="q in task.query_progress" :key="q.search_number">第{{q.search_number}}次搜索：观察{{q.observed_candidates||0}}条候选，读取{{q.body_reads||0}}篇正文，新增{{q.new_facts||0}}条去重后的合格引用。无新增信息不会计作覆盖改善。</p></details>
   <details v-if="task"><summary>高级：本次执行上限与用量</summary><p>上限：搜索{{task.limits.search}}次、正文{{task.limits.detail}}篇、模型{{task.limits.model}}次，连接{{task.limits.connect}}次；不调用地图、报价或embedding。覆盖满足本次研究目标后可提前停止，不自动重试。</p><p>已预留（失败也计数）：搜索{{task.budget?.used.search||0}}、正文{{task.budget?.used.detail||0}}、模型{{task.budget?.used.model||0}}。费用无法实时核算，次数上限不是价格承诺；本任务一小时内有效，结束即关闭。</p></details>

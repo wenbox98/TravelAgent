@@ -118,8 +118,8 @@ class PlanCreate(StrictModel):
 
 class OperationAuthorization(StrictModel):
     confirm: Literal[True]
-    tasks: list[Literal["RESEARCH", "PLANNING", "REVISION", "MAP"]] = Field(
-        min_length=1, max_length=4
+    tasks: list[Literal["RESEARCH", "PLANNING", "REVISION", "MAP", "QUESTION"]] = Field(
+        min_length=1, max_length=5
     )
     hours: int = Field(default=24, ge=1, le=168)
     connect: int = Field(default=0, ge=0, le=1)
@@ -245,6 +245,9 @@ class RevisionResponse(StrictModel):
 
 
 class PlanView(StrictModel):
+    answer_job: dict[str, Any] | None = None
+    critical_map: dict[str, Any] | None = None
+    reference_overview: dict[str, Any] | None = None
     conversation: dict[str, Any] | None = None
     automatic_task: dict[str, Any] | None = None
     guide_view: dict[str, Any] | None = None

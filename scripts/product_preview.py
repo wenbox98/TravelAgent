@@ -91,6 +91,7 @@ def main() -> None:
             "task-worker",
             "extract-worker",
             "review-worker",
+            "answer-worker",
             "diagnostic-replay",
             "diagnostic-clean",
         ],
@@ -175,6 +176,11 @@ def main() -> None:
         from travel_agent.planning.automatic import run_task
 
         run_task(database, args.job)
+        return
+    if args.action == "answer-worker":
+        from travel_agent.planning.questions import run
+
+        run(database, args.job)
         return
     if args.action in {"diagnostic-replay", "diagnostic-clean"}:
         import json

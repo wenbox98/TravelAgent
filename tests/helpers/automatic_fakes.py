@@ -23,12 +23,17 @@ def config():
 
 class Model(Provider):
     def structured(self, task, data, schema):
+        if task == "cached_travel_question_v1":
+            self.calls.append(task)
+            return dict(advice="合成离线问答：可以缩短天数并优先比较轻松安排。", citation_ids=[r["citation_id"] for r in data["references"][:1]], gaps=["交通仍需核实"], intent="MIXED", proposed_conditions=dict(days=5, driving="NO", pace="RELAXED"))
         if task == "planning_advisory_v4":
             self.calls.append(task)
             out = proposal(data)
             for p in out["proposals"]:
                 for a in p["activities"]:
-                    a["day"] = min(a["day"], data.get("days") or 1)
+                    # Authored partial one-day choice, with gaps on other days.
+                    # Also exercises a genuinely adjacent same-day map pair.
+                    a["day"] = 1
             return out
         result = super().structured(task, data, schema)
         if task == "review_evidence_context_v2" and self.calls.count(task) == 2:
