@@ -415,8 +415,9 @@ def action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) ->
             snapshot = dict(
                 option_id=point["option_id"], bindings=point["bindings"], rule_version=POINT_VERSION
             )
+            equivalent_ids = {point["option_id"], *point.get("alias_options", {})}
             for bucket in ("selected_research_points", "excluded_research_points"):
-                p[bucket] = [v for v in p.get(bucket, []) if v["option_id"] != point["option_id"]]
+                p[bucket] = [v for v in p.get(bucket, []) if v["option_id"] not in equivalent_ids]
             if body.action == "select_point":
                 p["selected_research_points"].append(snapshot)
             elif body.action == "exclude_point":

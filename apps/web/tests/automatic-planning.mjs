@@ -37,8 +37,12 @@ const laterFailure=await render({status:'BLOCKED',stage:'RESEARCH',reason:'RESEA
 assert(!laterFailure.includes('因系统启动故障尚未派发')&&!laterFailure.includes('研究在开始查找前异常停止'))
 console.log('PASS failure classification: already-dispatched research is not called a startup failure')
 
-const points=await render({status:'BLOCKED',reason:'RESEARCH_IDENTITY_MISMATCH'},{job:null,conversation:{version:1,messages:[],selected:null,excluded:[],excluded_activities:[],options:[]},references:[{claim_id:'c2'}],reference_overview:{available:true,valid:false,selected_points:['p1'],excluded_points:[],projected:{points:[{option_id:'p1',title:'在合成南园观鸟',topic_label:'玩法与看点',entries:[{citation_id:'c2',text:'在合成南园观鸟，限秋季作者计划。',conditions:['秋季'],role_label:'作者计划，未证实成行',review:'MODEL_CONTEXT_REVIEWED',source_title:'合成来源'}]}]}}})
+const points=await render({status:'BLOCKED',reason:'RESEARCH_IDENTITY_MISMATCH'},{job:null,conversation:{version:1,messages:[],selected:null,excluded:[],excluded_activities:[],options:[]},references:[{claim_id:'c2'}],reference_overview:{available:true,valid:false,selected_points:['p1'],excluded_points:[],projected:{points:[{option_id:'p1',title:'在合成南园观鸟',topic_label:'玩法与看点',entries:[{citation_id:'c2',citation_ids:['c2','card-c2'],text:'在合成南园观鸟，限秋季作者计划。',conditions:['秋季'],role_label:'作者计划，未证实成行',review:'MODEL_CONTEXT_REVIEWED',source_title:'合成来源'}]}]}}})
 assert(points.includes('正文里有哪些玩法和取舍')&&points.includes('撤回兴趣')&&points.includes('本轮不采用'))
 assert(points.includes('完整引用与作用范围')&&points.includes('秋季')&&points.includes('未证明与具体路线或地点的关联'))
 assert(points.includes('已保留1条合格参考')&&points.includes('按当前取舍更新'))
 console.log('PASS cited points: qualified partial material, editable interests, role/scope and explicit update')
+
+assert(points.includes('引用：c2、card-c2'))
+assert.equal(points.split('在合成南园观鸟，限秋季作者计划。').length-1,1)
+console.log('PASS citation aliases: one excerpt keeps every proven citation')

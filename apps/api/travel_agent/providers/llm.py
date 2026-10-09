@@ -212,6 +212,8 @@ class OpenAICompatibleProvider:
                 r'"(?:cookie|cookies|session|session_id)"\s*:|[?&]token=', serialized,
             ):
                 fail("POLICY", "POLICY_BLOCKED", "LLM_POLICY_BLOCKED")
+            from travel_agent.research.reference_identity import model_payload
+            wire_payload = model_payload(payload)
             output_format: dict[str, Any] = {"type": self.response_format}
             schema_instruction = ""
             from travel_agent.planning.revisions import PROMPT as REVISION_PROMPT
@@ -265,7 +267,7 @@ class OpenAICompatibleProvider:
                         else CONTEXT_REVIEW_PROMPT_V1 if task == "review_evidence_context_v1" else CONTEXT_REVIEW_PROMPT
                     ) + schema_instruction},
                     {"role": "user", "content": json.dumps(
-                        {"task": task, "input": payload}, ensure_ascii=False, allow_nan=False
+                        {"task": task, "input": wire_payload}, ensure_ascii=False, allow_nan=False
                     )},
                 ],
                 "response_format": output_format,

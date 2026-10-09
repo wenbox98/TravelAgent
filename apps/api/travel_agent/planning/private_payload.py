@@ -121,7 +121,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
             }
         )
     allowed = {e["claim_id"]: e for e in selected}
-    if not preferred <= allowed.keys():
+    if any(not set(point["citation_ids"]) & allowed.keys() for point in choice_context.get("selected_points", [])):
         raise ValueError("SELECTED_POINT_REFERENCE_UNAVAILABLE")
     catalog = {a.activity_id: a for a in activities(refs, p["destination"])}
     for a in draft.activities:
@@ -236,7 +236,8 @@ def assemble(
         + "仅安排已提供活动，保留锁定预约、首项时间、交通和硬截止。停留与休息为AI建议，交通耗时/开放/预约/票价未知，不得编造。遵循adjustment改选。若活动为空，可从ROUTE/EXPERIENCE引用逐字选择短公共地点名，以grounded_activities提供candidate-N及证据ID，再在proposals引用candidate-N。不得新增来源中不存在的地点。不要把作者计划当历史经历或当前保证。",
     }
     if p.get("conversation_model_context"):
-        result["conversation"] = p["conversation_model_context"]
+        from copy import deepcopy
+        result["conversation"] = deepcopy(p["conversation_model_context"])
         excluded = set(result["conversation"].get("excluded_activity_ids", []))
         excluded_citations = {
             cid
@@ -258,6 +259,11 @@ def assemble(
             r for r in result["references"] if r["claim_id"] not in excluded_citations
         ]
         result["allowed_citation_ids"] = sorted(r["claim_id"] for r in result["references"])
+        for point in result["conversation"].get("selected_points", []):
+            point["citation_ids"] = [cid for cid in point["citation_ids"] if cid in result["allowed_citation_ids"]]
+            if not point["citation_ids"]:
+                raise ValueError("SELECTED_POINT_REFERENCE_UNAVAILABLE")
+        result["content_points"] = deepcopy(result["conversation"].get("selected_points", []))
         result["activities"] = [a for a in result["activities"] if a["activity_id"] not in excluded]
         if draft.activities and not result["activities"]:
             raise ValueError("CONVERSATION_ALL_ACTIVITIES_EXCLUDED")

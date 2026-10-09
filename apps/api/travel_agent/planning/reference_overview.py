@@ -8,6 +8,7 @@ from travel_agent.preview.models import StrictModel
 from travel_agent.preview.projection import fingerprint
 from travel_agent.research.advisory_coverage import REVIEWED
 from travel_agent.research.quality import reference_conflicts
+from travel_agent.research.reference_identity import groups, representative
 from .local_materials import reference_binding
 
 VERSION = "local-route-overview-3"
@@ -128,8 +129,14 @@ def project(rows: list[dict[str, Any]], p: dict[str, Any]) -> dict[str, Any]:
                         duration_scope=r.get("duration_scope", "UNKNOWN"),
                         # Kept as a relationship, never inferred from sharing a source.
                         route_association=r.get("route_association"),
+                        **(
+                            {"citation_ids": sorted(v["claim_id"] for v in group)}
+                            if len(group) > 1
+                            else {}
+                        ),
                     )
-                    for r in entries
+                    for group in groups(entries)
+                    for r in [representative(group)]
                 ],
                 bindings=bindings,
             )
@@ -145,26 +152,46 @@ def project(rows: list[dict[str, Any]], p: dict[str, Any]) -> dict[str, Any]:
         "TRADEOFF": "取舍与住宿线索",
         "SEASON": "时令条件",
     }
-    for r in rows:
-        if (
-            r["claim_id"] in disputed
-            or r.get("topic") not in labels
-            or r.get("review_status") not in REVIEWED
-            or r.get("reference_kind") not in ROLES
-        ):
-            continue
+    eligible = [
+        r
+        for r in rows
+        if r["claim_id"] not in disputed
+        and r.get("topic") in labels
+        and r.get("review_status") in REVIEWED
+        and r.get("reference_kind") in ROLES
+    ]
+
+    def point_id(row: dict[str, Any]) -> str:
+        return "point-" + fingerprint([row["source_id"], row["claim_id"], row["locator"]])[:32]
+
+    for group in groups(eligible):
+        r = representative(group)
         points.append(
             dict(
-                option_id="point-"
-                + fingerprint([r["source_id"], r["claim_id"], r["locator"]])[:32],
+                option_id=point_id(r),
                 title=r["text"][:80],
                 topic_label=labels[r["topic"]],
                 source_count=1,
                 bindings={
-                    r["claim_id"]: fingerprint(
-                        [reference_binding(r), r.get("duration_scope", "UNKNOWN")]
+                    v["claim_id"]: fingerprint(
+                        [reference_binding(v), v.get("duration_scope", "UNKNOWN")]
                     )
+                    for v in group
                 },
+                **(
+                    {
+                        "alias_options": {
+                            point_id(v): {
+                                v["claim_id"]: fingerprint(
+                                    [reference_binding(v), v.get("duration_scope", "UNKNOWN")]
+                                )
+                            }
+                            for v in group
+                        }
+                    }
+                    if len(group) > 1
+                    else {}
+                ),
                 entries=[
                     dict(
                         citation_id=r["claim_id"],
@@ -177,6 +204,11 @@ def project(rows: list[dict[str, Any]], p: dict[str, Any]) -> dict[str, Any]:
                         source_title=r.get("source_title"),
                         duration_scope=r.get("duration_scope", "UNKNOWN"),
                         route_association=r.get("route_association"),
+                        **(
+                            {"citation_ids": sorted(v["claim_id"] for v in group)}
+                            if len(group) > 1
+                            else {}
+                        ),
                     )
                 ],
             )
@@ -198,7 +230,7 @@ def project(rows: list[dict[str, Any]], p: dict[str, Any]) -> dict[str, Any]:
         source_count=source_count,
         direction_count=len(cards),
         confirmed_independent_authors=None,
-        unassigned_reference_count=len(accepted) - sum(len(c["entries"]) for c in cards),
+        unassigned_reference_count=len(accepted) - sum(len(c["bindings"]) for c in cards),
         gaps=list(dict.fromkeys(gaps)),
         activity_count=len(p["draft"]["activities"]),
         meaning="按原引用整理的路线参考，不是新模型攻略、具体活动或现实可行性结论。",
@@ -232,19 +264,36 @@ def choices(rows: list[dict[str, Any]], p: dict[str, Any]) -> dict[str, Any]:
     points = {r["option_id"]: r for r in project(rows, p)["points"]}
 
     def point_choices(name: str) -> list[dict[str, Any]]:
-        return [
-            dict(option_id=s["option_id"], citation_ids=list(points[s["option_id"]]["bindings"]))
-            for s in p.get(name, [])
-            if s.get("rule_version") == POINT_VERSION
-            and s["option_id"] in points
-            and s.get("bindings") == points[s["option_id"]]["bindings"]
-        ]
+        result = {}
+        for saved in p.get(name, []):
+            if saved.get("rule_version") != POINT_VERSION:
+                continue
+            for point in points.values():
+                current = (
+                    saved.get("option_id") == point["option_id"]
+                    and saved.get("bindings") == point["bindings"]
+                )
+                legacy = saved.get("bindings") == point.get("alias_options", {}).get(
+                    saved.get("option_id")
+                )
+                if current or (legacy and saved.get("bindings")):
+                    result[point["option_id"]] = dict(
+                        option_id=point["option_id"], citation_ids=list(point["bindings"])
+                    )
+        return list(result.values())
+
+    excluded_points = point_choices("excluded_research_points")
+    excluded_ids = {v["option_id"] for v in excluded_points}
 
     return dict(
         selected_reference=selected,
         excluded_references=excluded,
-        selected_points=point_choices("selected_research_points"),
-        excluded_points=point_choices("excluded_research_points"),
+        selected_points=[
+            v
+            for v in point_choices("selected_research_points")
+            if v["option_id"] not in excluded_ids
+        ],
+        excluded_points=excluded_points,
     )
 
 
@@ -335,7 +384,8 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
                 "  - 角色：" + e["role_label"],
                 "  - 审核性质：" + e["review"],
                 "  - 条件：" + "；".join(escaped(c) for c in e["conditions"]),
-                "  - 引用：" + escaped(e["citation_id"]),
+                "  - 引用："
+                + "、".join(escaped(cid) for cid in e.get("citation_ids", [e["citation_id"]])),
             ]
             if e["topic"] == "DURATION":
                 lines.append("  - 时长作用范围：" + e.get("duration_scope", "UNKNOWN"))
@@ -353,15 +403,23 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         for entry in point["entries"]:
             lines += [
                 "- " + escaped(entry["text"]),
-                "  - 引用：" + escaped(entry["citation_id"]),
+                "  - 引用："
+                + "、".join(
+                    escaped(cid) for cid in entry.get("citation_ids", [entry["citation_id"]])
+                ),
                 "  - 角色：" + entry["role_label"],
                 "  - 审核性质：" + entry["review"],
                 "  - 来源：" + escaped(entry.get("source_title") or "未提供标题"),
                 "  - 时长范围：" + (entry.get("duration_scope") or "UNKNOWN"),
                 "  - 条件：" + "；".join(escaped(c) for c in entry["conditions"]),
-                "  - 作用范围：" + (
-                    escaped(entry["route_association"]["object_quote"]) + "（" + entry["route_association"]["scope"] + "）"
-                    if entry.get("route_association") else "与具体路线或地点的关系未知，不能套为每站特色。"
+                "  - 作用范围："
+                + (
+                    escaped(entry["route_association"]["object_quote"])
+                    + "（"
+                    + entry["route_association"]["scope"]
+                    + "）"
+                    if entry.get("route_association")
+                    else "与具体路线或地点的关系未知，不能套为每站特色。"
                 ),
             ]
     lines += ["", "## 仍缺的资料", ""] + ["- " + escaped(g) for g in current["gaps"]]

@@ -119,8 +119,10 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> 
     probe["request"] = question
     safe_question = model_context(probe)["user_inputs"][-1]
     sent_ids = {r["citation_id"] for r in minimal}
-    if any(not set(point["citation_ids"]) <= sent_ids for point in context["selected_points"]):
+    if any(not set(point["citation_ids"]) & sent_ids for point in context["selected_points"]):
         raise ValueError("QUESTION_SELECTED_MATERIAL_UNAVAILABLE")
+    for point in context["selected_points"]:
+        point["citation_ids"] = [cid for cid in point["citation_ids"] if cid in sent_ids]
     result = dict(
         protocol="CACHED_QUESTION_V1",
         question=safe_question,
@@ -151,6 +153,10 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> 
         iteration_decision=p.get("conversation_iteration_decision"),
         instructions="回答用户本次问题，结合conversation中的当前路线选择与排除。selected_reference是暂定方向，selected_points是本次正文兴趣；excluded_references/excluded_points本轮不选，不照抄为推荐。route_options仅是有证明对象的备选，content_points是正文参考，不能凭ID推断活动或套用其他对象的时长。引用只来自references，条件和作者角色保留。advice是可修改建议，不生成新的来源事实，不保证开放、价格、班次或可行性。资料不足列入gaps，可提出后续研究建议但不能调用工具。proposed_conditions只解释本次意图，未经用户确认不改变行程。",
     )
+    from travel_agent.research.reference_identity import aliases
+    proven_aliases = aliases([r for r in rows if r["claim_id"] in sent_ids])
+    if proven_aliases:
+        result["reference_aliases"] = proven_aliases
     if SENSITIVE_RESEARCH_TEXT.search(json.dumps(result, ensure_ascii=False)):
         raise ValueError("QUESTION_SENSITIVE_INPUT")
     return result
