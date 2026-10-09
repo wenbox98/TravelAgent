@@ -39,6 +39,7 @@ def error(code: str, status: int) -> JSONResponse:
     messages = {"AUTH_REQUIRED": "请使用本次启动窗口中的本机入口打开页面。", "CSRF_DENIED": "本机会话校验失败，请刷新页面。",
                 "STALE_REVISION": "选择已更新，请刷新后查看最新状态。", "RESEARCH_CHANGED": "缓存依据已变化，请重新选择已有研究；原选择记录保留。",
                 "INVALID_INPUT": "输入格式不正确，请检查选择。", "CACHE_UNAVAILABLE": "本地操作暂不可用；请先读取已保存状态，勿重复派发。",
+                "QUESTION_MATERIAL_REQUIRED": "当前没有可用于比较的资料，未调用模型。请先查看研究启动状态；条件可暂未定，系统故障不需要补填条件。",
                 'LIVE_RESEARCH_UNAVAILABLE':'本轮许可、门槛或额度不允许新研究；已有资料仍可浏览。',
                 'DESTINATION_REQUIRED':'请先确认要研究的目的区域。','DESTINATION_CONFLICT':'已有研究的目的区域与输入不一致，请保留原研究或新建本地需求。',
                 'NEW_MATERIAL_UNAVAILABLE':'本任务没有可采用的新合格材料；原选择保留。','JOB_UNAVAILABLE':'当前范围没有此研究任务。'}

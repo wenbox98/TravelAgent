@@ -354,7 +354,7 @@ def test_normal_research_v3_model_review_attaches_without_replacing_adopted(priv
 
 
 @pytest.mark.parametrize(
-    "role", ["serve", "worker", "job-worker", "extract-worker", "review-worker"]
+    "role", ["serve", "worker", "job-worker", "extract-worker", "review-worker", "research-preflight"]
 )
 def test_role_fence_blocks_other_hosts_before_transport(tmp_path, role):
     code = """

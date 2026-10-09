@@ -94,6 +94,7 @@ def main() -> None:
             "answer-worker",
             "diagnostic-replay",
             "diagnostic-clean",
+            "research-preflight",
         ],
     )
     parser.add_argument("--port", type=int, default=8768)
@@ -172,6 +173,26 @@ def main() -> None:
     audit = workspace / "operation-audit"
     audit.mkdir(exist_ok=True)
     install(args.action, audit / f"metrics-{os.getpid()}.json")
+    def research_preflight():
+        # Local constructor only: no connect, browser launch, login check or site request.
+        import json
+        from travel_agent.preview.worker import failure_diagnostic
+        sys.path.insert(0, str(PROJECT_ROOT / "integrations/xhs-sidecar"))
+        try:
+            from travel_agent.research.live import LiveResearchReader
+            reader = LiveResearchReader(PROJECT_ROOT)
+            reader.close()
+            result = dict(ready=True, browser_sessions=reader.browser.sessions_created)
+        except Exception as exc:
+            result = dict(ready=False, failure=failure_diagnostic(exc, "SOURCE_STARTUP"))
+        result.update(pid=os.getpid(), parent_pid=os.getppid(), scope="LOCAL_CONSTRUCTOR_ONLY")
+        (audit / f"startup-{os.getpid()}.json").write_text(json.dumps(result), encoding="utf8")
+        return result
+
+    if args.action == "research-preflight":
+        import json
+        print(json.dumps(research_preflight()))
+        return
     if args.action == "task-worker":
         from travel_agent.planning.automatic import run_task
 
@@ -233,6 +254,22 @@ def main() -> None:
             reopen(workspace, args.port)
             return
         raise SystemExit("WORKBENCH_ALREADY_RUNNING") from None
+    # Keep the server's no-live-import fence. The child inherits this exact owner's
+    # permissions, but its role denies all external requests and browser processes.
+    import json
+    import subprocess
+    try:
+        checked = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "research-preflight", "--workspace", str(workspace)],
+            capture_output=True, text=True, encoding="utf8", timeout=20,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        startup = json.loads(checked.stdout) if checked.returncode == 0 else dict(ready=False, reason="PREFLIGHT_EXITED")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        startup = dict(ready=False, reason="PREFLIGHT_NOT_COMPLETED")
+    startup["diagnostic_pid"] = startup.pop("pid", None)
+    startup["pid"] = os.getpid()
+    (audit / f"startup-{os.getpid()}.json").write_text(json.dumps(startup), encoding="utf8")
     with Database(database) as db:
         from travel_agent.planning.automatic import recover
 

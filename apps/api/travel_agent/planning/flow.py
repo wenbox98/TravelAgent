@@ -512,7 +512,7 @@ class PlanningService:
             "critical_map": key_leg_view(self.db, self.scope, sid, p) if daily(p) else None,
             "answer_job": answer_view(self.db, self.scope, p) if daily(p) else None,
             "reference_overview": overview_view(self.db, self.scope, sid, p) if daily(p) else None,
-            "conversation": conversation_view(p, job),
+            "conversation": conversation_view(p, job, has_material=bool(guide_references(self.db, self.scope, sid, p))),
             "automatic_task": task_view(self.db, self.scope, sid, p),
             "guide_view": guide_view,
             "local_guide_review": local_review(self.db, self.scope, sid, p) if guide_view else None,

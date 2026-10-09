@@ -39,12 +39,14 @@ def install(role: str, metrics_file: Path, *, model_only: bool = False) -> None:
         with lock:
             if (
                 event == "import"
-                and (model_only or role != "job-worker")
+                and (model_only or role not in {"job-worker", "research-preflight"})
                 and (
                     str(values[0]).startswith("xhs_sidecar")
                     or values[0] == "travel_agent.research.live"
                 )
             ):
+                denied()
+            if role == "research-preflight" and event in {"subprocess.Popen", "os.system"}:
                 denied()
             if event == "urllib.Request":
                 url = urlsplit(values[0])

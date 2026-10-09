@@ -168,6 +168,9 @@ def create(
     ):
         raise ValueError("RUNNING")
     data = payload(db, scope, sid, p, question)
+    if not data["references"]:
+        # Reject before granting or reserving a request; startup failure is not a question.
+        raise ValueError("QUESTION_MATERIAL_REQUIRED")
     authorize(
         db,
         scope,

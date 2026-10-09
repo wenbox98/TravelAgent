@@ -3,6 +3,7 @@
 from copy import deepcopy
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -788,7 +789,9 @@ def launch(
                 if owner in _closing:
                     return
                 process = subprocess.Popen(
-                    command, cwd=PROJECT_ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    command, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
                 _workers[identity] = process
         except OSError:

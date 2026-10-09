@@ -10,6 +10,7 @@ import AdvisoryGuide from './AdvisoryGuide.vue'
 import TripIntake from './TripIntake.vue'
 import AutomaticPlanning from './AutomaticPlanning.vue'
 import CriticalMap from './CriticalMap.vue'
+import TripConditions from './TripConditions.vue'
 import {readIdea,storeIdea,readMessage,storeMessage} from '../intake'
 import { originLabel, transportLabel, type Draft, type PlanView, type PlanIndex } from '../planning-api'
 const data = ref<PlanView | null>(null), form = ref<Draft | null>(null)
@@ -18,6 +19,7 @@ const destination = ref(''), requestText = ref(''), kind = ref('CITY')
 const busy = ref(false), error = ref(''), status = ref('')
 const creating = ref(Boolean(readIdea())), validationTrip = ref(false), selectedActivities = ref<string[]>([])
 const pendingTrip=ref('')
+const conditionEditing=ref(false)
 const emit=defineEmits<{reconnect:[]}>()
 const submission=ref(''),intakeFeedback=ref(''),intakeFailure=ref(''),talkFeedback=ref(''),talkFailure=ref('')
 const intakeUnconfirmed=ref(Boolean(localStorage.getItem('ta-auto-intent'))),talkUnconfirmed=ref(Boolean(localStorage.getItem('ta-conversation-intent')))
@@ -76,6 +78,7 @@ const deltaLabel = (s: string) => ({activities: '活动顺序或停留', directi
 function apply(v: PlanView, submitted?:string) { reconcileSubmission(v); const keep=submitted!==undefined&&JSON.stringify(form.value)!==submitted; if (v.job && !['QUEUED','RUNNING'].includes(v.job.status) && status.value.startsWith('AI正在')) status.value = ''; if (v.research_job && !['QUEUED','RUNNING','WAITING_LOGIN'].includes(v.research_job.status) && status.value.startsWith('正在查找')) status.value = ''; if (data.value?.session_id !== v.session_id) selectedActivities.value = []; data.value = v; if(!keep)form.value = clone(v.draft); localStorage.setItem('ta-current-trip', v.session_id) }
 async function refreshIndex() { index.value = await request<PlanIndex>('/api/v1/preview/planning') }
 async function load(sid?: string) {
+  if(conditionEditing.value){error.value='请先保存或取消未提交的条件草稿，再切换或刷新。';return}
   if(busy.value){error.value='正在保存或执行操作，请完成后再切换旅行。';return}
   if(edited.value&&data.value){pendingTrip.value=sid||data.value.session_id;error.value='当前更改尚未保存，先保存后再切换或刷新。';return}
   const ticket = ++generation
@@ -90,6 +93,7 @@ async function saveAndSwitch(){const sid=pendingTrip.value;await act('save');if(
 function beginIdea(idea:string,region:string,travelKind:string){requestText.value=idea;destination.value=region;kind.value=travelKind;void automatic('start')}
 function beginLocal(idea:string,region:string,travelKind:string){requestText.value=idea;destination.value=region;kind.value=travelKind;void create()}
 async function automatic(action:string,text='') {
+ if(conditionEditing.value){feedback('conversation','请先保存或取消条件草稿，再启动任务；没有派发外部请求。',true);return}
  const target=action==='start'?'intake':'conversation'
  if(intakeUnconfirmed.value||talkUnconfirmed.value){feedback(target,'上次提交结果尚未确认，请先读取已保存状态或继续确认原提交；没有派发新任务。',true);return}
  if(busy.value){feedback(target,'正在处理上一项操作，请稍候；本次没有重复提交。',true);return}
@@ -113,7 +117,7 @@ async function automatic(action:string,text='') {
 }
 async function talk(action:string,optionId?:string,text?:string,activityId?:string){
  if(intakeUnconfirmed.value||talkUnconfirmed.value){feedback('conversation','上次提交结果尚未确认，请先读取已保存状态或继续确认原提交；没有派发新消息。',true);return}
- if(!data.value||busy.value||edited.value){feedback('conversation',!data.value?'请先连接并恢复当前旅行；消息未提交。':busy.value?'正在处理上一项操作，请稍候；消息未重复提交。':'请先保存当前编辑，再发送；输入已保留。',true);return}
+ if(!data.value||busy.value||edited.value||conditionEditing.value){feedback('conversation',!data.value?'请先连接并恢复当前旅行；消息未提交。':busy.value?'正在处理上一项操作，请稍候；消息未重复提交。':'请先保存或取消当前条件草稿，再发送；输入已保留。',true);return}
  busy.value=true;error.value='';++generation
  submission.value='conversation';feedback('conversation','正在提交消息到本机工作台，尚未确认接收；请勿重复发送。')
  const body={action,option_id:optionId,activity_id:activityId,text:text||'',expected_revision:data.value.revision,expected_conversation_version:data.value.conversation?.version||0,consent:['submit','confirm_update'].includes(action)?'PRIVATE_CONVERSATION_LOOP_V1':action==='ask'?'PRIVATE_CACHED_QUESTION_V1':'PRIVATE_RESEARCH_AND_ADVICE_V2'}
@@ -131,6 +135,7 @@ async function adoptAutomatic(i:number){await act('use_proposal',{proposal_index
 async function exportReference(){if(!data.value)return;try{const value=await request<{filename:string;markdown:string}>('/api/v1/preview/planning/'+data.value.session_id+'/reference-overview-export');const url=URL.createObjectURL(new Blob([value.markdown],{type:'text/markdown;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=value.filename;a.click();URL.revokeObjectURL(url)}catch(e){error.value=e instanceof Error?e.message:'引用已变化，未导出'}}
 async function mapMode(mode:string){if(!form.value)return;form.value.inputs.mode=mode;form.value.transport=({TRANSIT:'PUBLIC_TRANSIT',WALKING:'WALKING',DRIVING:'SELF_DRIVE'} as Record<string,string>)[mode]||'UNKNOWN';if(mode==='DRIVING')form.value.driving='YES';await act('save')}
 async function create(demo: string | null = null) {
+  if(conditionEditing.value){error.value='请先保存或取消未提交的条件草稿，再新建旅行。';return}
   if (busy.value) {feedback('intake','正在处理上一项操作，尚未建立新旅行。',true);return}
   if(data.value&&edited.value){error.value='当前旅行有未保存更改，请先保存后再建立新旅行。';feedback('intake',error.value,true);return}
   busy.value = true; error.value = ''; ++generation
@@ -143,6 +148,7 @@ async function create(demo: string | null = null) {
   finally { busy.value = false;submission.value='' }
 }
 async function act(action: string, extra: Record<string, unknown> = {}) {
+  if(conditionEditing.value&&!(action==='save'&&extra.draft)){error.value='请先保存或取消条件草稿，再执行其他操作。';return}
   if (!data.value || !form.value || busy.value) return
   busy.value = true; error.value = ''; status.value = ''; ++generation
   try {
@@ -175,7 +181,7 @@ function queueSave() {
   }, 500)
 }
 watch(form, queueSave, {deep:true})
-function protectLeave(e:BeforeUnloadEvent){if(data.value&&edited.value){e.preventDefault();e.returnValue=''}}
+function protectLeave(e:BeforeUnloadEvent){if(data.value&&(edited.value||conditionEditing.value)){e.preventDefault();e.returnValue=''}}
 onMounted(async () => {
   window.addEventListener('beforeunload',protectLeave)
   await load()
@@ -190,14 +196,16 @@ onUnmounted(() => { ++generation; clearInterval(poll); clearTimeout(saveTimer);w
 </script>
 <template>
   <section class="planning-flow">
-    <div class="trip-toolbar"><div><p class="eyebrow">一个想法，逐步成为你的安排</p><h1>{{ data && !creating ? data.destination : '想去哪里走走？' }}</h1></div><button class="quiet" :disabled="busy" @click="creating = !creating">{{ creating ? '回到当前旅行' : '新建独立旅行' }}</button></div>
+    <div class="trip-toolbar"><div><p class="eyebrow">一个想法，逐步成为你的安排</p><h1>{{ data && !creating ? data.destination : '想去哪里走走？' }}</h1></div><button class="quiet" :disabled="busy||conditionEditing" @click="creating = !creating">{{ creating ? '回到当前旅行' : '新建独立旅行' }}</button></div>
     <p v-if="error" class="warning" role="alert">{{ error }} <button class="quiet" :disabled="busy" @click="load(data?.session_id)">读取已保存状态</button></p><p v-if="status" role="status">{{ status }}</p>
     <p v-if="data&&form&&edited" role="status">{{busy?'正在保存本次更改…':'有未保存更改；保存成功前请保留本页。'}}</p>
     <div v-if="pendingTrip" class="card"><p>当前输入仍保留。保存成功后再切换。</p><button :disabled="busy" @click="saveAndSwitch">保存后继续</button><button class="quiet" @click="pendingTrip='';error=''">留在当前旅行</button></div>
     <TripIntake v-if="creating || !data" :busy="busy" :ready="true" :submitting="submission==='intake'" :feedback="intakeFeedback" :failure="intakeFailure" :unconfirmed="intakeUnconfirmed" :resumable="intakeResumable" @resume="resumeSubmission('intake')" @recover="load(data?.session_id)" @start="beginIdea" @local="beginLocal" />
-    <details class="card"><summary>历史旅行与合成场景</summary><label>恢复本次旅行<select :value="data?.session_id || ''" @change="load(($event.target as HTMLSelectElement).value)"><option value="">请选择</option><option v-for="t in index?.trips" :key="t.session_id" :value="t.session_id">{{ t.destination }} · {{ t.demo ? '合成测试' : '本机私人草稿' }}</option></select></label><p>以下仅用虚构活动，测试输入不作为你的真实旅行偏好。</p><div class="actions"><button class="quiet" :disabled="busy" @click="create('CITY')">成都城市公交 · 合成</button><button class="quiet" :disabled="busy" @click="create('REGIONAL')">区域交通未定 · 合成</button><button class="quiet" :disabled="busy" @click="create('OTHER_CITY')">苏州两日 · 合成</button><button class="quiet" :disabled="busy" @click="create('GUIDE_MULTI_DAY')">多日食宿预算 · 合成</button></div></details>
+    <details class="card"><summary>历史旅行与合成场景</summary><label>恢复本次旅行<select :disabled="conditionEditing||busy" :value="data?.session_id || ''" @change="load(($event.target as HTMLSelectElement).value)"><option value="">请选择</option><option v-for="t in index?.trips" :key="t.session_id" :value="t.session_id">{{ t.destination }} · {{ t.demo ? '合成测试' : '本机私人草稿' }}</option></select></label><p>以下仅用虚构活动，测试输入不作为你的真实旅行偏好。</p><div class="actions"><button class="quiet" :disabled="busy" @click="create('CITY')">成都城市公交 · 合成</button><button class="quiet" :disabled="busy" @click="create('REGIONAL')">区域交通未定 · 合成</button><button class="quiet" :disabled="busy" @click="create('OTHER_CITY')">苏州两日 · 合成</button><button class="quiet" :disabled="busy" @click="create('GUIDE_MULTI_DAY')">多日食宿预算 · 合成</button></div></details>
     <template v-if="data && form && !creating">
-      <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy" :blocked-reason="edited?'请先保存当前编辑，再发送；输入已保留。':''" :submitting="submission==='conversation'" :feedback="talkFeedback" :failure="talkFailure" :unconfirmed="talkUnconfirmed||intakeUnconfirmed" :resumable="talkResumable||intakeResumable" :acknowledgment="messageAcknowledgment" @resume="resumeSubmission('conversation')" @recover="load(data.session_id)" @run="automatic" @talk="talk" @export-reference="exportReference" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
+      <TripConditions :plan="data" :busy="busy||externalRunning||edited" @editing="conditionEditing=$event" @save="extra=>act('save',extra)" />
+      <fieldset class="condition-guard" :disabled="conditionEditing">
+      <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy" :blocked-reason="conditionEditing?'请先保存或取消条件草稿，再发送；消息已保留。':edited?'请先保存当前编辑，再发送；输入已保留。':''" :submitting="submission==='conversation'" :feedback="talkFeedback" :failure="talkFailure" :unconfirmed="talkUnconfirmed||intakeUnconfirmed" :resumable="talkResumable||intakeResumable" :acknowledgment="messageAcknowledgment" @resume="resumeSubmission('conversation')" @recover="load(data.session_id)" @run="automatic" @talk="talk" @export-reference="exportReference" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
       <CriticalMap v-if="!data.demo&&data.critical_map" :plan="data" :busy="busy||edited||externalRunning" @updated="apply" @mode="mapMode" />
       <details v-if="data.guide_view && data.draft.activities.length && (!data.automatic_task || data.proposal_preview_active || data.adopted)" class="card" :open="data.proposal_preview_active"><summary>已保存攻略、修改与导出</summary><AdvisoryGuide :plan="data" :busy="busy" @action="act" /></details>
       <details class="card"><summary>高级：本地选材、手动操作与详细条件</summary>
@@ -219,9 +227,11 @@ onUnmounted(() => { ++generation; clearInterval(poll); clearTimeout(saveTimer);w
       <PlanPlaces v-if="data.draft.activities.length&&!data.place_leads.length" :plan="data" @refresh="load(data.session_id)" />
       <details class="card"><summary>依据与诊断</summary><p v-if="!data.operation">当前目的地关联 {{ data.evidence_count }} 条已审核资料。模型额度累计 {{ index?.model_used ?? 0 }}/{{ index?.model_limit ?? 2 }}（历史合成许可）（失败同样计数）。</p><p>新旅行默认：交通未知、返回同点为可修改假设；AI停留/顺序标建议，来源条件留在引用处。测试不进入长期偏好。</p><p v-if="data.private_budget && !data.operation">历史许可累计：连接 {{ data.private_budget.used.connect }}/{{ data.private_budget.used.connect + data.private_budget.remaining.connect }}，搜索 {{ data.private_budget.used.search }}/{{ data.private_budget.used.search + data.private_budget.remaining.search }}，详情 {{ data.private_budget.used.detail }}/{{ data.private_budget.used.detail + data.private_budget.remaining.detail }}，模型 {{ data.private_budget.used.model }}/{{ data.private_budget.used.model + data.private_budget.remaining.model }}，地点 {{ data.private_budget.used.map_place }}/{{ data.private_budget.used.map_place + data.private_budget.remaining.map_place }}，路径 {{ data.private_budget.used.map_route }}/{{ data.private_budget.used.map_route + data.private_budget.remaining.map_route }}。预留后失败也计数。</p><p>历史门禁保留；单段参考不代表全程可执行。</p></details>
       </details>
+      </fieldset>
     </template>
   </section>
 </template>
 <style scoped>
+.condition-guard{border:0;padding:0;margin:0;min-width:0}
 .trip-toolbar,.stage-title { display:flex; align-items:center; justify-content:space-between; gap:1rem; } .stage { margin:1.1rem 0; } .stage h2 { margin:.3rem 0; } .suggestion-grid,.input-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem} .direction {border:1px solid #cbd4ca;border-radius:12px;padding:1rem} fieldset {border:0;padding:0;min-width:0} .activity-edit {border-bottom:1px solid #d7dfd5;padding:1rem 0} .check {display:flex;gap:.5rem;align-items:center} .check input {width:auto} .timeline li {padding:.6rem 0} details.card {margin:1rem 0} @media(max-width:650px){.suggestion-grid,.input-grid{grid-template-columns:1fr}.trip-toolbar{align-items:start}}
 </style>

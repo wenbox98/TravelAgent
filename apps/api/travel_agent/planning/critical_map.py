@@ -85,7 +85,11 @@ def view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     if not pairs:
         gaps.append("需要同一天至少两个有来源依据的公共地点；路线概述不会自动拆成景点。")
     if not mode_valid:
-        gaps.append("请先明确本次交通方式；不会把驾车时间当公共交通。")
+        if allowed:
+            label = {"DRIVING": "自驾", "TRANSIT": "公共交通", "WALKING": "步行"}[allowed]
+            gaps.append(f"已确认{label}意向；仅在核实具体路段前选择与之相符的参考模式，不必重复回答交通偏好。")
+        else:
+            gaps.append("交通意向可以暂未定，不阻止查资料或生成建议；核实具体路段前才需要选择适用方式，不会把驾车时间当公共交通。")
     if draft.inputs.origin or draft.inputs.destination or draft.inputs.endpoints_private:
         gaps.append("此入口只发送所选公共项目，不发送家庭或往返私址。")
     configured = AmapAdapter.from_env().configured

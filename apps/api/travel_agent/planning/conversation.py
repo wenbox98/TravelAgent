@@ -82,7 +82,7 @@ def options(job: dict[str, Any] | None) -> list[dict[str, Any]]:
     ]
 
 
-def view(p: dict[str, Any], job: dict[str, Any] | None) -> dict[str, Any]:
+def view(p: dict[str, Any], job: dict[str, Any] | None, *, has_material: bool = True) -> dict[str, Any]:
     c = state(p)
     values = options(job)
     selected = c["selected"]
@@ -93,23 +93,28 @@ def view(p: dict[str, Any], job: dict[str, Any] | None) -> dict[str, Any]:
         options=values,
         selected_current=bool(selected and selected["option_id"] in ids),
         choice_version=job["job_id"] if job else None,
-        pending_question=question(p),
+        pending_question=question(p, has_material=has_material or bool(values)),
         pending_ai_question=p.get("pending_ai_question"),
         proposed_conditions=(p.get("proposed_conversation_conditions") or {}).get("values"),
         iteration_decision=p.get("conversation_iteration_decision"),
     )
 
 
-def question(p: dict[str, Any]) -> dict[str, Any]:
+def question(p: dict[str, Any], *, has_material: bool = True) -> dict[str, Any]:
     d = p["draft"]
+    if not has_material:
+        return dict(
+            text="当前没有可讨论的资料或方案，暂不调用模型比较。可补充本次条件，但天数、交通、人数和预算未定不阻止首次研究；系统启动故障见任务说明。",
+            choices=[],
+        )
     if d["transport"] == "UNKNOWN" and d["driving"] != "NO":
         return dict(
-            text="愿意自己开车吗？这会影响区域跨度和衔接。",
+            text="可选补充：愿意自己开车吗？用于比较区域跨度和衔接；未定也能先研究。",
             choices=["不想自驾", "想自驾", "暂不确定，先给建议"],
         )
     if d.get("days") is None:
         return dict(
-            text="大概有几天？天数会影响选择面，也可以先保持未知。",
+            text="可选补充：大概有几天？用于缩小玩法选择面；也可以先保持未知。",
             choices=["只有3天", "只有5天", "暂不确定，先给建议"],
         )
     if p.get("automatic_coverage", {}).get("gaps"):
@@ -205,6 +210,8 @@ def explicit_change(text: str) -> bool:
 
 
 def submission_intent(text: str) -> str:
+    if re.fullmatch(r"暂不确定[，, ]*先给建议", text):
+        return "UPDATE"
     if re.search(r"如果|假如|假设|要是", text):
         return "QUESTION"
     if explicit_change(text):

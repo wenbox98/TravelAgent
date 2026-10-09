@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import re
+import traceback
 from time import monotonic, sleep
 from typing import Any
 
@@ -27,6 +29,25 @@ from travel_agent.research.retry import supervise_reserved
 from travel_agent.research.service import ResearchService
 from travel_agent.research.store import EvidenceStore
 from travel_agent.settings import PROJECT_ROOT
+
+
+def failure_diagnostic(exc: Exception, phase: str) -> dict[str, Any]:
+    """Code locations only; never exception text, locals, paths or upstream payloads."""
+    frames = []
+    for frame in traceback.extract_tb(exc.__traceback__):
+        path = Path(frame.filename)
+        if path.is_relative_to(PROJECT_ROOT / "apps") or path.is_relative_to(
+            PROJECT_ROOT / "integrations"
+        ):
+            frames.append(dict(file=path.name, function=frame.name, line=frame.lineno))
+    reason = "JOB_STOPPED_BEFORE_COMPLETION"
+    if phase == "SOURCE_STARTUP" and type(exc).__name__ == "ProfileError":
+        reason = "XHS_PROFILE_UNAVAILABLE"
+    elif isinstance(exc, ValueError) and re.fullmatch(
+        r"(?:CONFIGURED_|BOUNDED_|GATE_|ROUTE_CHOICES_)[A-Z0-9_]+", str(exc)
+    ):
+        reason = str(exc)
+    return dict(reason=reason, phase=phase, exception_type=type(exc).__name__, frames=frames[-5:])
 
 
 def configured_provider() -> OpenAICompatibleProvider:
@@ -141,6 +162,7 @@ def run_job(
         summary: dict[str, Any] = {}
         state = "FAILED"
         owned = reader is None
+        phase = "PROVIDER_CONFIG"
 
         def progress(stage: str) -> None:
             con.execute(
@@ -220,7 +242,10 @@ def run_job(
             if reader is None:
                 from travel_agent.research.live import LiveResearchReader
 
+                phase = "SOURCE_STARTUP"
+                progress(phase)
                 reader = LiveResearchReader(PROJECT_ROOT, login_prompt=login_prompt)
+            phase = "COVERAGE_SETUP"
             before = {r[0] for r in con.execute("SELECT claim_id FROM claims")}
 
             def dispatch(attempt: str, gaps: tuple[str, ...]) -> dict[str, Any]:
@@ -402,6 +427,7 @@ def run_job(
                 from travel_agent.planning.spatial import ScopedSelector
 
                 service.selector = ScopedSelector(data.get("spatial_intent", "UNDECIDED"))
+            phase = "RESEARCH"
             report = service.run(
                 ResearchRequest(**data["request"]),
                 research_id=j["research_id"],
@@ -450,8 +476,12 @@ def run_job(
                 if accepted
                 else "NEEDS_REVIEW"
             )
-        except Exception:
-            summary["reason"] = "JOB_STOPPED_BEFORE_COMPLETION"
+        except Exception as exc:
+            summary.update(json.loads(con.execute(
+                "SELECT summary_json FROM preview_jobs WHERE job_id=?", (job_id,)
+            ).fetchone()[0] or "{}"))
+            summary["failure"] = failure_diagnostic(exc, phase)
+            summary["reason"] = summary["failure"]["reason"]
         finally:
             if reader is not None and owned:
                 try:

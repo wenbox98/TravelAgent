@@ -28,3 +28,11 @@ console.log('PASS AutomaticPlanning: cited local overview without activities and
 
 assert(!overview.includes('确认这些条件（仅本地保存）'))
 console.log('PASS unified submit: concise choices, object/source counts and bounded purpose disclosure')
+const failed=await render({status:'BLOCKED',stage:'SOURCE_STARTUP',login_state:'NOT_CHECKED',reason:'RESEARCH_XHS_PROFILE_UNAVAILABLE',coverage:{gaps:[{key:'PLAY',label:'玩法资料'}],activity_count:0,meaning:'材料覆盖'}},{job:null,references:[],conversation:{messages:[],excluded:[],excluded_activities:[],options:[],pending_question:{text:'暂无可讨论资料',choices:[]}}})
+assert(failed.includes('这是启动环境问题，不是你漏填条件'))
+assert(failed.includes('因系统启动故障尚未派发')&&failed.includes('启动失败，尚未进入登录检查'))
+assert(!failed.includes('>先比较现有方案</button>')&&!failed.includes('>为什么推荐这些</button>'))
+console.log('PASS startup failure: system cause, zero dispatch and no empty-material comparison')
+const laterFailure=await render({status:'BLOCKED',stage:'RESEARCH',reason:'RESEARCH_JOB_STOPPED_BEFORE_COMPLETION',research_attempted:true,search_count:1},{job:null})
+assert(!laterFailure.includes('因系统启动故障尚未派发')&&!laterFailure.includes('研究在开始查找前异常停止'))
+console.log('PASS failure classification: already-dispatched research is not called a startup failure')

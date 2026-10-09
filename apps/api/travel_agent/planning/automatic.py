@@ -525,9 +525,12 @@ def revise(before: PlanDraft, text: str) -> PlanDraft:
         result.driving = "NO"
         if result.transport == "SELF_DRIVE":
             result.transport = "UNKNOWN"
+        if result.inputs.mode == "DRIVING":
+            result.inputs.mode = "UNKNOWN"
     elif re.search(r"(?:想|要|选择)自驾", text):
         result.driving = "YES"
         result.transport = "SELF_DRIVE"
+        result.inputs.mode = "DRIVING"
     if re.search(r"公共交通|公交", text):
         result.transport = "PUBLIC_TRANSIT"
         result.inputs.mode = "TRANSIT"
@@ -564,7 +567,7 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
         "SELECT status,summary_json,research_id FROM preview_jobs WHERE job_id=?",
         (row["research_job_id"],),
     ).fetchone()
-    if research and row["status"] == "RUNNING" and row["stage"] == "RESEARCH":
+    if research and row["stage"] == "RESEARCH":
         stage = (
             "LOGIN_REQUIRED"
             if research[0] == "WAITING_LOGIN"

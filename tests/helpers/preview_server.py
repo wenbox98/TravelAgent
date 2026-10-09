@@ -19,6 +19,7 @@ def main():
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--product", action="store_true")
     p.add_argument("--automatic-synthetic", action="store_true")
+    p.add_argument("--automatic-subprocess", action="store_true")
     args = p.parse_args()
     attempts = []
     def audit(event, values):
@@ -35,7 +36,7 @@ def main():
     from travel_agent.preview.api import PreviewConfig
     from travel_agent.settings import Settings
     import uvicorn
-    if args.product and not args.automatic_synthetic:
+    if args.product and not (args.automatic_synthetic or args.automatic_subprocess):
         import travel_agent.preview.worker as worker
         def missing_configuration():
             raise ValueError("CONFIGURED_120_SECOND_PROVIDER_REQUIRED")
@@ -63,6 +64,9 @@ def main():
                 run_task(database, jid, research_runner=research(model, reader), planning_runner=planning(model))
             threading.Thread(target=run,daemon=True).start()
         suggestions.launch = launch
+    if args.automatic_subprocess:
+        from dispatch_worker import install
+        install(args.database)
     key_file = args.control.with_suffix(".key")
     if not key_file.exists():
         key_file.write_bytes(secrets.token_bytes(32))
