@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { request } from '../api'
+import { request, RequestError } from '../api'
 import PlanPlaces from './PlanPlaces.vue'
 import PlaceDiscovery from './PlaceDiscovery.vue'
 import RevisionReview from './RevisionReview.vue'
@@ -10,7 +10,7 @@ import AdvisoryGuide from './AdvisoryGuide.vue'
 import TripIntake from './TripIntake.vue'
 import AutomaticPlanning from './AutomaticPlanning.vue'
 import CriticalMap from './CriticalMap.vue'
-import {readIdea,storeIdea} from '../intake'
+import {readIdea,storeIdea,readMessage,storeMessage} from '../intake'
 import { originLabel, transportLabel, type Draft, type PlanView, type PlanIndex } from '../planning-api'
 const data = ref<PlanView | null>(null), form = ref<Draft | null>(null)
 const index = ref<PlanIndex | null>(null)
@@ -18,6 +18,52 @@ const destination = ref(''), requestText = ref(''), kind = ref('CITY')
 const busy = ref(false), error = ref(''), status = ref('')
 const creating = ref(Boolean(readIdea())), validationTrip = ref(false), selectedActivities = ref<string[]>([])
 const pendingTrip=ref('')
+const emit=defineEmits<{reconnect:[]}>()
+const submission=ref(''),intakeFeedback=ref(''),intakeFailure=ref(''),talkFeedback=ref(''),talkFailure=ref('')
+const intakeUnconfirmed=ref(Boolean(localStorage.getItem('ta-auto-intent'))),talkUnconfirmed=ref(Boolean(localStorage.getItem('ta-conversation-intent')))
+const intakeResumable=ref(false),talkResumable=ref(false)
+const messageAcknowledgment=ref<{session_id:string;text:string;sequence:number}|null>(null)
+function acknowledgeMessage(sid:string,text:string){if(!text)return;if(readMessage(sid)===text)storeMessage(sid,'');messageAcknowledgment.value={session_id:sid,text,sequence:(messageAcknowledgment.value?.sequence||0)+1}}
+function feedback(target:string,message:string,failed=false){
+ if(target==='intake'){intakeFailure.value=failed?message:'';intakeFeedback.value=failed?'':message}
+ else {talkFailure.value=failed?message:'';talkFeedback.value=failed?'':message}
+}
+function submissionFailure(target:string,e:unknown,storageKey:string,resuming=false){
+ intakeResumable.value=talkResumable.value=false
+ // An auth rejection on a continuation cannot prove the ORIGINAL was rejected.
+ const rejected=e instanceof RequestError&&e.status>=400&&e.status<500&&(!resuming||['STALE_REVISION','STALE_CONVERSATION_VERSION'].includes(e.code))
+ const message=(e instanceof Error?e.message:'本机操作未确认。')+(rejected?' 输入已保留，本次未接纳。':' 提交结果尚未确认；请先读取已保存状态，不要重复发送。')
+ error.value=message;feedback(target,message,true)
+ if(rejected)localStorage.removeItem(storageKey)
+ if(storageKey==='ta-auto-intent')intakeUnconfirmed.value=!rejected;else talkUnconfirmed.value=!rejected
+}
+function offerSubmissionRecovery(){
+ intakeResumable.value=intakeUnconfirmed.value;talkResumable.value=talkUnconfirmed.value
+ for(const target of ['intake','conversation'])if(target==='intake'?intakeResumable.value:talkResumable.value)feedback(target==='intake'&&!creating.value&&data.value?'conversation':target,'尚未找到原提交的接收记录。可手动继续确认原提交：沿用原文字和同一请求标识；已接收的操作不会重复派发，未接收才会执行。',true)
+}
+async function resumeSubmission(target:string){
+ if(busy.value||edited.value&&data.value){feedback(target,'请先完成或保存当前操作，再继续确认原提交；文字仍保留。',true);return}
+ const storageKey=target==='intake'?'ta-auto-intent':talkUnconfirmed.value?'ta-conversation-intent':'ta-auto-intent'
+ if(!(storageKey==='ta-auto-intent'?intakeResumable.value:talkResumable.value))return
+ busy.value=true;submission.value=target;error.value='';++generation
+ feedback(target,'正在继续确认原提交，沿用原请求标识；尚未确认接收。')
+ try{
+  const pending=JSON.parse(localStorage.getItem(storageKey)||'null');const [url,body]=JSON.parse(pending.signature)
+  if(!pending.key||!/^\/api\/v1\/preview\/(automatic-planning(?:\/[^/]+)?|conversation\/[^/]+)$/.test(url))throw new Error('原提交记录不完整，请保留输入并联系本机维护。')
+  apply(await request<PlanView>(url,body,pending.key));localStorage.removeItem(storageKey)
+  if(storageKey==='ta-auto-intent'){intakeUnconfirmed.value=intakeResumable.value=false;if(body.request&&readIdea()===body.request){storeIdea('');creating.value=false}}
+  else {talkUnconfirmed.value=talkResumable.value=false;if(data.value)acknowledgeMessage(data.value.session_id,body.text)}
+  feedback(target,'已确认原提交接收成功；没有创建重复任务，后续编辑的文字保留。')
+  await refreshIndex().catch(()=>{error.value='原提交已确认，旅行列表暂未刷新；可读取状态。'})
+ }catch(e){submissionFailure(target,e,storageKey,true)}finally{busy.value=false;submission.value=''}
+}
+function reconcileSubmission(v:PlanView){
+ for(const [key,intent,target] of [['ta-auto-intent',v.automatic_task?.intent_key,'intake'],['ta-conversation-intent',v.conversation?.intent_key,'conversation']] as const){
+  try{const pending=JSON.parse(localStorage.getItem(key)||'null');if(pending?.key&&pending.key===intent){localStorage.removeItem(key);const body=JSON.parse(pending.signature)[1];if(target==='intake'){intakeUnconfirmed.value=intakeResumable.value=false;if(creating.value&&readIdea()===body.request){storeIdea('');creating.value=false}}else {talkUnconfirmed.value=talkResumable.value=false;acknowledgeMessage(v.session_id,body.text)}error.value='';feedback(target,'已确认提交成功；已保存状态已恢复，不会重复派发。')}}catch{}
+ }
+}
+function pendingMatches(v:PlanView|null|undefined):boolean {if(!v)return false;try{const a=JSON.parse(localStorage.getItem('ta-auto-intent')||'null')?.key,c=JSON.parse(localStorage.getItem('ta-conversation-intent')||'null')?.key;return Boolean((a&&a===v.automatic_task?.intent_key)||(c&&c===v.conversation?.intent_key))}catch{return false}}
+function pendingSession():string|undefined {for(const key of ['ta-conversation-intent','ta-auto-intent'])try{const pending=JSON.parse(localStorage.getItem(key)||'null');if(pending?.key){const url=JSON.parse(pending.signature)[0];const match=/^\/api\/v1\/preview\/(?:conversation|automatic-planning)\/([^/]+)$/.exec(url);if(match)return match[1]}}catch{}return undefined}
 let generation = 0, poll: ReturnType<typeof setInterval> | undefined, saveTimer: ReturnType<typeof setTimeout> | undefined
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T
 const edited = computed(() => JSON.stringify(form.value) !== JSON.stringify(data.value?.draft))
@@ -27,7 +73,7 @@ const readable = (s: string) => (data.value?.draft.activities || []).reduce((tex
 const scopeLabel = (s:string) => ({MATCH:'来源支持范围匹配',MISMATCH:'来源指向当前范围以外',UNKNOWN:'范围待核实'}[s] || '范围待核实')
 const proposalReason = (s:string) => ({PLANNING_LOCKED_TRANSPORT:'违反交通条件',PLANNING_LOCKED_ANCHOR:'改变固定开始时间',PLANNING_LOCKED_CONSTRAINT:'违反预约或硬截止',PLANNING_SCOPE_UNVERIFIED:'活动范围未通过',PLANNING_UNKNOWN_REFERENCE:'活动或引用不受支持',PLANNING_PROPOSAL_SCHEMA:'方案字段不完整',PLANNING_INVALID_TIME:'时间安排无效',PLANNING_UNSUPPORTED_FACT:'触发事实边界检查'}[s] || '未通过检查')
 const deltaLabel = (s: string) => ({activities: '活动顺序或停留', direction: '兴趣方向', inputs: '时间/往返条件', days: '可用天数', transport: '交通意向', driving: '驾驶意愿', return_deadline: '返回硬约束', first_day: '开始日序', first_period: '开始时段', anchor_origin: '开始时间'}[s] || '本行程条件')
-function apply(v: PlanView, submitted?:string) { try{const pending=JSON.parse(localStorage.getItem('ta-conversation-intent')||'null');if(v.conversation?.intent_key===pending?.key)localStorage.removeItem('ta-conversation-intent')}catch{} try{const pending=JSON.parse(localStorage.getItem('ta-auto-intent')||'null');if(v.automatic_task?.intent_key===pending?.key)localStorage.removeItem('ta-auto-intent')}catch{} const keep=submitted!==undefined&&JSON.stringify(form.value)!==submitted; if (v.job && !['QUEUED','RUNNING'].includes(v.job.status) && status.value.startsWith('AI正在')) status.value = ''; if (v.research_job && !['QUEUED','RUNNING','WAITING_LOGIN'].includes(v.research_job.status) && status.value.startsWith('正在查找')) status.value = ''; if (data.value?.session_id !== v.session_id) selectedActivities.value = []; data.value = v; if(!keep)form.value = clone(v.draft); localStorage.setItem('ta-current-trip', v.session_id) }
+function apply(v: PlanView, submitted?:string) { reconcileSubmission(v); const keep=submitted!==undefined&&JSON.stringify(form.value)!==submitted; if (v.job && !['QUEUED','RUNNING'].includes(v.job.status) && status.value.startsWith('AI正在')) status.value = ''; if (v.research_job && !['QUEUED','RUNNING','WAITING_LOGIN'].includes(v.research_job.status) && status.value.startsWith('正在查找')) status.value = ''; if (data.value?.session_id !== v.session_id) selectedActivities.value = []; data.value = v; if(!keep)form.value = clone(v.draft); localStorage.setItem('ta-current-trip', v.session_id) }
 async function refreshIndex() { index.value = await request<PlanIndex>('/api/v1/preview/planning') }
 async function load(sid?: string) {
   if(busy.value){error.value='正在保存或执行操作，请完成后再切换旅行。';return}
@@ -35,60 +81,66 @@ async function load(sid?: string) {
   const ticket = ++generation
   try {
     await refreshIndex()
-    const selected = sid || localStorage.getItem('ta-current-trip')
+    const selected = pendingMatches(index.value?.current)?index.value!.current!.session_id:pendingSession() || sid || localStorage.getItem('ta-current-trip')
     const next = selected && index.value?.trips.some(t => t.session_id === selected) ? await request<PlanView>('/api/v1/preview/planning/' + selected) : index.value?.current
-    if (ticket === generation && next) apply(next)
-  } catch(e) { error.value = e instanceof Error ? e.message : '本地读取失败' }
+    if (ticket === generation) {if(next)apply(next);offerSubmissionRecovery()}
+  } catch(e) { error.value = e instanceof Error ? e.message : '本地读取失败';if(e instanceof RequestError&&['AUTH_REQUIRED','CSRF_DENIED'].includes(e.code))emit('reconnect') }
 }
 async function saveAndSwitch(){const sid=pendingTrip.value;await act('save');if(!edited.value){pendingTrip.value='';await load(sid)}}
 function beginIdea(idea:string,region:string,travelKind:string){requestText.value=idea;destination.value=region;kind.value=travelKind;void automatic('start')}
 function beginLocal(idea:string,region:string,travelKind:string){requestText.value=idea;destination.value=region;kind.value=travelKind;void create()}
 async function automatic(action:string,text='') {
- if(busy.value)return
- if(data.value&&edited.value){error.value='请先保存当前编辑，再提交补充；输入不会被后台结果覆盖。';return}
+ const target=action==='start'?'intake':'conversation'
+ if(intakeUnconfirmed.value||talkUnconfirmed.value){feedback(target,'上次提交结果尚未确认，请先读取已保存状态或继续确认原提交；没有派发新任务。',true);return}
+ if(busy.value){feedback(target,'正在处理上一项操作，请稍候；本次没有重复提交。',true);return}
+ if(data.value&&edited.value){error.value='请先保存当前编辑，再提交补充；输入不会被后台结果覆盖。';feedback(target,error.value,true);return}
  busy.value=true;error.value='';++generation
+ submission.value=target;feedback(target,'正在提交到本机工作台，尚未确认接收；请勿重复发送。')
  const url='/api/v1/preview/automatic-planning'+(action==='start'?'':'/'+data.value?.session_id)
  const body=action==='start'?{request:requestText.value,destination:destination.value,travel_kind:kind.value,consent:'PRIVATE_RESEARCH_AND_ADVICE_V2'}:{action,expected_revision:data.value?.revision,text,consent:action==='cancel'?null:'PRIVATE_RESEARCH_AND_ADVICE_V2'}
  const signature=JSON.stringify([url,body]);let key:string=crypto.randomUUID()
  try{
   const pending=JSON.parse(localStorage.getItem('ta-auto-intent')||'null') as {signature:string;key:string}|null
-  if(pending&&pending.signature===signature)key=pending.key
-  else if(pending){error.value='上次提交结果尚未确认，请先读取已保存状态；不会再派发另一个任务。';return}
+  if(pending){intakeUnconfirmed.value=true;error.value='上次提交结果尚未确认，请先读取已保存状态；不会再派发另一个任务。';feedback(target,error.value,true);return}
   localStorage.setItem('ta-auto-intent',JSON.stringify({signature,key}))
-  apply(await request<PlanView>(url,body,key));localStorage.removeItem('ta-auto-intent')
-  creating.value=false;if(action==='start')storeIdea('');await refreshIndex()
+  apply(await request<PlanView>(url,body,key));localStorage.removeItem('ta-auto-intent');intakeUnconfirmed.value=false
+  creating.value=false;if(action==='start'&&readIdea()===requestText.value)storeIdea('')
   status.value=action==='cancel'?'已停止本次任务，原采用版保留。':'已提交本次有限任务，进度和新建议会显示在这里。'
- }catch(e){error.value=e instanceof Error?e.message:'任务结果未确认，请读取已保存状态。';if(e instanceof Error&&'status' in e&&Number(e.status)>0)localStorage.removeItem('ta-auto-intent')}
- finally{busy.value=false}
+  feedback(target,status.value)
+  await refreshIndex().catch(()=>{error.value='任务已提交，但旅行列表暂未刷新；请读取已保存状态，不要重复提交。'})
+ }catch(e){submissionFailure(target,e,'ta-auto-intent')}
+ finally{busy.value=false;submission.value=''}
 }
 async function talk(action:string,optionId?:string,text?:string,activityId?:string){
- if(!data.value||busy.value||edited.value)return
+ if(intakeUnconfirmed.value||talkUnconfirmed.value){feedback('conversation','上次提交结果尚未确认，请先读取已保存状态或继续确认原提交；没有派发新消息。',true);return}
+ if(!data.value||busy.value||edited.value){feedback('conversation',!data.value?'请先连接并恢复当前旅行；消息未提交。':busy.value?'正在处理上一项操作，请稍候；消息未重复提交。':'请先保存当前编辑，再发送；输入已保留。',true);return}
  busy.value=true;error.value='';++generation
+ submission.value='conversation';feedback('conversation','正在提交消息到本机工作台，尚未确认接收；请勿重复发送。')
  const body={action,option_id:optionId,activity_id:activityId,text:text||'',expected_revision:data.value.revision,expected_conversation_version:data.value.conversation?.version||0,consent:['submit','confirm_update'].includes(action)?'PRIVATE_CONVERSATION_LOOP_V1':action==='ask'?'PRIVATE_CACHED_QUESTION_V1':'PRIVATE_RESEARCH_AND_ADVICE_V2'}
  const url='/api/v1/preview/conversation/'+data.value.session_id
  const signature=JSON.stringify([url,body]);let key:string=crypto.randomUUID()
  try{
   const pending=JSON.parse(localStorage.getItem('ta-conversation-intent')||'null') as {signature:string;key:string}|null
-  if(pending&&pending.signature===signature)key=pending.key
-  else if(pending){error.value='上次消息尚未确认，请刷新已保存会话；不会重复派发。';return}
+  if(pending){talkUnconfirmed.value=true;error.value='上次消息尚未确认，请读取已保存会话；不会重复派发。';feedback('conversation',error.value,true);return}
   localStorage.setItem('ta-conversation-intent',JSON.stringify({signature,key}))
-  apply(await request<PlanView>(url,body,key));localStorage.removeItem('ta-conversation-intent');status.value='会话已保存，当前选择以对话中的确认为准。'
- }catch(e){error.value=e instanceof Error?e.message:'消息结果尚未确认，刷新恢复。';if(e instanceof Error&&'status' in e&&Number(e.status)>0)localStorage.removeItem('ta-conversation-intent')}
- finally{busy.value=false}
+  const value=await request<PlanView>(url,body,key);acknowledgeMessage(value.session_id,body.text);apply(value);localStorage.removeItem('ta-conversation-intent');talkUnconfirmed.value=false;status.value='消息已接收并保存，后续进度见下方；这不代表建议已生成。';feedback('conversation',status.value)
+ }catch(e){submissionFailure('conversation',e,'ta-conversation-intent')}
+ finally{busy.value=false;submission.value=''}
 }
 async function adoptAutomatic(i:number){await act('use_proposal',{proposal_index:i});if(data.value?.proposal_preview_active&&!error.value)await act('adopt')}
 async function exportReference(){if(!data.value)return;try{const value=await request<{filename:string;markdown:string}>('/api/v1/preview/planning/'+data.value.session_id+'/reference-overview-export');const url=URL.createObjectURL(new Blob([value.markdown],{type:'text/markdown;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=value.filename;a.click();URL.revokeObjectURL(url)}catch(e){error.value=e instanceof Error?e.message:'引用已变化，未导出'}}
 async function mapMode(mode:string){if(!form.value)return;form.value.inputs.mode=mode;form.value.transport=({TRANSIT:'PUBLIC_TRANSIT',WALKING:'WALKING',DRIVING:'SELF_DRIVE'} as Record<string,string>)[mode]||'UNKNOWN';if(mode==='DRIVING')form.value.driving='YES';await act('save')}
 async function create(demo: string | null = null) {
-  if (busy.value) return
-  if(data.value&&edited.value){error.value='当前旅行有未保存更改，请先保存后再建立新旅行。';return}
+  if (busy.value) {feedback('intake','正在处理上一项操作，尚未建立新旅行。',true);return}
+  if(data.value&&edited.value){error.value='当前旅行有未保存更改，请先保存后再建立新旅行。';feedback('intake',error.value,true);return}
   busy.value = true; error.value = ''; ++generation
+  submission.value='intake';feedback('intake','正在提交并保存本地旅行；不会发起外部请求。')
   try {
     const destinationName = demo === 'GUIDE_MULTI_DAY' ? '虚构双片区 · 建议攻略合成' : demo === 'CITY' ? '成都城市观光（合成）' : demo === 'REGIONAL' ? '成都到川西（合成）' : demo === 'OTHER_CITY' ? '苏州两日（合成）' : destination.value
     apply(await request<PlanView>('/api/v1/preview/planning', {destination: destinationName, request: demo ? '自编活动交互测试，不是私人旅行计划' : requestText.value, travel_kind: demo === 'REGIONAL' ? 'REGIONAL' : demo ? 'CITY' : kind.value, demo, validation_trip: !demo && validationTrip.value, knowledge_first: !demo}))
-    creating.value = false; if(!demo)storeIdea(''); await refreshIndex(); status.value = '已建立本次旅行，先查看可用资料；尚未发起外部请求。'
-  } catch(e) { error.value = e instanceof Error ? e.message : '未创建' }
-  finally { busy.value = false }
+    creating.value = false; if(!demo&&readIdea()===requestText.value)storeIdea(''); status.value = '已建立本次旅行，先查看可用资料；尚未发起外部请求。';feedback('intake',status.value);await refreshIndex().catch(()=>{error.value='旅行已建立，但列表暂未刷新；请读取已保存状态。'})
+  } catch(e) { error.value = e instanceof Error ? e.message : '未创建';feedback('intake',error.value,true) }
+  finally { busy.value = false;submission.value='' }
 }
 async function act(action: string, extra: Record<string, unknown> = {}) {
   if (!data.value || !form.value || busy.value) return
@@ -142,10 +194,10 @@ onUnmounted(() => { ++generation; clearInterval(poll); clearTimeout(saveTimer);w
     <p v-if="error" class="warning" role="alert">{{ error }} <button class="quiet" :disabled="busy" @click="load(data?.session_id)">读取已保存状态</button></p><p v-if="status" role="status">{{ status }}</p>
     <p v-if="data&&form&&edited" role="status">{{busy?'正在保存本次更改…':'有未保存更改；保存成功前请保留本页。'}}</p>
     <div v-if="pendingTrip" class="card"><p>当前输入仍保留。保存成功后再切换。</p><button :disabled="busy" @click="saveAndSwitch">保存后继续</button><button class="quiet" @click="pendingTrip='';error=''">留在当前旅行</button></div>
-    <TripIntake v-if="creating || !data" :busy="busy" :ready="true" @start="beginIdea" @local="beginLocal" />
+    <TripIntake v-if="creating || !data" :busy="busy" :ready="true" :submitting="submission==='intake'" :feedback="intakeFeedback" :failure="intakeFailure" :unconfirmed="intakeUnconfirmed" :resumable="intakeResumable" @resume="resumeSubmission('intake')" @recover="load(data?.session_id)" @start="beginIdea" @local="beginLocal" />
     <details class="card"><summary>历史旅行与合成场景</summary><label>恢复本次旅行<select :value="data?.session_id || ''" @change="load(($event.target as HTMLSelectElement).value)"><option value="">请选择</option><option v-for="t in index?.trips" :key="t.session_id" :value="t.session_id">{{ t.destination }} · {{ t.demo ? '合成测试' : '本机私人草稿' }}</option></select></label><p>以下仅用虚构活动，测试输入不作为你的真实旅行偏好。</p><div class="actions"><button class="quiet" :disabled="busy" @click="create('CITY')">成都城市公交 · 合成</button><button class="quiet" :disabled="busy" @click="create('REGIONAL')">区域交通未定 · 合成</button><button class="quiet" :disabled="busy" @click="create('OTHER_CITY')">苏州两日 · 合成</button><button class="quiet" :disabled="busy" @click="create('GUIDE_MULTI_DAY')">多日食宿预算 · 合成</button></div></details>
     <template v-if="data && form && !creating">
-      <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy" @run="automatic" @talk="talk" @export-reference="exportReference" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
+      <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy" :blocked-reason="edited?'请先保存当前编辑，再发送；输入已保留。':''" :submitting="submission==='conversation'" :feedback="talkFeedback" :failure="talkFailure" :unconfirmed="talkUnconfirmed||intakeUnconfirmed" :resumable="talkResumable||intakeResumable" :acknowledgment="messageAcknowledgment" @resume="resumeSubmission('conversation')" @recover="load(data.session_id)" @run="automatic" @talk="talk" @export-reference="exportReference" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
       <CriticalMap v-if="!data.demo&&data.critical_map" :plan="data" :busy="busy||edited||externalRunning" @updated="apply" @mode="mapMode" />
       <details v-if="data.guide_view && data.draft.activities.length && (!data.automatic_task || data.proposal_preview_active || data.adopted)" class="card" :open="data.proposal_preview_active"><summary>已保存攻略、修改与导出</summary><AdvisoryGuide :plan="data" :busy="busy" @action="act" /></details>
       <details class="card"><summary>高级：本地选材、手动操作与详细条件</summary>

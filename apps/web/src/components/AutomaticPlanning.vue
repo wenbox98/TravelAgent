@@ -1,16 +1,25 @@
 <script setup lang="ts">
 import {computed,nextTick,ref,watch} from 'vue'
 import type {PlanView} from '../planning-api'
-const props=defineProps<{plan:PlanView;busy:boolean}>()
-const emit=defineEmits<{run:[action:string,text?:string];talk:[action:string,optionId?:string,text?:string,activityId?:string];preview:[index:number];adopt:[index:number];exportReference:[]}>()
-const text=ref(''),log=ref<HTMLElement|null>(null)
-watch(()=>props.plan.session_id,()=>text.value='')
+import {readMessage,storeMessage,submitShortcut} from '../intake'
+const props=defineProps<{plan:PlanView;busy:boolean;blockedReason?:string;submitting?:boolean;feedback?:string;failure?:string;unconfirmed?:boolean;resumable?:boolean;acknowledgment?:{session_id:string;text:string;sequence:number}|null}>()
+const emit=defineEmits<{run:[action:string,text?:string];talk:[action:string,optionId?:string,text?:string,activityId?:string];preview:[index:number];adopt:[index:number];exportReference:[];recover:[];resume:[]}>()
+const text=ref(readMessage(props.plan.session_id)),log=ref<HTMLElement|null>(null),attempted=ref(''),composing=ref(false)
+watch(text,value=>storeMessage(props.plan.session_id,value),{flush:'sync'})
+watch(()=>props.plan.session_id,(sid,previous)=>{storeMessage(previous,text.value);text.value=readMessage(sid);attempted.value=''},{flush:'sync'})
 const conversation=computed(()=>props.plan.conversation)
-watch(()=>conversation.value?.version,async()=>{await nextTick();if(log.value)log.value.scrollTop=log.value.scrollHeight;if(conversation.value?.messages.slice(-3).some(m=>m.role==='USER'&&m.text===text.value))text.value=''})
+watch(()=>conversation.value?.version,async()=>{await nextTick();if(log.value)log.value.scrollTop=log.value.scrollHeight})
+watch(()=>props.acknowledgment,ack=>{if(ack?.session_id===props.plan.session_id&&ack.text===text.value)text.value=''},{immediate:true})
 const task=computed(()=>props.plan.automatic_task)
 const ready=computed(()=>['COMPLETED','PARTIAL'].includes(task.value?.status||'')&&task.value?.generated)
 const active=computed(()=>['QUEUED','RUNNING'].includes(task.value?.status||''))
 const answering=computed(()=>['QUEUED','RUNNING'].includes(props.plan.answer_job?.status||''))
+const blocked=computed(()=>props.submitting?'正在提交消息，请稍候；不会重复发送。':props.busy?'正在处理上一项操作，完成后再发送。':props.blockedReason|| (props.unconfirmed?'上次提交结果尚未确认，请先读取已保存状态。':active.value?'当前任务仍在进行，请先等待完成或停止任务。':answering.value?'上一条消息仍在回答，请先等待完成。':!text.value.trim()?'请先写下想问或想修改的内容。':''))
+const sendLabel=computed(()=>props.submitting?'正在提交…':props.busy?'正在处理…':props.unconfirmed?'结果待确认':active.value?'任务进行中':answering.value?'正在回答…':'发送')
+const notice=computed(()=>attempted.value||(props.submitting?props.feedback||blocked.value:props.busy||props.blockedReason||props.unconfirmed||active.value||answering.value?blocked.value:props.feedback||blocked.value)||'发送后会先显示是否接收，再显示任务进度；尚未发送的文字仅留在当前浏览器。')
+function send(){if(blocked.value){attempted.value='未发送：'+blocked.value;return}attempted.value='';emit('talk','submit',undefined,text.value)}
+function keyboard(e:KeyboardEvent){if(!composing.value&&submitShortcut(e)){e.preventDefault();send()}}
+watch(()=>[props.busy,props.blockedReason,props.unconfirmed,text.value],()=>attempted.value='')
 const overview=computed(()=>props.plan.reference_overview)
 const showMore=ref(false)
 const referenceCards=computed(()=>overview.value?.current?.cards||[])
@@ -36,11 +45,15 @@ const problem=computed(()=>{
   <h2>{{ready?(task?.status==='PARTIAL'?'资料有限，先看局部建议':'先看看这几种玩法'):overview?.valid?'先看已有路线参考':active?stage:task?.status==='WAITING_CONFIGURATION'?'先完成一次模型配置':'查资料并给你初步建议'}}</h2>
   <div class="conversation-log" ref="log" aria-label="旅行对话" role="log"><article v-for="m in conversation?.messages||[]" :key="m.message_id" :class="['bubble',m.role==='USER'?'user':'assistant']"><small>{{m.role==='USER'?'你':m.origin==='AI_CACHED_ADVICE'?'AI缓存问答 · 建议与解释，非事实核实':m.origin==='LOCAL_REFERENCE_OVERVIEW'?'路线资料整理 · 本地':m.origin==='LOCAL_REFERENCE_EXPLANATION'?'依据现有资料回答 · 本地':'旅行助手'}}</small><p>{{m.text}}</p><p v-for="g in m.gaps||[]" :key="g">仍需确认：{{g}}</p><details v-if="m.citations?.length"><summary>回答依据</summary><blockquote v-for="r in m.citations" :key="r.citation_id">{{r.text}}<small>{{r.source_title}} · {{r.role}} · {{r.review}}</small><p>{{r.conditions.join('；')}}</p></blockquote></details><small v-if="m.options?.length">历史方案版本保留；当前可选方案见下方，不自动重新采用。</small></article></div>
   <p>已识别：{{plan.destination}} · {{plan.draft.days?`${plan.draft.days} 天`:'天数未定'}}。人数、预算和日期可以以后再补。</p>
-  <form class="composer" v-if="conversation&&task?.status!=='WAITING_CONFIGURATION'" @submit.prevent="emit('talk','submit',undefined,text)">
-   <label for="modify-idea">继续聊聊这次旅行</label><textarea id="modify-idea" v-model="text" maxlength="500" rows="2" placeholder="例如：只有5天、不想自驾，更新方案；或问问推荐依据" />
+  <form class="composer" v-if="conversation&&task?.status!=='WAITING_CONFIGURATION'" @submit.prevent="send" :aria-busy="submitting||false">
+   <label for="modify-idea">继续聊聊这次旅行</label><textarea id="modify-idea" v-model="text" maxlength="500" rows="2" placeholder="例如：只有5天、不想自驾，更新方案；或问问推荐依据" aria-describedby="message-hint message-feedback" @keydown="keyboard" @compositionstart="composing=true" @compositionend="composing=false" />
+   <p id="message-hint" class="muted">{{!blocked?'Ctrl / ⌘ + Enter 发送，Enter 换行。':'当前暂不能发送；输入会保留。'}}</p>
+   <p v-if="failure" role="alert" class="warning">{{failure}}</p>
+   <div v-if="failure||unconfirmed"><button type="button" class="quiet" :disabled="busy" @click="emit('recover')">读取已保存状态</button><button v-if="resumable" type="button" :disabled="busy||Boolean(blockedReason)" @click="emit('resume')">继续确认原提交</button></div>
+   <p id="message-feedback" role="status" aria-live="polite">{{notice}}</p>
    <p>发送会结合本次选择和必要公开资料交给现有DeepSeek处理；更新优先用缓存，需要补资料才有限查小红书。仅提问或假设不改条件、不查新资料，当前采用版保留。</p>
-   <button :disabled="busy||active||answering||!text.trim()">发送</button><button type="button" class="quiet" :disabled="busy||active||answering||!canUpdate" @click="emit('talk','submit',undefined,'按当前取舍更新建议')">按当前取舍更新建议</button>
-   <p v-if="answering" role="status">正在结合现有资料回答，刷新不会重复请求。</p><p v-if="plan.answer_job?.status==='FAILED'" class="warning">本次回答未完成：{{plan.answer_job.reason}}。失败已保留，不会自动重试。</p>
+   <button :disabled="Boolean(blocked)">{{sendLabel}}</button><button type="button" class="quiet" :disabled="busy||active||answering||Boolean(blockedReason)||unconfirmed||!canUpdate" @click="emit('talk','submit',undefined,'按当前取舍更新建议')">按当前取舍更新建议</button>
+   <p v-if="answering" role="status">消息已接收，正在结合现有资料回答，刷新不会重复请求。</p><p v-else-if="plan.answer_job?.status==='COMPLETED'" role="status">本次缓存回答已完成；建议与事实核实仍有区别。</p><p v-if="plan.answer_job?.status==='FAILED'" class="warning">本次回答未完成：{{plan.answer_job.reason}}。失败已保留，不会自动重试。</p>
    <aside v-if="conversation.proposed_conditions&&Object.keys(conversation.proposed_conditions).length"><p>AI需要你确认的解释：{{conversation.proposed_conditions.days?`可用${conversation.proposed_conditions.days}天；`:''}}{{conversation.proposed_conditions.driving==='NO'?'不自驾；':conversation.proposed_conditions.driving==='YES'?'愿意自驾；':''}}{{conversation.proposed_conditions.pace==='RELAXED'?'轻松节奏；':''}}{{conversation.proposed_conditions.transport?`交通：${({UNKNOWN:'暂未决定',PUBLIC_TRANSIT:'公共交通',SELF_DRIVE:'自驾',LOCAL_SERVICE:'当地服务',WALKING:'步行'} as Record<string,string>)[conversation.proposed_conditions.transport]}；`:''}}</p><button type="button" :disabled="busy||active||answering" @click="emit('talk','confirm_update')">确认并更新建议</button><p>这次点击会按上方用途启动一次有界更新；旧采用版保留。</p></aside>
    <details><summary>本次必要处理与调用范围</summary><p>接收方：api.deepseek.com；只发送本次条件、选择与过滤后的必要公开引用，每来源每次最多6000字，不发凭据、私址或地图返回。缓存问答或路线讨论最多模型1次，不查新资料；具体建议更新或明确补资料最多连接1、搜索1、正文2篇、模型5次，缓存足够时只需模型1次。地图、报价、embedding为0，不自动重试，不使用旧余额。</p></details>
   </form>

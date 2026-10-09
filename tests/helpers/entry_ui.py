@@ -85,7 +85,10 @@ def main():
                 assert page.get_by_role("button", name="查看本地草案", exact=True).count() == 0
                 idea = page.get_by_label("你想去哪里，怎么玩？", exact=True)
                 idea.fill("我想去合成北域玩7天")
-                expect(page.get_by_role("button", name="查资料并生成旅行建议", exact=True)).to_be_disabled()
+                expect(page.get_by_role("button", name="连接后才能提交", exact=True)).to_be_disabled()
+                idea.press("Control+Enter")
+                expect(page.locator("#intake-reason")).to_contain_text("未提交")
+                expect(page.locator("#intake-hint")).not_to_contain_text("Ctrl")
                 page.reload()
                 expect(idea).to_have_value("我想去合成北域玩7天")
                 # Owner CLI uses a private local key; the browser never receives proof.
@@ -134,7 +137,7 @@ def main():
                     "**/api/v1/preview/automatic-planning",
                     lambda r: (
                         r.fulfill(
-                            status=503,
+                            status=422,
                             json={
                                 "error": {
                                     "code": "CACHE_UNAVAILABLE",
@@ -147,7 +150,7 @@ def main():
                     ),
                 )
                 page.get_by_role("button", name="查资料并生成旅行建议", exact=True).click()
-                expect(page.get_by_role("alert")).to_contain_text("合成本机保存失败")
+                expect(page.locator(".trip-intake").get_by_role("alert")).to_contain_text("合成本机保存失败")
                 expect(idea).to_have_value("去虚构湖城玩三天")
                 assert not external and not errors
                 browser.close()

@@ -6,7 +6,7 @@ import {createSSRApp} from 'vue'
 import {renderToString} from 'vue/server-renderer'
 const {descriptor}=parse(readFileSync(new URL('../src/components/AutomaticPlanning.vue',import.meta.url),'utf8'))
 const setup=compileScript(descriptor,{id:'automatic',inlineTemplate:true,templateOptions:{ssr:true,cssVars:[]}})
-const script=ts.transpileModule(setup.content,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from ['"]([^'"]+)['"]/g,(_,name)=>`from "${import.meta.resolve(name)}"`)
+const script=ts.transpileModule(setup.content,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from ['"]([^'"]+)['"]/g,(_,name)=>`from "${name==='../intake'?new URL('../src/intake.ts',import.meta.url).href:import.meta.resolve(name)}"`)
 const component=(await import('data:text/javascript;base64,'+Buffer.from(script).toString('base64'))).default
 const task={status:'RUNNING',stage:'LOGIN_CHECK',login_state:'LOGIN_CHECK',research_attempted:false,changes:[],sources:[],limits:{search:3,detail:6,model:13,connect:1},search_count:0,candidate_count:0,unique_candidate_count:0,new_body_count:0,body_attempts:0,cache_source_count:0,accepted_source_count:0,duplicate_body_count:0,query_progress:[],generated:false,coverage:null}
 async function render(t,extra={}){return renderToString(createSSRApp(component,{plan:{destination:'合成北区',session_id:'fixture',draft:{days:7,activities:[]},combination_candidates:[],automatic_task:{...task,...t},job:{can_preview:true,proposals:[{title:'来源有限的玩法',reason:'合成参考',activities:[],unknowns:['交通未知']}]},...extra},busy:false}))}
