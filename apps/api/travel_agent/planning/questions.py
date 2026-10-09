@@ -36,7 +36,7 @@ class Answer(StrictModel):
     proposed_conditions: Interpretation
 
 
-def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> dict[str, Any]:
+def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str, *, source_limit: int = 2, prefer_new: bool = False) -> dict[str, Any]:
     from .conversation import model_context
     from .reference_overview import references, choices, project
     from travel_agent.research.canonical import body_blocks
@@ -57,7 +57,14 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> 
         for cid in v["citation_ids"]
     }
     rows = [r for r in rows if r["claim_id"] not in excluded]
-    rows.sort(key=lambda r: r["claim_id"] not in selected)
+    new_sources: set[str] = set()
+    if prefer_new:
+        for jid in p.get("agent_research_job_ids", []):
+            new_sources.update(r[0] for r in db.connection.execute(
+                "SELECT DISTINCT c.source_id FROM preview_jobs j JOIN research_runs r USING(research_id) JOIN research_run_contents rc USING(run_id) JOIN source_contents c USING(content_id) WHERE j.job_id=? AND j.account_scope=? AND j.session_id=?",
+                (jid, scope, sid),
+            ))
+    rows.sort(key=lambda r: (r["claim_id"] not in selected, r["source_id"] not in new_sources))
     totals: dict[str, int] = {}
     minimal = []
     for r in rows:
@@ -83,7 +90,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> 
         ):
             continue
         size = sum(map(len, texts))
-        if (r["source_id"] not in totals and len(totals) >= 2) or totals.get(
+        if (r["source_id"] not in totals and len(totals) >= source_limit) or totals.get(
             r["source_id"], 0
         ) + size > 6000:
             continue
@@ -91,6 +98,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> 
         minimal.append(
             dict(
                 citation_id=r["claim_id"],
+                source_ref=fingerprint(["reference-source", r["source_id"]])[:16],
                 text=r["text"],
                 conditions=r.get("conditions", []),
                 role=r["reference_kind"],

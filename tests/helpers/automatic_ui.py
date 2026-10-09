@@ -99,6 +99,12 @@ def main():
                 page.get_by_text("研究进展与资料依据", exact=False).click()
             expect(page.get_by_text("成功取得新正文 2 篇", exact=False)).to_be_visible()
             expect(page.get_by_role("button", name="采用这版建议", exact=True)).to_be_enabled()
+            import sqlite3
+            with sqlite3.connect(output / "synthetic.sqlite3") as con:
+                request = json.loads(con.execute("SELECT request_json FROM planning_tasks ORDER BY created_at DESC LIMIT 1").fetchone()[0])
+                assert request["consent"] == "PRIVATE_GOAL_AGENT_V4" and request["limits"]["model"] == 18
+                grant = con.execute("SELECT grant_id FROM planning_tasks ORDER BY created_at DESC LIMIT 1").fetchone()[0]
+                assert con.execute("SELECT count(*) FROM continuation_operations WHERE continuation_id=? AND kind='DETAIL'", (grant,)).fetchone()[0] == 2
             page.screenshot(path=str(output / "result.png"), full_page=True)
             page.get_by_text("查看本次资料依据", exact=True).click()
             expect(page.get_by_role("link", name="合成青谷游玩路线1", exact=True)).to_be_visible()

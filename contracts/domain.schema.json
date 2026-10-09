@@ -8783,7 +8783,8 @@
         "consent": {
           "enum": [
             "PRIVATE_RESEARCH_AND_ADVICE_V2",
-            "PRIVATE_GOAL_AGENT_V3"
+            "PRIVATE_GOAL_AGENT_V3",
+            "PRIVATE_GOAL_AGENT_V4"
           ],
           "title": "Consent",
           "type": "string"
@@ -8839,7 +8840,8 @@
             {
               "enum": [
                 "PRIVATE_RESEARCH_AND_ADVICE_V2",
-                "PRIVATE_GOAL_AGENT_V3"
+                "PRIVATE_GOAL_AGENT_V3",
+                "PRIVATE_GOAL_AGENT_V4"
               ],
               "type": "string"
             },
@@ -8936,7 +8938,8 @@
                 "PRIVATE_RESEARCH_AND_ADVICE_V2",
                 "PRIVATE_CACHED_QUESTION_V1",
                 "PRIVATE_CONVERSATION_LOOP_V1",
-                "PRIVATE_GOAL_AGENT_V3"
+                "PRIVATE_GOAL_AGENT_V3",
+                "PRIVATE_GOAL_AGENT_V4"
               ],
               "type": "string"
             },

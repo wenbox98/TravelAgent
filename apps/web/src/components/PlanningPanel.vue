@@ -101,7 +101,7 @@ async function automatic(action:string,text='') {
  busy.value=true;error.value='';++generation
  submission.value=target;feedback(target,'正在提交到本机工作台，尚未确认接收；请勿重复发送。')
  const url='/api/v1/preview/automatic-planning'+(action==='start'?'':'/'+data.value?.session_id)
- const body=action==='start'?{request:requestText.value,destination:destination.value,travel_kind:kind.value,map_consent:mapConsent.value?'PRIVATE_KEY_LEG_V1':null,consent:'PRIVATE_GOAL_AGENT_V3'}:{action,expected_revision:data.value?.revision,text,consent:action==='cancel'?null:'PRIVATE_GOAL_AGENT_V3'}
+ const body=action==='start'?{request:requestText.value,destination:destination.value,travel_kind:kind.value,map_consent:mapConsent.value?'PRIVATE_KEY_LEG_V1':null,consent:'PRIVATE_GOAL_AGENT_V4'}:{action,expected_revision:data.value?.revision,text,consent:action==='cancel'?null:'PRIVATE_GOAL_AGENT_V4'}
  const signature=JSON.stringify([url,body]);let key:string=crypto.randomUUID()
  try{
   const pending=JSON.parse(localStorage.getItem('ta-auto-intent')||'null') as {signature:string;key:string}|null
@@ -120,7 +120,7 @@ async function talk(action:string,optionId?:string,text?:string,activityId?:stri
  if(!data.value||busy.value||edited.value||conditionEditing.value){feedback('conversation',!data.value?'请先连接并恢复当前旅行；消息未提交。':busy.value?'正在处理上一项操作，请稍候；消息未重复提交。':'请先保存或取消当前条件草稿，再发送；输入已保留。',true);return}
  busy.value=true;error.value='';++generation
  submission.value='conversation';feedback('conversation','正在提交消息到本机工作台，尚未确认接收；请勿重复发送。')
- const body={action,option_id:optionId,activity_id:activityId,text:text||'',expected_revision:data.value.revision,expected_conversation_version:data.value.conversation?.version||0,consent:action==='submit'?'PRIVATE_GOAL_AGENT_V3':action==='confirm_update'?'PRIVATE_CONVERSATION_LOOP_V1':action==='ask'?'PRIVATE_CACHED_QUESTION_V1':'PRIVATE_RESEARCH_AND_ADVICE_V2'}
+ const body={action,option_id:optionId,activity_id:activityId,text:text||'',expected_revision:data.value.revision,expected_conversation_version:data.value.conversation?.version||0,consent:action==='submit'?'PRIVATE_GOAL_AGENT_V4':action==='confirm_update'?'PRIVATE_CONVERSATION_LOOP_V1':action==='ask'?'PRIVATE_CACHED_QUESTION_V1':'PRIVATE_RESEARCH_AND_ADVICE_V2'}
  const url='/api/v1/preview/conversation/'+data.value.session_id
  const signature=JSON.stringify([url,body]);let key:string=crypto.randomUUID()
  try{

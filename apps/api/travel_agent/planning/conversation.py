@@ -45,6 +45,7 @@ class ConversationAction(StrictModel):
             "PRIVATE_CACHED_QUESTION_V1",
             "PRIVATE_CONVERSATION_LOOP_V1",
             "PRIVATE_GOAL_AGENT_V3",
+            "PRIVATE_GOAL_AGENT_V4",
         ]
         | None
     ) = None
@@ -261,14 +262,15 @@ def action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) ->
         )
         if c["version"] != body.expected_conversation_version:
             raise ValueError("STALE_CONVERSATION_VERSION")
-        from .agent_contract import CONSENT as AGENT_CONSENT
-        if body.action == "submit" and body.consent == AGENT_CONSENT:
+        from .agent_contract import CONSENTS as AGENT_CONSENTS
+        if body.action == "submit" and body.consent in AGENT_CONSENTS:
             if not body.text:
                 raise ValueError("INVALID_INPUT")
             message(p, "USER", body.text)
             p["conversation_intent_key"] = key
             save(db, sid, container)
-            service._create(sid, payload, key, body.text, followup=True, agent=True)
+            service._create(sid, payload, key, body.text, followup=True, agent=True,
+                            agent_consent=str(body.consent))
             return service.plans.get(sid)
         dispatch: Literal["refine", "revise", "research_more"] | None = None
         local_changed = False

@@ -50,9 +50,9 @@ def execute(service: Any, sid: str, body: AgentMapAction, key: str) -> dict[str,
         task = db.connection.execute(
             "SELECT request_json FROM planning_tasks WHERE task_id=?", (body.task_id,)
         ).fetchone()
-        from .agent_contract import CONSENT
+        from .agent_contract import CONSENTS
 
-        if not task or json.loads(task[0])["consent"] != CONSENT:
+        if not task or json.loads(task[0])["consent"] not in CONSENTS:
             raise ValueError("OPERATION_NOT_AUTHORIZED")
         status = view(db, service.scope, sid, p)
         if not status["configured"]:

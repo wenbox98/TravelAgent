@@ -88,7 +88,10 @@ def run(database: Path, jid: str, provider: Any = None) -> None:
             if "references" in request["payload"]:
                 from .questions import payload
 
-                fresh = payload(db, row["account_scope"], row["session_id"], p, p["agent_input"])
+                from .agent_contract import CONSENT
+                v4 = request["task"] == "travel_supervisor_v1" and budget.state()["gate"].get("consent") == CONSENT
+                fresh = payload(db, row["account_scope"], row["session_id"], p, p["agent_input"],
+                                source_limit=6 if v4 else 2, prefer_new=v4)
                 if fresh["references"] != request["payload"]["references"]:
                     raise ValueError("AGENT_MATERIAL_CHANGED")
 

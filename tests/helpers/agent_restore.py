@@ -33,6 +33,10 @@ with Database(Path(sys.argv[1])) as db:
                 days=v["draft"]["days"],
                 transport=v["draft"]["transport"],
                 proposals=len(v["job"]["proposals"]),
+                source_count=len({r["source_id"] for r in v["references"]}),
+                reference_count=len(v["references"]),
+                used_model=v["automatic_task"]["budget"]["used"]["model"],
+                remaining_model=v["automatic_task"]["budget"]["remaining"]["model"],
                 external_attempts=len(attempts),
             )
         )

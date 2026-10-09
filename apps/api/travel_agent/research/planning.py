@@ -107,6 +107,7 @@ class CandidateSelector:
         *,
         query_context: str | None = None,
         grounded_terms: tuple[str, ...] = (),
+        previous_titles: tuple[str, ...] = (),
     ) -> tuple[CandidateChoice, ...]:
         self.last_mode = "DETERMINISTIC"
         selected: list[tuple[int, Candidate]] = []
@@ -214,8 +215,8 @@ class CandidateSelector:
                     -len(hits(candidate) & uncovered),
                     max(
                         (
-                            lexical_similarity(candidate.title or "", prior.title or "")
-                            for prior in diverse
+                            lexical_similarity(candidate.title or "", title)
+                            for title in (*previous_titles, *(prior.title or "" for prior in diverse))
                         ),
                         default=0,
                     )

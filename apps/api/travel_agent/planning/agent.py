@@ -11,7 +11,7 @@ from typing import Any
 from travel_agent.persistence.database import Database
 from travel_agent.preview.projection import fingerprint
 from travel_agent.domain.source_policy import SENSITIVE_RESEARCH_TEXT
-from .agent_contract import MAX_ROUNDS, Understanding
+from .agent_contract import MAX_ROUNDS, COMPLETION_RESERVE, CONSENT, Understanding
 from .flow import PlanningService
 from .flow_models import PlanDraft
 from .workbench import DailyBudget
@@ -172,8 +172,15 @@ def apply_intake(p: dict[str, Any], value: Understanding) -> None:
         p["request"] = p["agent_input"]
 
 
-def tools(db: Any, scope: str, sid: str, p: dict[str, Any], budget: DailyBudget) -> dict[str, Any]:
+def tools(db: Any, scope: str, sid: str, p: dict[str, Any], budget: DailyBudget, *, decision_cost: int = 0) -> dict[str, Any]:
     remaining = budget.summary()["remaining"]
+    # The payload is observed BEFORE the supervisor request; dispatch is checked AFTER it.
+    models = remaining["model"] - decision_cost
+    multi_body = budget.state()["gate"].get("consent") == CONSENT
+    per_query = (remaining["detail"] + max(1, remaining["search"]) - 1) // max(1, remaining["search"])
+    max_body = max(0, min(remaining["detail"], per_query if multi_body else 1,
+                          (models - COMPLETION_RESERVE) // 2))
+    future_decisions = MAX_ROUNDS - len(p.get("agent_rounds", [])) - decision_cost
     questions_only = p["agent_understanding"]["result"]["intent"] in {"QUESTION", "HYPOTHETICAL"}
     from .guide_assessment import references
 
@@ -184,7 +191,8 @@ def tools(db: Any, scope: str, sid: str, p: dict[str, Any], budget: DailyBudget)
         and p.get("agent_destination_confirmed")
         and remaining["search"] > 0
         and remaining["detail"] > 0
-        and remaining["model"] >= 3
+        and max_body > 0
+        and future_decisions >= 1
         and not p.get("agent_research_blocked")
     )
     from .critical_map import view as map_view
@@ -200,24 +208,26 @@ def tools(db: Any, scope: str, sid: str, p: dict[str, Any], budget: DailyBudget)
         and remaining["map_route"] > 0
     )
     return dict(
-        CACHE=dict(allowed=True, meaning="只复核本机资料，不联网"),
-        DECOMPOSE=dict(allowed=True, meaning="只整理已采信引用，保留对象/作者角色"),
+        CACHE=dict(allowed=future_decisions >= 1 and models >= COMPLETION_RESERVE, meaning="只复核本机资料，不联网"),
+        DECOMPOSE=dict(allowed=future_decisions >= 1 and models >= COMPLETION_RESERVE, meaning="只整理已采信引用，保留对象/作者角色"),
         RESEARCH_GAP=dict(
             allowed=bool(can_research),
             max_search=1,
-            max_body=1,
-            reason="按缺口的一次搜索/至多一篇新正文；原许可不足或已停止时不可派发",
+            max_body=max_body,
+            completion_model_reserve=COMPLETION_RESERVE,
+            body_model_cost=2,
+            reason="同一搜索列表按最新缺口和多样性择读；每篇严格提取审核，预留后续决策及建议生成",
         ),
         GENERATE=dict(
             allowed=bool(
                 not questions_only
                 and not p.get("agent_generated")
                 and p["draft"]["activities"]
-                and remaining["model"] > 0
+                and models > 0
             ),
             meaning="原严格审核的建议生成，不以精确时间或完整地图为门槛",
         ),
-        ANSWER=dict(allowed=questions_only and answer_material and remaining["model"] > 0),
+        ANSWER=dict(allowed=questions_only and answer_material and models > 0),
         KEY_LEG=dict(
             allowed=bool(map_allowed),
             reason="需要本次明确地图许可、已确认公共地点和适用方式",
@@ -233,7 +243,8 @@ def decision_payload(
     from .questions import payload
     from .automatic import coverage
 
-    data = payload(db, scope, sid, p, p["agent_input"])
+    v4 = budget.state()["gate"].get("consent") == CONSENT
+    data = payload(db, scope, sid, p, p["agent_input"], source_limit=6 if v4 else 2, prefer_new=v4)
     data.update(
         protocol="TRAVEL_SUPERVISOR_V1",
         goal="形成有依据且可选择的旅行建议",
@@ -247,7 +258,7 @@ def decision_payload(
         ),
         understanding=p["agent_understanding"]["result"],
         research_gaps=coverage(db, scope, sid, p)["gaps"],
-        available_tools=tools(db, scope, sid, p, budget),
+        available_tools=tools(db, scope, sid, p, budget, decision_cost=1),
         remaining=budget.summary()["remaining"],
         previous_results=[
             dict(
@@ -495,8 +506,8 @@ def run(
             for number in range(1, MAX_ROUNDS + 1):
                 _, state = current()
                 p = state["planning"]
-                if budget.summary()["remaining"]["model"] < 1:
-                    finish("MODEL_BUDGET_EXHAUSTED")
+                if budget.summary()["remaining"]["model"] < 2:
+                    finish("MODEL_COMPLETION_RESERVE")
                     return
                 data = decision_payload(db, scope, sid, p, budget)
                 raw = call("travel_supervisor_v1", data, "DECIDING")
@@ -529,6 +540,9 @@ def run(
                         event["before"],
                     ]
                 )
+                if tool == "RESEARCH_GAP":
+                    from travel_agent.research.planning import QueryPlanner
+                    identity = fingerprint([tool, QueryPlanner.normalize(choice.query or "")])
                 result: dict[str, Any]
                 stop_reason = None
                 if not allowed:
@@ -586,7 +600,11 @@ def run(
                             "SELECT request_json FROM preview_jobs WHERE job_id=?", (job["job_id"],)
                         ).fetchone()
                         request = json.loads(j[0])
-                        request["agent_step"] = dict(query=query, gap_key=choice.gap_key)
+                        request["agent_step"] = dict(
+                            query=query, gap_key=choice.gap_key,
+                            max_body=tools(db, scope, sid, p, budget)["RESEARCH_GAP"]["max_body"],
+                            multi_body=budget.state()["gate"].get("consent") == CONSENT,
+                        )
                         db.connection.execute(
                             "UPDATE preview_jobs SET request_json=? WHERE job_id=?",
                             (json.dumps(request, ensure_ascii=False), job["job_id"]),
@@ -690,6 +708,9 @@ def run(
                         if previous_plan:
                             p["job_id"] = previous_plan
                         stop_reason = "PLANNING_NOT_GENERATED"
+                    else:
+                        # The validated proposal is the goal. No paid FINISH is necessary.
+                        stop_reason = "SUFFICIENT" if coverage(db, scope, sid, p)["sufficient"] else "PARTIAL"
                     save(db, sid, state, bump=False)
                 elif tool == "ANSWER":
                     from .questions import payload

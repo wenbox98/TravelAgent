@@ -63,7 +63,7 @@ def main():
                 from travel_agent.persistence.database import Database
                 with Database(database) as db:
                     request=db.connection.execute("SELECT request_json FROM planning_tasks WHERE task_id=?",(jid,)).fetchone()
-                if json.loads(request[0])["consent"] == "PRIVATE_GOAL_AGENT_V3":
+                if json.loads(request[0])["consent"] in {"PRIVATE_GOAL_AGENT_V3", "PRIVATE_GOAL_AGENT_V4"}:
                     from travel_agent.planning.agent import run as goal_run
                     from test_workbench_pipeline import dispatches
                     model=GoalModel()

@@ -314,7 +314,7 @@ class AutomaticService:
         self.plans = PlanningService(db, scope, daily_workbench=True)
 
     def start(self, body: AutomaticStart, key: str) -> dict[str, Any]:
-        from .agent_contract import CONSENT as AGENT_CONSENT
+        from .agent_contract import CONSENTS as AGENT_CONSENTS
         payload = ["automatic-start", body.model_dump()]
         with self.db.transaction():
             old = self._receipt(key, payload)
@@ -326,7 +326,7 @@ class AutomaticService:
             ).fetchone():
                 raise ValueError("RUNNING")
             destination = body.destination
-            if body.consent == AGENT_CONSENT and not destination:
+            if body.consent in AGENT_CONSENTS and not destination:
                 from .intake import destination_from_idea
                 try:
                     destination = destination_from_idea(body.request)
@@ -342,8 +342,8 @@ class AutomaticService:
                 key + "-trip",
             )
             self._create(v["session_id"], payload, key, body.request,
-                         agent=body.consent == AGENT_CONSENT, map_consent=bool(body.map_consent),
-                         destination_field=body.destination)
+                         agent=body.consent in AGENT_CONSENTS, map_consent=bool(body.map_consent),
+                         destination_field=body.destination, agent_consent=body.consent)
             return self.plans.get(v["session_id"])
 
     def _receipt(self, key: str, payload: Any) -> Any:
@@ -367,6 +367,7 @@ class AutomaticService:
         agent: bool = False,
         map_consent: bool = False,
         destination_field: str = "",
+        agent_consent: str = "PRIVATE_GOAL_AGENT_V3",
     ) -> None:
         _, state = self.plans.load(sid)
         p = state["planning"]
@@ -385,11 +386,13 @@ class AutomaticService:
         p["automatic_generation"] = p.get("automatic_generation", 0) + 1
         from travel_agent.research.advisory_coverage import limits as research_limits
 
-        from .agent_contract import CONSENT as AGENT_CONSENT
-        consent_version = AGENT_CONSENT if agent else "PRIVATE_CONVERSATION_LOOP_V1" if followup else CONSENT
+        from .agent_contract import CONSENT as AGENT_CONSENT, limits as agent_limits
+        consent_version = agent_consent if agent else "PRIVATE_CONVERSATION_LOOP_V1" if followup else CONSENT
         limits = research_limits(p["draft"].get("days"), p["travel_kind"] == "REGIONAL")
         if followup:
             limits.update(search=1, detail=2, model=5)
+        if agent and agent_consent == AGENT_CONSENT:
+            limits = agent_limits(p["draft"].get("days"), p["travel_kind"] == "REGIONAL", followup=followup)
         if agent and map_consent:
             limits.update(map_place=2, map_route=1)
         p["automatic_coverage"] = coverage(self.db, self.scope, sid, p)
@@ -488,8 +491,8 @@ class AutomaticService:
                     key, ["automatic-receipt", payload], sid
                 )
                 return self.plans.get(sid)
-            from .agent_contract import CONSENT as AGENT_CONSENT
-            if body.consent not in {CONSENT, AGENT_CONSENT}:
+            from .agent_contract import CONSENTS as AGENT_CONSENTS
+            if body.consent not in {CONSENT, *AGENT_CONSENTS}:
                 raise ValueError("OPERATION_NOT_AUTHORIZED")
             if self.db.connection.execute(
                 "SELECT 1 FROM planning_tasks WHERE account_scope=? AND session_id!=? AND status IN ('QUEUED','RUNNING','WAITING_CONFIGURATION')",
@@ -506,8 +509,8 @@ class AutomaticService:
             elif body.action == "revise":
                 if not body.text:
                     raise ValueError("INVALID_INPUT")
-                if body.consent == AGENT_CONSENT:
-                    self._create(sid, payload, key, body.text, followup=True, agent=True, map_consent=bool(body.map_consent))
+                if body.consent in AGENT_CONSENTS:
+                    self._create(sid, payload, key, body.text, followup=True, agent=True, map_consent=bool(body.map_consent), agent_consent=str(body.consent))
                     return self.plans.get(sid)
                 draft = revise(PlanDraft.model_validate(p["draft"]), body.text)
                 old = PlanDraft.model_validate(p["draft"])
@@ -538,9 +541,9 @@ class AutomaticService:
             agent_text = body.text or (p.get("agent_input",p["request"]) if body.action == "continue" else
                 "继续补充研究" if body.action == "research_more" else "按当前取舍更新建议")
             agent_followup = p.get("agent_followup",False) if body.action == "continue" else True
-            self._create(sid, payload, key, agent_text if body.consent == AGENT_CONSENT else body.text or p["request"],
-                         followup=agent_followup if body.consent == AGENT_CONSENT else followup,
-                         agent=body.consent == AGENT_CONSENT, map_consent=bool(body.map_consent))
+            self._create(sid, payload, key, agent_text if body.consent in AGENT_CONSENTS else body.text or p["request"],
+                         followup=agent_followup if body.consent in AGENT_CONSENTS else followup,
+                         agent=body.consent in AGENT_CONSENTS, map_consent=bool(body.map_consent), agent_consent=str(body.consent))
             return self.plans.get(sid)
 
 
@@ -720,8 +723,8 @@ def run_task(
     """Runner injection is test-only; HTTP cannot choose providers or substitute results."""
     with Database(database) as probe:
         row = probe.connection.execute("SELECT request_json FROM planning_tasks WHERE task_id=?", (tid,)).fetchone()
-        from .agent_contract import CONSENT as AGENT_CONSENT
-        if row and json.loads(row[0]).get("consent") == AGENT_CONSENT:
+        from .agent_contract import CONSENTS as AGENT_CONSENTS
+        if row and json.loads(row[0]).get("consent") in AGENT_CONSENTS:
             from .agent import run
             run(database, tid)
             return

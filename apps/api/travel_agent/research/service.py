@@ -78,9 +78,15 @@ class ResearchService:
         on_connected: Callable[[], None] | None = None,
         already_connected: bool = False,
         detail_number_offset: int = 0,
+        adaptive_candidate_selection: bool = False,
+        before_detail: Callable[[], None] | None = None,
+        attempted_detail_hashes: set[str] | None = None,
     ) -> None:
         self.store, self.reader, self.extractor, self.policy = store, reader, extractor, policy
         self.detail_number_offset = detail_number_offset
+        self.adaptive_candidate_selection = adaptive_candidate_selection
+        self.before_detail = before_detail or (lambda: None)
+        self.attempted_detail_hashes = attempted_detail_hashes or set()
         self.selector = selector or CandidateSelector()
         self.selector.allow_external = self.selector.allow_external and policy_allows_model(
             policy,
@@ -220,6 +226,7 @@ class ResearchService:
             current()
 
         def read(candidate: Candidate, fallback: bool = False) -> DetailMaterial:
+            self.before_detail()
             reserve(
                 "DETAIL",
                 candidate.source_id + (":fallback" if fallback else ""),
@@ -304,6 +311,10 @@ class ResearchService:
                 )
                 candidates = self.reader.search(query.text)
                 current()
+                # Failed empty bodies have no source row; the durable grant ledger still
+                # proves they were attempted. Do not select them again in a later batch.
+                attempted.update(c.source_id for c in candidates
+                                 if sha256(c.source_id.encode()).hexdigest() in self.attempted_detail_hashes)
                 candidate_count += len(candidates)
                 self.unique_candidates.update(c.source_id for c in candidates)
                 self.query_progress[-1].update(
@@ -315,9 +326,18 @@ class ResearchService:
                     external=True,
                     now=datetime.now(timezone.utc),
                 )
-                selected = self.selector.select(
-                    candidates, request, gaps, attempted, query_context=query.text
-                )
+                def selections() -> Any:
+                    if not self.adaptive_candidate_selection:
+                        yield from self.selector.select(candidates, request, gaps, attempted, query_context=query.text)
+                        return
+                    while gaps:
+                        # Re-rank the SAME observed list after each real result. No new search,
+                        # no repeat of a failed source, and no metadata promoted to evidence.
+                        selected = self.selector.select(candidates, request, gaps, attempted, query_context=query.text,
+                                                        previous_titles=tuple(c.candidate.title or "" for c in choices))
+                        if not selected:
+                            return
+                        yield selected[0]
                 # Leave room for different gap-directed queries, rather than spending
                 # the entire body allowance on the first search page.
                 per_query = max(
@@ -331,12 +351,14 @@ class ResearchService:
                     )
                     // max(1, budget.max_search_operations - operations["search"]),
                 )
-                for index, choice in enumerate(selected):
+                selection_count = 0
+                for index, choice in enumerate(selections()):
                     if self.adaptive_queries and index >= per_query:
                         break
                     if self.store.operations(run_id)["detail"] >= budget.max_feed_details:
                         return finish("BUDGET_EXHAUSTED")
                     choices.append(choice)
+                    selection_count += 1
                     candidate = choice.candidate
                     attempted.add(candidate.source_id)
                     was_text_first = self.reader.text_first
@@ -507,7 +529,7 @@ class ResearchService:
                     gaps = assess(evidence)
                     if not gaps and "IMAGE_INFORMATION_REQUIRED" not in extra_gaps:
                         return finish("EVIDENCE_SUFFICIENT")
-                if not selected:
+                if not selection_count:
                     if self.adaptive_queries:
                         continue
                     return finish("NO_USEFUL_CANDIDATES")

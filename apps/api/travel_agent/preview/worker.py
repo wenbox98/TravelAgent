@@ -202,14 +202,19 @@ def run_job(
                 raise ResearchStopped("ERROR", "CANCELED")
 
         class Permits:
+            def before_detail(self) -> None:
+                active()
+                from travel_agent.planning.agent_contract import COMPLETION_RESERVE
+
+                reserve = COMPLETION_RESERVE if data.get("agent_step") else 1
+                if (data.get("planning_protocol") == 2
+                    and budget.summary()["remaining"]["model"] < 2 + reserve):
+                    raise ResearchStopped("BUDGET_EXHAUSTED", "PLANNING_MODEL_RESERVED")
+
             def reserve(self, kind: str, fingerprint: str) -> None:
                 active()
-                if (
-                    kind == "DETAIL"
-                    and data.get("planning_protocol") == 2
-                    and budget.summary()["remaining"]["model"] < 3
-                ):
-                    raise ResearchStopped("BUDGET_EXHAUSTED", "PLANNING_MODEL_RESERVED")
+                if kind == "DETAIL":
+                    self.before_detail()
                 budget.reserve(kind, fingerprint)
                 progress(
                     {"CONNECT": "LOGIN_CHECK", "SEARCH": "SEARCH", "DETAIL": "READING"}.get(
@@ -356,6 +361,12 @@ def run_job(
                 on_connected=lambda: progress("LOGIN_AUTHENTICATED"),
                 already_connected=already_connected,
                 detail_number_offset=budget.summary()["used"]["detail"] if data.get("agent_step") else 0,
+                adaptive_candidate_selection=bool(data.get("agent_step", {}).get("multi_body")),
+                before_detail=Permits().before_detail,
+                attempted_detail_hashes={r[0] for r in con.execute(
+                    "SELECT fingerprint FROM continuation_operations WHERE continuation_id=? AND kind='DETAIL'",
+                    (j["continuation_id"],),
+                )} if data.get("agent_step") else None,
             )
             service.planner = FocusedPlanner(data["focus"])
             coverage_evaluator = None
@@ -451,7 +462,7 @@ def run_job(
                 account_scope=j["account_scope"],
                 budget=ResearchBudget(
                     1 if data.get("agent_step") else budget.state()["limits"]["SEARCH"],
-                    1 if data.get("agent_step") else budget.state()["limits"]["DETAIL"],
+                    data["agent_step"].get("max_body", 1) if data.get("agent_step") else budget.state()["limits"]["DETAIL"],
                 ),
             )
             if reader_holder is not None and budget.summary()["used"]["connect"]:

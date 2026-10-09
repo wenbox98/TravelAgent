@@ -141,7 +141,11 @@ def test_normal_submit_intake_tool_feedback_generation_stop_and_no_replay(servic
     assert wire.sent == [] and v["automatic_task"]["stage"] == "INTAKE"
     provider = config()
     extract, review = dispatches(provider)
-    reader = Reader()
+    class SingleReader(Reader):
+        def search(self, query):
+            return super().search(query)[:1]
+
+    reader = SingleReader()
     run(
         service.db.path,
         v["automatic_task"]["task_id"],
@@ -165,7 +169,6 @@ def test_normal_submit_intake_tool_feedback_generation_stop_and_no_replay(servic
     assert [r["tool"] for r in final["automatic_task"]["agent_rounds"]] == [
         "RESEARCH_GAP",
         "GENERATE",
-        "FINISH",
     ]
     assert [r["task"] for r in wire.sent] == [
         "travel_intake_v1",
@@ -174,7 +177,6 @@ def test_normal_submit_intake_tool_feedback_generation_stop_and_no_replay(servic
         "review_evidence_context_v2",
         "travel_supervisor_v1",
         "planning_advisory_v4",
-        "travel_supervisor_v1",
     ]
     assert reader.calls == ["CONNECT", "SEARCH", "DETAIL"]
     count = len(wire.sent)
@@ -432,6 +434,10 @@ def test_second_gap_uses_same_reader_and_failure_keeps_first_qualified_material(
     wire = Wire(monkeypatch, respond)
 
     class SecondFails(Reader):
+        def search(self, query):
+            candidates = super().search(query)
+            return candidates[:1] if self.calls.count("SEARCH") == 1 else candidates[1:]
+
         def detail(self, candidate, number):
             if number == 2:
                 self.calls.append("DETAIL")
