@@ -12,6 +12,24 @@
 
 ## 一次缓存问答
 
+### 正文拆分点与规划输入（2026-10-09）
+
+`local-research-points-1` 将当前旅行合格、非冲突的 EXPERIENCE、DURATION、TRANSPORT、TRADEOFF、SEASON 引用独立投影为 `reference_overview.projected.points`；保留准确原文、条件、作者角色、审核性质、定位及明确的对象关系。ROUTE 仍按原规则分组；内容点不是景点身份、独立作者、Evidence 新增或AI规划结果。没有明确关系时保持未知，不能把片区体验套给每个地点。每来源多个点仍只计一个来源。
+
+`ConversationAction` 增加 `select_point/clear_point/exclude_point/restore_point`。允许多个兴趣与排除，沿用 revision、conversation version、幂等键和 generation 失效；每个选择绑定当前引用内容与规则版本。页面选择和刷新均为本地操作，不派发研究或模型。旧失败与旧采用版不改写。原旅行自有的终态研究通过 session/account/destination 与当前来源策略只读关联，避免历史缺少 research_ids 时隐藏已经合格的资料；不从全库同名目的地兜底，也不追跑旧任务。
+
+`suggestions.create_job → conversation.freeze_context` 在研究合并之后、派发之前重新冻结有效取舍与条件。已有完成提议的冻结输入不随本地兴趣变化重写；下一次显式更新才使用新选择。真正 `planning_advisory_v4` 的 `private_payload → advisory.payload` 保留所选点的必要原文与条件，先保留活动必需引用，再优先所选点，最后补充背景；继续既有来源数与每来源6000字上限、SourcePolicy、过滤、引用及硬条件检查。必要点放不下则本地失败，不只发送孤立选择ID。排除点的引用和依赖活动不进入新输入；锁定活动不能被静默排除。模型输出仍逐方案校验，不能靠选中ID证明来源事实或规划质量。缓存问答也保留选中正文且检查是否实际外发。
+
+普通自然正文仅在明确动作旁有可逐字定位的公共名称时保守投影活动，支持“我在…散步”“推荐去…看展”等表达；不依赖作者特定排版。否定句、宏观环线和不能保守解析的句子不生成地点身份，合格文本仍可作为内容点。这不是完整实体识别或地图核实。
+
+研究覆盖规则升级为 `advisory-research-coverage-2`：多日任务增加住宿片区/落脚取舍参考；“片区”一词本身不填补住宿缺口。候选筛选识别实际 PLAY/ACTIVITY_SCOPE/LODGING/SEASON 缺口，优先互补标题并保留弱相关性质，正文仍需审核。
+
+新自适应任务只将 `SOURCE_UNAVAILABLE/EMPTY_BODY` 作为本篇跳过；详情预留仍计数、来源仍去重，在同一总预算内尝试其他来源。登录、验证、访问拒绝、身份不匹配和全局模型失败仍停止。历史终态失败不续执行、不重试、不退还或恢复额度。HTTP200 后任意整篇 schema 错误仍不能笼统当作可继续；本批仅将审核 explanation 超过200字而不超过4096字隔离到该条待审，其他独立合格条目继续原严格审核。
+
+契约新增 `ModelContextReviewTransportResponse`：传输界面有限接收 explanation 至多4096字，提示词仍要求200字；`ModelContextReviewResponse` 的接纳上限200字不变。`run_review` 逐条用原接纳 schema 与全部语义/依赖检查；超长条目 proposal 不保存，只存候选序号、待审状态和安全字段错误，不截断后批准。外层非法结构、重复候选及其他字段约束仍失败。无数据库迁移，JSON内增加版本化选择、points、source_skips；不重写历史审核。
+
+统计明确区分：本轮搜索已预留、成功返回列表、列表条目（可能重复且未读正文）、去重笔记、详情尝试、成功正文、采信来源、复用历史来源及旅行历史累计。分轮 `body_reads` 是详情尝试次数，包含失败，不是成功正文篇数。搜索上限是应用预算，不是站点安全阈值。
+
 主输入框统一提交 `ConversationAction.submit`，携带 `PRIVATE_CONVERSATION_LOOP_V1`。服务端 `submission_intent` 分辨明确修改、明确补资料、更新及纯问题/假设。明确可解析条件直接经过原锁定项检查并保存，不先绕一次问答。纯提问只执行一次缓存回答，不改条件、不补资料；有宏观路线且没有具体活动的更新先走缓存路线讨论，不制造活动或宣称资料完整。模糊解释由模型提议，用户点击 `confirm_update` 一次确认并启动有界更新。旧 `ask/confirm_intent/message` API 兼容保留。
 
 主按钮附近用简短用途说明，详细收件方和次数可展开：缓存问题/路线讨论最多模型1次、小红书0；具体更新及明确补资料最多连接1、搜索1、正文2、模型5，缓存充分时缩为模型1及站点0。许可与旧用量关联，结束即关闭，不复用旧余额、不自动重试。此默认产品动作不是开发实测授权；开发者仍需另获用户的具体真实调用许可。

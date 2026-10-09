@@ -48,8 +48,14 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> 
     rows = references(db, scope, sid, p)
     context.update(choices(rows, p))
     chosen = context["selected_reference"]
-    selected = (chosen or {}).get("bindings", {})
-    excluded = {cid for v in context["excluded_references"] for cid in v["citation_ids"]}
+    selected = set((chosen or {}).get("bindings", {})) | {
+        cid for v in context["selected_points"] for cid in v["citation_ids"]
+    }
+    excluded = {
+        cid
+        for v in [*context["excluded_references"], *context["excluded_points"]]
+        for cid in v["citation_ids"]
+    }
     rows = [r for r in rows if r["claim_id"] not in excluded]
     rows.sort(key=lambda r: r["claim_id"] not in selected)
     totals: dict[str, int] = {}
@@ -113,6 +119,8 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> 
     probe["request"] = question
     safe_question = model_context(probe)["user_inputs"][-1]
     sent_ids = {r["citation_id"] for r in minimal}
+    if any(not set(point["citation_ids"]) <= sent_ids for point in context["selected_points"]):
+        raise ValueError("QUESTION_SELECTED_MATERIAL_UNAVAILABLE")
     result = dict(
         protocol="CACHED_QUESTION_V1",
         question=safe_question,
@@ -135,8 +143,13 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str) -> 
             for c in project(rows, p)["cards"]
             if set(c["bindings"]) <= sent_ids
         ],
+        content_points=[
+            dict(option_id=c["option_id"], citation_ids=list(c["bindings"]))
+            for c in project(rows, p)["points"]
+            if set(c["bindings"]) <= sent_ids
+        ],
         iteration_decision=p.get("conversation_iteration_decision"),
-        instructions="回答用户本次问题，结合conversation中的当前路线选择与排除。selected_reference是暂定方向；excluded_references本轮不选，不照抄为推荐。route_options仅是有证明对象的备选，不能凭ID推断活动或套用其他对象的时长。引用只来自references，条件和作者角色保留。advice是可修改建议，不生成新的来源事实，不保证开放、价格、班次或可行性。资料不足列入gaps，可提出后续研究建议但不能调用工具。proposed_conditions只解释本次意图，未经用户确认不改变行程。",
+        instructions="回答用户本次问题，结合conversation中的当前路线选择与排除。selected_reference是暂定方向，selected_points是本次正文兴趣；excluded_references/excluded_points本轮不选，不照抄为推荐。route_options仅是有证明对象的备选，content_points是正文参考，不能凭ID推断活动或套用其他对象的时长。引用只来自references，条件和作者角色保留。advice是可修改建议，不生成新的来源事实，不保证开放、价格、班次或可行性。资料不足列入gaps，可提出后续研究建议但不能调用工具。proposed_conditions只解释本次意图，未经用户确认不改变行程。",
     )
     if SENSITIVE_RESEARCH_TEXT.search(json.dumps(result, ensure_ascii=False)):
         raise ValueError("QUESTION_SENSITIVE_INPUT")

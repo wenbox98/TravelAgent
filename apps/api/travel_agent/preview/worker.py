@@ -455,6 +455,7 @@ def run_job(
                 "budget": budget.summary(),
                 "unique_candidate_count": len(service.unique_candidates),
                 "duplicate_body_count": service.duplicate_bodies,
+                "source_skips": service.source_skips,
                 "query_progress": [
                     {k: v for k, v in q.items() if not k.startswith("_") and k != "detail_before"}
                     for q in service.query_progress
@@ -477,9 +478,14 @@ def run_job(
                 else "NEEDS_REVIEW"
             )
         except Exception as exc:
-            summary.update(json.loads(con.execute(
-                "SELECT summary_json FROM preview_jobs WHERE job_id=?", (job_id,)
-            ).fetchone()[0] or "{}"))
+            summary.update(
+                json.loads(
+                    con.execute(
+                        "SELECT summary_json FROM preview_jobs WHERE job_id=?", (job_id,)
+                    ).fetchone()[0]
+                    or "{}"
+                )
+            )
             summary["failure"] = failure_diagnostic(exc, phase)
             summary["reason"] = summary["failure"]["reason"]
         finally:

@@ -97,6 +97,7 @@ class ResearchService:
         self.on_connected = on_connected
         self.unique_candidates: set[str] = set()
         self.duplicate_bodies = 0
+        self.source_skips: list[dict[str, Any]] = []
         self.query_progress: list[dict[str, Any]] = []
 
     def run(
@@ -337,6 +338,18 @@ class ResearchService:
                     try:
                         material = read(candidate)
                     except ResearchStopped as error:
+                        if self.adaptive_queries and error.reason == "SOURCE_UNAVAILABLE" and error.code == "EMPTY_BODY":
+                            self.source_skips.append(
+                                dict(
+                                    reason="EMPTY_BODY",
+                                    detail_number=self.store.operations(run_id)["detail"],
+                                    next_action="NEXT_DISTINCT_CANDIDATE_WITHIN_BUDGET",
+                                )
+                            )
+                            extra_gaps["INSUFFICIENT_TEXT_FOR_EXTRACTION"] = self._material_gap(
+                                "INSUFFICIENT_TEXT_FOR_EXTRACTION"
+                            )
+                            continue
                         # Exactly one technical fallback, same source, same charged budget.
                         if (
                             was_text_first

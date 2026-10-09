@@ -29,6 +29,10 @@ class ConversationAction(StrictModel):
         "confirm_update",
         "exclude_reference",
         "restore_reference",
+        "select_point",
+        "clear_point",
+        "exclude_point",
+        "restore_point",
     ]
     expected_revision: int = Field(ge=0)
     expected_conversation_version: int = Field(ge=0)
@@ -82,7 +86,9 @@ def options(job: dict[str, Any] | None) -> list[dict[str, Any]]:
     ]
 
 
-def view(p: dict[str, Any], job: dict[str, Any] | None, *, has_material: bool = True) -> dict[str, Any]:
+def view(
+    p: dict[str, Any], job: dict[str, Any] | None, *, has_material: bool = True
+) -> dict[str, Any]:
     c = state(p)
     values = options(job)
     selected = c["selected"]
@@ -126,6 +132,14 @@ def question(p: dict[str, Any], *, has_material: bool = True) -> dict[str, Any]:
         text="可以先选择方向，再补充偏好；采用并保存仍需单独确认。",
         choices=["为什么推荐这些", "先比较现有方案"],
     )
+
+
+def freeze_context(db: Any, scope: str, sid: str, p: dict[str, Any]) -> None:
+    """Freeze current validated source choices only when creating a new plan."""
+    from .reference_overview import choices, references
+
+    p["reference_model_choices"] = choices(references(db, scope, sid, p), p)
+    p["conversation_model_context"] = model_context(p)
 
 
 def model_context(p: dict[str, Any]) -> dict[str, Any]:
@@ -383,6 +397,41 @@ def action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) ->
                 p,
                 "ASSISTANT",
                 "已按有效引用整理路线参考，条件和缺口保留；这是本地派生版本，没有请求模型，也没有修改历史失败或采用版。",
+                origin="LOCAL_REFERENCE_OVERVIEW",
+            )
+        elif body.action in {"select_point", "clear_point", "exclude_point", "restore_point"}:
+            from .reference_overview import project, POINT_VERSION
+
+            point = next(
+                (
+                    v
+                    for v in project(references(db, scope, sid, p), p)["points"]
+                    if v["option_id"] == body.option_id
+                ),
+                None,
+            )
+            if not point:
+                raise ValueError("REFERENCE_OVERVIEW_STALE")
+            snapshot = dict(
+                option_id=point["option_id"], bindings=point["bindings"], rule_version=POINT_VERSION
+            )
+            for bucket in ("selected_research_points", "excluded_research_points"):
+                p[bucket] = [v for v in p.get(bucket, []) if v["option_id"] != point["option_id"]]
+            if body.action == "select_point":
+                p["selected_research_points"].append(snapshot)
+            elif body.action == "exclude_point":
+                p["excluded_research_points"].append(snapshot)
+            message(
+                p,
+                "ASSISTANT",
+                {
+                    "select_point": "已选为本次兴趣：",
+                    "clear_point": "已撤回兴趣：",
+                    "exclude_point": "本轮不采用这条内容：",
+                    "restore_point": "已恢复内容备选：",
+                }[body.action]
+                + point["title"]
+                + "。不修改来源事实、原采用版或调用额度。",
                 origin="LOCAL_REFERENCE_OVERVIEW",
             )
         elif body.action in {

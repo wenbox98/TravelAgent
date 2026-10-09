@@ -92,39 +92,75 @@ class QueryPlanner:
 
 
 class CandidateSelector:
-    def __init__(self, provider: LLMProvider | None = None, *, allow_external: bool = False) -> None:
+    def __init__(
+        self, provider: LLMProvider | None = None, *, allow_external: bool = False
+    ) -> None:
         self.provider, self.allow_external = provider, allow_external
         self.last_mode = "DETERMINISTIC"
 
-    def select(self, candidates: tuple[Candidate, ...], request: ResearchRequest,
-               gaps: tuple[ResearchGap, ...], seen_sources: set[str], *,
-               query_context: str | None = None, grounded_terms: tuple[str, ...] = ()) -> tuple[CandidateChoice, ...]:
+    def select(
+        self,
+        candidates: tuple[Candidate, ...],
+        request: ResearchRequest,
+        gaps: tuple[ResearchGap, ...],
+        seen_sources: set[str],
+        *,
+        query_context: str | None = None,
+        grounded_terms: tuple[str, ...] = (),
+    ) -> tuple[CandidateChoice, ...]:
         self.last_mode = "DETERMINISTIC"
         selected: list[tuple[int, Candidate]] = []
         seen, titles = set(seen_sources), set()
         signals: dict[str, str] = {}
-        query_related = bool(request.destination and query_context and request.destination in query_context)
-        gap_terms = {"ROUTES": ("路线", "环线", "区域"), "EXPERIENCES": ("体验", "游玩"),
-                     "DURATION": ("天", "日"), "TRANSPORT": ("交通", "自驾", "班车"),
-                     "DAYS_FIT": (f"{request.days}天",),
-                     "NON_SELF_DRIVE": ("不自驾", "公共交通", "包车", "班车")}
+        query_related = bool(
+            request.destination and query_context and request.destination in query_context
+        )
+        gap_terms = {
+            "ROUTES": ("路线", "环线", "区域"),
+            "EXPERIENCES": ("体验", "游玩"),
+            "PLAY": ("玩法", "怎么玩", "体验", "游玩", "看点", "散步", "观鸟", "展陈"),
+            "ACTIVITY_SCOPE": ("玩法", "体验", "游玩", "公园", "展馆"),
+            "LODGING": ("住宿", "住哪", "片区", "落脚", "民宿"),
+            "SEASON": ("季节", "月份", "秋", "冬", "雨季"),
+            "DURATION": ("天", "日"),
+            "TRANSPORT": ("交通", "自驾", "班车"),
+            "DAYS_FIT": (f"{request.days}天",),
+            "NON_SELF_DRIVE": ("不自驾", "公共交通", "包车", "班车"),
+        }
         for candidate in candidates:
             title = candidate.title or ""
             normalized = re.sub(r"\W+", "", title).casefold()
-            if (candidate.source_id in seen or not candidate.detail_available
-                or candidate.note_type != "normal" or not normalized or normalized in titles):
+            if (
+                candidate.source_id in seen
+                or not candidate.detail_available
+                or candidate.note_type != "normal"
+                or not normalized
+                or normalized in titles
+            ):
                 continue
-            explicit = any(term and term in title for term in
-                           (request.destination, request.departure, *grounded_terms))
-            travel_signal = bool(re.search(r"路线|环线|行程|自驾|班车|徒步|[一二三四五六七八九十两\d]+[天日]", title))
+            explicit = any(
+                term and term in title
+                for term in (request.destination, request.departure, *grounded_terms)
+            )
+            travel_signal = bool(
+                re.search(
+                    r"路线|环线|行程|自驾|班车|徒步|玩法|怎么玩|体验|看点|散步|观鸟|参观|住宿|住哪|落脚|民宿|[一二三四五六七八九十两\d]+[天日]",
+                    title,
+                )
+            )
             weak = query_related and travel_signal
             if request.destination and not explicit and not weak:
                 continue
-            signals[candidate.source_id] = ("标题含请求地点或有依据的实体词；归属仍须核对正文" if explicit
-                else "仅查询上下文与行程标题构成弱相关信号，地点归属未证实")
+            signals[candidate.source_id] = (
+                "标题含请求地点或有依据的实体词；归属仍须核对正文"
+                if explicit
+                else "仅查询上下文与旅行内容标题构成弱相关信号，地点归属未证实"
+            )
             seen.add(candidate.source_id)
             titles.add(normalized)
-            score = sum(term in title for term in ("攻略", "路线", "环线", request.time_hint or "\0"))
+            score = sum(
+                term in title for term in ("攻略", "路线", "环线", request.time_hint or "\0")
+            )
             score += sum(term in title for gap in gaps for term in gap_terms.get(gap.gap_id, ()))
             score += 3 * int(explicit) + 2 * int("行程" in title)
             selected.append((-score, candidate))
@@ -132,36 +168,73 @@ class CandidateSelector:
         ordered = [candidate for _, candidate in selected]
         if ordered and self.provider is not None and self.allow_external:
             # Only observed titles/types and opaque local IDs cross the provider boundary.
-            payload: dict[str, Any] = {"candidates": [
-                {"id": str(i), "title": c.title, "note_type": c.note_type}
-                for i, c in enumerate(ordered[:20])
-            ], "gaps": [g.to_dict() for g in gaps]}
-            schema = {"type": "object", "additionalProperties": False, "required": ["ids"],
-                      "properties": {"ids": {"type": "array", "items": {"type": "string"},
-                                               "uniqueItems": True}}}
+            payload: dict[str, Any] = {
+                "candidates": [
+                    {"id": str(i), "title": c.title, "note_type": c.note_type}
+                    for i, c in enumerate(ordered[:20])
+                ],
+                "gaps": [g.to_dict() for g in gaps],
+            }
+            schema = {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["ids"],
+                "properties": {
+                    "ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": True}
+                },
+            }
             try:
                 result = self.provider.structured("candidate_ranking", payload, schema)
                 data = json.loads(result) if isinstance(result, str) else result
                 ids = data["ids"]
-                if set(data) != {"ids"} or sorted(ids) != sorted(str(i) for i in range(min(20, len(ordered)))):
+                if set(data) != {"ids"} or sorted(ids) != sorted(
+                    str(i) for i in range(min(20, len(ordered)))
+                ):
                     raise ValueError("ranking invalid")
                 ordered = [ordered[int(i)] for i in ids] + ordered[20:]
                 self.last_mode = "LLM_METADATA_ONLY"
             except Exception:
                 self.last_mode = "DETERMINISTIC_FALLBACK"
-        # Keep the strongest first choice, then prefer observed title diversity.
+        # Cover different missing topics, then prefer observed title diversity.
         diverse: list[Candidate] = []
         ranks = {candidate.source_id: index for index, candidate in enumerate(ordered)}
+        uncovered = {g.gap_id for g in gaps}
+
+        def hits(candidate: Candidate) -> set[str]:
+            return {
+                g.gap_id
+                for g in gaps
+                if any(t in (candidate.title or "") for t in gap_terms.get(g.gap_id, ()))
+            }
+
         while ordered:
-            chosen = min(ordered, key=lambda candidate: (
-                max((lexical_similarity(candidate.title or "", prior.title or "")
-                     for prior in diverse), default=0) * 10 + ranks[candidate.source_id] * 0.1,
-                candidate.source_id,
-            ))
+            chosen = min(
+                ordered,
+                key=lambda candidate: (
+                    -len(hits(candidate) & uncovered),
+                    max(
+                        (
+                            lexical_similarity(candidate.title or "", prior.title or "")
+                            for prior in diverse
+                        ),
+                        default=0,
+                    )
+                    * 10
+                    + ranks[candidate.source_id] * 0.1,
+                    candidate.source_id,
+                ),
+            )
             diverse.append(chosen)
+            uncovered -= hits(chosen)
             ordered.remove(chosen)
-        return tuple(CandidateChoice(candidate, signals[candidate.source_id] +
-                                     "；依据真实标题、图文类型、缺口及标题多样性排序；未读正文",
-                                     tuple(gap.gap_id for gap in gaps),
-                                     ("source_id", "title", "note_type", "detail_available") +
-                                     (("query_context",) if query_context else ())) for candidate in diverse)
+        return tuple(
+            CandidateChoice(
+                candidate,
+                signals[candidate.source_id]
+                + "；依据真实标题、图文类型、缺口及标题多样性排序；未读正文",
+                tuple(gap.gap_id for gap in gaps),
+                ("source_id", "title", "note_type", "detail_available")
+                + (("query_context",) if query_context else ()),
+            )
+            for candidate in diverse
+        )

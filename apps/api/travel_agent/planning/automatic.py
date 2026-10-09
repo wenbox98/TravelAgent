@@ -635,6 +635,7 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
         accepted_source_count=research_summary.get("report", {}).get("source_count", 0),
         duplicate_body_count=research_summary.get("duplicate_body_count", 0),
         query_progress=research_summary.get("query_progress", []),
+        source_skips=research_summary.get("source_skips", []),
         body_attempts=budget["used"]["detail"] if budget else 0,
         research_stop=research_summary.get("research_stop"),
         created_at=row["created_at"],
@@ -728,9 +729,31 @@ def run_task(
                     )
                 child = await_job(job["job_id"], True)
                 info = json.loads(child["summary_json"] or "{}")
-                if child["status"] not in {"COMPLETED", "PARTIAL", "NEEDS_REVIEW"} or info.get(
-                    "research_stop"
-                ) in {"VERIFICATION_REQUIRED", "NEED_LOGIN", "SOURCE_UNAVAILABLE", "ERROR"}:
+                stopped = child["status"] not in {
+                    "COMPLETED",
+                    "PARTIAL",
+                    "NEEDS_REVIEW",
+                } or info.get("research_stop") in {
+                    "VERIFICATION_REQUIRED",
+                    "NEED_LOGIN",
+                    "SOURCE_UNAVAILABLE",
+                    "ERROR",
+                }
+                if stopped and info.get("new_evidence_count", 0):
+                    with db.transaction():
+                        _, state = current()
+                        merge_research(db, scope, sid, state, child["research_id"])
+                        state["planning"]["automatic_coverage"] = coverage(
+                            db, scope, sid, state["planning"]
+                        )
+                        from .reference_overview import derive
+
+                        try:
+                            derive(db, scope, sid, state["planning"])
+                        except ValueError:
+                            pass
+                        checkpoint(state, "RESEARCH")
+                if stopped:
                     raise ValueError("RESEARCH_" + (info.get("reason") or child["status"]))
                 with db.transaction():
                     _, state = current()

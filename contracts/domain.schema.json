@@ -8825,7 +8825,11 @@
             "submit",
             "confirm_update",
             "exclude_reference",
-            "restore_reference"
+            "restore_reference",
+            "select_point",
+            "clear_point",
+            "exclude_point",
+            "restore_point"
           ],
           "title": "Action",
           "type": "string"
@@ -9042,6 +9046,194 @@
       ],
       "title": "ReferenceOverviewExport",
       "type": "object"
+    },
+    "ModelContextReviewTransportResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviews"
+      ],
+      "properties": {
+        "reviews": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "candidate_index",
+              "decision",
+              "reason_code",
+              "dimension_checks",
+              "context_span_ids",
+              "reference_scope",
+              "duration_scope",
+              "object_span_id",
+              "object_scope",
+              "dependency_resolution",
+              "explanation",
+              "candidate_topic"
+            ],
+            "properties": {
+              "candidate_index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 11
+              },
+              "decision": {
+                "enum": [
+                  "REFERENCE",
+                  "REJECT",
+                  "NEEDS_REVIEW"
+                ]
+              },
+              "reason_code": {
+                "enum": [
+                  "CONTEXT_CONDITION_OMITTED",
+                  "CONTEXT_NEGATION_OMITTED",
+                  "CONTEXT_REVIEW_REQUIRED",
+                  "CONTEXT_SUBJECT_OMITTED",
+                  "CONTEXT_SUPPORTED",
+                  "CONTEXT_TIME_UNCERTAIN",
+                  "CONTEXT_TRANSPORT_MISMATCH",
+                  "CONTEXT_UNCERTAIN",
+                  "DEPENDENCY_UNRESOLVED",
+                  "DURATION_SCOPE_MISMATCH",
+                  "INSUFFICIENT_CONTEXT",
+                  "INVALID_REFERENCE",
+                  "MODEL_CONTEXT_SUPPORTED",
+                  "NOT_TRAVEL_EVIDENCE",
+                  "ROLE_MISMATCH",
+                  "UNVERIFIED_IMPORTANT_FACT"
+                ]
+              },
+              "dimension_checks": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "hypothesis",
+                  "images",
+                  "negation",
+                  "scope",
+                  "source_kind",
+                  "subject",
+                  "time",
+                  "transport"
+                ],
+                "properties": {
+                  "hypothesis": {
+                    "type": "boolean"
+                  },
+                  "images": {
+                    "type": "boolean"
+                  },
+                  "negation": {
+                    "type": "boolean"
+                  },
+                  "scope": {
+                    "type": "boolean"
+                  },
+                  "source_kind": {
+                    "type": "boolean"
+                  },
+                  "subject": {
+                    "type": "boolean"
+                  },
+                  "time": {
+                    "type": "boolean"
+                  },
+                  "transport": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "context_span_ids": {
+                "type": "array",
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "maxLength": 100
+                }
+              },
+              "reference_scope": {
+                "enum": [
+                  "AUTHOR_RECORDED_TRIP",
+                  "AUTHOR_PROPOSED_PLAN",
+                  "GUIDE_SUGGESTION",
+                  "UNKNOWN"
+                ]
+              },
+              "duration_scope": {
+                "enum": [
+                  "NONE",
+                  "WHOLE_TRIP",
+                  "DAY_SEGMENT"
+                ]
+              },
+              "object_span_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 100
+              },
+              "object_scope": {
+                "enum": [
+                  "WHOLE_TRIP",
+                  "SEGMENT"
+                ]
+              },
+              "dependency_resolution": {
+                "enum": [
+                  "INDEPENDENT",
+                  "UNRESOLVED"
+                ]
+              },
+              "explanation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "description": "Write at most 200 characters. Longer explanations remain pending."
+              },
+              "candidate_topic": {
+                "enum": [
+                  "ROUTE",
+                  "EXPERIENCE",
+                  "DURATION",
+                  "TRANSPORT",
+                  "SEASON",
+                  "TRADEOFF",
+                  "PRICE",
+                  "OPENING",
+                  "RESERVATION",
+                  "OTHER"
+                ]
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "candidate_topic": {
+                      "not": {
+                        "const": "DURATION"
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "duration_scope": {
+                      "const": "NONE"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
     }
   }
 }

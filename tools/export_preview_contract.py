@@ -34,10 +34,11 @@ def main():
     path = ROOT / "contracts/domain.schema.json"
     domain = json.loads(path.read_text(encoding="utf-8"))
     domain["$defs"].update(definitions())
-    from travel_agent.research.context_review import REVIEW_SCHEMA, REVIEW_SCHEMA_V1
+    from travel_agent.research.context_review import REVIEW_SCHEMA, REVIEW_SCHEMA_V1, transport_schema
     from travel_agent.research.grounding import CONTEXT_REASONS, REASONS
     domain['$defs']['ModelContextReviewResponse'] = REVIEW_SCHEMA
     domain['$defs']['ModelContextReviewResponseV1'] = REVIEW_SCHEMA_V1
+    domain['$defs']['ModelContextReviewTransportResponse'] = transport_schema(2)
     domain['$defs']['GroundingCandidateCheck']['properties']['context_reason']['enum'] = sorted(CONTEXT_REASONS | REASONS)
     path.write_text(json.dumps(domain, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     path = ROOT / "contracts/openapi.yaml"

@@ -6,7 +6,7 @@ from .models import ResearchGap, ResearchRequest
 from .planning import QueryPlanner, SufficiencyEvaluator
 from .quality import normalize_claim, reference_conflicts
 
-VERSION = "advisory-research-coverage-1"
+VERSION = "advisory-research-coverage-2"
 REVIEWED = {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED", "LOCAL_REVALIDATION"}
 
 
@@ -101,6 +101,15 @@ def assess(
             rows,
         ),
     ]
+    if request.days and request.days > 1:
+        lodging = [
+            r
+            for r in rows
+            if r["claim_id"] not in conflicted
+            and re.search(r"住宿|住在|入住|酒店|民宿|落脚", r["text"])
+            and len(normalize_claim(r["text"])) >= 12
+        ]
+        specs.append(("LODGING", "住宿片区与落脚取舍参考", bool(lodging), lodging))
     dimensions: list[dict[str, Any]] = [
         dict(
             key=k,
@@ -162,6 +171,7 @@ class CoverageEvaluator(SufficiencyEvaluator):
             "DURATION": ("DURATION",),
             "TRANSPORT": ("TRANSPORT",),
             "SEASON": ("SEASON",),
+            "LODGING": ("TRADEOFF",),
             "SOURCE_COMPARISON": ("ROUTE", "EXPERIENCE"),
             "ACTIVITY_SCOPE": ("ROUTE", "EXPERIENCE"),
         }
@@ -187,6 +197,7 @@ class CoveragePlanner(QueryPlanner):
             if request.no_self_drive or request.transport == "PUBLIC_TRANSIT"
             else "交通 区域衔接 限制",
             "SEASON": "季节 月份 注意事项",
+            "LODGING": "住宿 片区 落脚 取舍",
             "SOURCE_COMPARISON": "不同路线 体验对比",
             "ACTIVITY_SCOPE": f"{request.days or ''}天 玩法 区域组合",
         }

@@ -26,8 +26,12 @@ const overview=computed(()=>props.plan.reference_overview)
 const showMore=ref(false)
 const referenceCards=computed(()=>overview.value?.current?.cards||[])
 const visibleReferenceCards=computed(()=>showMore.value?referenceCards.value:referenceCards.value.slice(0,3))
-const canUpdate=computed(()=>Boolean(conversation.value?.selected||conversation.value?.excluded.length||conversation.value?.excluded_activities.length||overview.value?.selected_current||overview.value?.excluded_current?.length))
-watch(()=>props.plan.session_id,()=>showMore.value=false)
+const points=computed(()=>overview.value?.projected?.points||[])
+const morePoints=ref(false)
+const visiblePoints=computed(()=>morePoints.value?points.value:points.value.slice(0,6))
+const returnedSearches=computed(()=>task.value?.query_progress.filter(q=>q.observed_candidates!==undefined).length||0)
+const canUpdate=computed(()=>Boolean(conversation.value?.selected||conversation.value?.excluded.length||conversation.value?.excluded_activities.length||overview.value?.selected_current||overview.value?.excluded_current?.length||overview.value?.selected_points?.length||overview.value?.excluded_points?.length))
+watch(()=>props.plan.session_id,()=>{showMore.value=false;morePoints.value=false})
 const stage=computed(()=>({CACHE:'正在检查可用本机资料',RESEARCH:'正在查小红书',LOGIN:'等待正常登录',LOGIN_CHECK:'正在检查小红书登录',LOGIN_REQUIRED:'请在官方窗口完成正常登录',LOGIN_AUTHENTICATED:'小红书登录已确认',SEARCH:'正在查小红书',READING:'正在阅读笔记正文',EXTRACT:'正在提取必要资料',REVIEW:'正在审核来源上下文',MATERIALS:'正在组织暂定材料',PLANNING:'正在整理旅行建议',RESULT:'新的旅行建议已就绪'}[task.value?.stage||'']||'任务状态已保存'))
 const names=(id:string)=>props.plan.draft.activities.find(a=>a.activity_id===id)?.name||props.plan.combination_candidates.find(a=>a.activity_id===id)?.name||'来源活动'
 const problem=computed(()=>{
@@ -41,6 +45,8 @@ const problem=computed(()=>{
  if(r.includes('SERVER_STOPPED'))return '服务已重启，本次任务没有自动重放；已保存的结果可继续查看。'
  if(r.includes('CONDITIONS_CHANGED')||r.includes('STALE'))return '条件已变化，旧任务停止，不能覆盖当前结果。'
  if(r.startsWith('PLANNING_'))return '资料已保存，但建议未通过生成或约束检查；原采用版保留。可查看依据并补充条件。'
+ if(r.includes('CONTEXT_REVIEW'))return '本次内容审核未完成，未审核的条目不能当作可用事实。已合格的参考仍保留在下方；旧失败不会自动重试。'
+ if(props.plan.references?.length)return `已保留${props.plan.references.length}条合格参考，本次因后续读取或审核问题停止，未继续生成攻略。可以先查看和选择已有内容；旧失败不会自动重试。`
  return '本次没有取得足够合格材料，未编造攻略。可查看失败阶段和已保存来源，再补充具体的区域或玩法。'
 })
 </script>
@@ -76,7 +82,16 @@ const problem=computed(()=>{
     <details><summary>资料缺口与独立性</summary><p v-for="g in overview.current.gaps" :key="g">{{g}}</p><p v-if="overview.current.unassigned_reference_count">{{overview.current.unassigned_reference_count}}条参考未证明对应路线，未套用到这些方向。</p></details><button class="quiet" :disabled="busy" @click="emit('exportReference')">导出本地路线参考</button>
    </template>
   </section>
-  <details v-if="task" class="research-message" :open="startupFailure"><summary>研究进展与资料依据 · 新正文 {{task.new_body_count}} 篇 · 复用 {{task.cache_source_count}} 个来源</summary><p v-if="startupFailure" class="warning">{{problem}}</p><p v-if="task">本次{{task.research_attempted?'已派发小红书搜索':startupFailure?'因系统启动故障尚未派发小红书搜索':'尚未派发小红书搜索'}}；搜索 {{task.search_count}} 次，观察候选 {{task.candidate_count}} 条，去重后 {{task.unique_candidate_count}} 个；成功取得新正文 {{task.new_body_count}} 篇，尝试读取 {{task.body_attempts}} 次；本轮采信来源 {{task.accepted_source_count}} 个，复用历史来源 {{task.cache_source_count}} 个。正文成功不代表所有结论已经接纳。</p>
+  <section v-if="points.length" aria-label="正文拆分点">
+   <h3>正文里有哪些玩法和取舍</h3><p>这些是已采信的来源参考，保留作者角色与条件；一个来源的多个点不代表多个独立作者。选中只记录本次兴趣，更新建议需另行点击。</p>
+   <p>共{{points.length}}条内容参考；引用详细条件可展开查看。</p><div class="options"><article v-for="point in visiblePoints" :key="point.option_id" class="option"><h4>{{point.topic_label}}</h4><p>{{point.title}}</p><small>{{overview?.selected_points?.includes(point.option_id)?'已选为本次兴趣':overview?.excluded_points?.includes(point.option_id)?'本轮不采用':'可选参考'}}</small>
+    <button :disabled="busy||active||answering" @click="emit('talk',overview?.selected_points?.includes(point.option_id)?'clear_point':'select_point',point.option_id)">{{overview?.selected_points?.includes(point.option_id)?'撤回兴趣':'想了解这个'}}</button><button class="quiet" :disabled="busy||active||answering" @click="emit('talk',overview?.excluded_points?.includes(point.option_id)?'restore_point':'exclude_point',point.option_id)">{{overview?.excluded_points?.includes(point.option_id)?'恢复这条参考':'本轮不采用'}}</button>
+    <details><summary>完整引用与作用范围</summary><blockquote v-for="entry in point.entries" :key="entry.citation_id"><p>{{entry.text}}</p><small>{{entry.role_label}} · {{entry.review}} · {{entry.source_title}}</small><p>条件：{{entry.conditions.join('；')||'未提供额外条件，当前适用性仍未知。'}}</p><p>{{entry.route_association?`已证明关联：${entry.route_association.object_quote}（${entry.route_association.scope}）`:'未证明与具体路线或地点的关联，不能当作每站特色。'}}</p><small>引用：{{entry.citation_id}}</small></blockquote></details>
+   </article></div><button v-if="points.length>6" class="quiet" @click="morePoints=!morePoints">{{morePoints?'收起更多内容':`更多正文参考（${points.length-6}）`}}</button>
+  </section>
+  <details v-if="task" class="research-message" :open="startupFailure"><summary>研究进展与资料依据 · 新正文 {{task.new_body_count}} 篇 · 复用 {{task.cache_source_count}} 个来源</summary><p v-if="startupFailure" class="warning">{{problem}}</p><p v-if="task">本次{{task.research_attempted?'已派发小红书搜索':startupFailure?'因系统启动故障尚未派发小红书搜索':'尚未派发小红书搜索'}}；本轮搜索已预留 {{task.search_count}} 次，成功返回列表 {{returnedSearches}} 次；列表条目 {{task.candidate_count}} 条（含跨轮重复，未读正文），去重后 {{task.unique_candidate_count}} 个笔记；成功取得新正文 {{task.new_body_count}} 篇，尝试读取 {{task.body_attempts}} 次；本轮采信来源 {{task.accepted_source_count}} 个，复用历史来源 {{task.cache_source_count}} 个。正文成功不代表所有结论已经接纳。</p>
+  <p v-if="plan.operation">本次旅行历史累计：搜索 {{plan.operation.cumulative_used.search||0}} 次（包含历史任务和失败，与本轮计数分开）。</p>
+  <p v-for="skip in task.source_skips||[]" :key="skip.detail_number">第{{skip.detail_number}}次详情未取得正文，已计入用量；不重试同一来源，仅在原上限内继续其他候选。</p>
   <p v-if="task">登录：{{startupFailure&&task.login_state==='NOT_CHECKED'?'启动失败，尚未进入登录检查':({NOT_CHECKED:'本次尚未检查；仅浏览缓存不需要登录',LOGIN_CHECK:'正在检查',LOGIN_REQUIRED:'等待官方正常登录',LOGIN_AUTHENTICATED:'本次研究已确认登录',EXPIRED_OR_REQUIRED:'会话失效或需要登录，已停止'} as Record<string,string>)[task.login_state]||task.login_state}}。不同来源内容重复 {{task.duplicate_body_count}} 篇，不重复提取，也不算新覆盖。</p>
   <div v-if="task?.coverage"><p>{{task.coverage.meaning}} 已有玩法 {{task.coverage.activity_count}} 个，独立作者仍未核实。</p><p v-if="task.coverage.gaps.length" class="warning">当前仍缺：{{task.coverage.gaps.map(g=>g.label).join('；')}}。局部建议不能视为完整攻略。</p><p v-if="!active&&task.coverage.gaps.length">点击将按缺口建立新的有限任务：必要时检查登录、查找和读取公开笔记，过滤后的必要文字交给已配置的 DeepSeek；每来源最多6000字。本次仍按下方默认上限，旧用量和失败保留，不自动重试。</p></div>
   </details>
@@ -90,7 +105,7 @@ const problem=computed(()=>{
   </div>
   <details v-if="task?.sources.length"><summary>查看本次资料依据</summary><article v-for="(s,i) in task.sources" :key="i"><h3><a v-if="s.url" :href="s.url" target="_blank" rel="noreferrer">{{s.title}}</a><span v-else>{{s.title}}</span></h3><p>{{s.origin==='CACHE'?'本次复用历史资料':'本次取得正文'}} · {{s.completeness||'完整度见原记录'}} · 取得时间 {{s.retrieved_at||'历史记录未提供'}}</p><p>原旅行时间与适用条件以引用为准，取得时间不是旅行发生时间。</p></article></details>
   <aside v-if="!active&&conversation?.pending_question" class="bubble assistant"><p>{{conversation.pending_question.text}}</p><template v-if="hasMaterial"><p>可选补充，不是开始研究的必填项；当前采用版不会覆盖。</p><button v-for="choice in conversation.pending_question.choices.filter(c=>c!=='继续补充研究'&&c!=='为什么推荐这些')" :key="choice" class="quiet" :disabled="busy||answering" @click="emit('talk','submit',undefined,choice)">{{choice}}</button><button class="quiet" :disabled="busy||answering" @click="emit('talk','message',undefined,'为什么推荐这些')">为什么推荐这些</button></template></aside>
-  <details v-if="task?.query_progress.length"><summary>每轮研究进展</summary><p v-for="q in task.query_progress" :key="q.search_number">第{{q.search_number}}次搜索：观察{{q.observed_candidates||0}}条候选，读取{{q.body_reads||0}}篇正文，新增{{q.new_facts||0}}条去重后的合格引用。无新增信息不会计作覆盖改善。</p></details>
+  <details v-if="task?.query_progress.length"><summary>每轮研究进展</summary><p v-for="q in task.query_progress" :key="q.search_number">第{{q.search_number}}次搜索：返回{{q.observed_candidates??'尚未确认'}}条列表条目，尝试读取详情{{q.body_reads||0}}次，新增{{q.new_facts||0}}条去重后的合格引用。无新增信息不会计作覆盖改善。</p></details>
   <details v-if="task"><summary>高级：本次执行上限与用量</summary><p>上限：搜索{{task.limits.search}}次、正文{{task.limits.detail}}篇、模型{{task.limits.model}}次，连接{{task.limits.connect}}次；不调用地图、报价或embedding。覆盖满足本次研究目标后可提前停止，不自动重试。</p><p>已预留（失败也计数）：搜索{{task.budget?.used.search||0}}、正文{{task.budget?.used.detail||0}}、模型{{task.budget?.used.model||0}}。费用无法实时核算，次数上限不是价格承诺；本任务一小时内有效，结束即关闭。</p></details>
  </section>
 </template>

@@ -12,8 +12,32 @@ _DAY = re.compile(
     r"^\s*(?:Day\s*\d+|D\s*\d+|第[一二三四五六七八九十\d]+天|路线|行程)\s*[：:]?\s*", re.I
 )
 _BAD_NAME = re.compile(
-    r"[。！？?！：:；;\n]|\d+(?:点|小时|分钟)|路线|行程|攻略|建议|可以|不去|不要|不推荐|上午|下午|晚上|车程|入住"
+    r"[。！？?！：:；;\n]|\d+(?:点|小时|分钟)|路线|环线|游线|行程|攻略|建议|可以|不去|不要|不推荐|上午|下午|晚上|车程|入住"
 )
+
+
+def natural_names(text: str) -> list[str]:
+    """Exact public noun phrases next to explicit actions; no outside entity lookup."""
+    names = []
+    for clause in re.split(r"[，。；！？\n]", text):
+        if re.search(r"不推荐|不要|不能|禁止|不去|没去|未去", clause):
+            continue
+        for match in re.finditer(
+            r"(?:我(?:们)?(?:想|计划)?在|我(?:们)?(?:想|计划)?去|推荐去|建议去|再去|然后去|前往|走进|参观|游览|到|在|去)([\u4e00-\u9fffA-Za-z·]{2,24}?)"
+            r"(?:散步|看花|观鸟|参观|游览|欣赏|观赏|拍照|体验|看展|游玩|停留)",
+            clause,
+        ):
+            name = place_name(match[1])
+            if (
+                name
+                and name in text
+                and re.search(
+                    r"(?:公园|园|馆|湖|山|谷|寺|古镇|湿地|步道|街区|广场|森林|村|海滩|景区|小镇)$",
+                    name,
+                )
+            ):
+                names.append(name)
+    return list(dict.fromkeys(names))
 
 
 def scope_gaps(city_area_requested: bool, rows: list[dict[str, Any]]) -> list[str]:
@@ -54,6 +78,15 @@ def references(db: Any, scope: str, sid: str) -> list[dict[str, Any]]:
     ids = sorted(
         set(p.get("research_ids", []) + ([row["research_id"]] if row["research_id"] else []))
     )
+    owned_ids = {
+        r[0]
+        for r in db.connection.execute(
+            "SELECT DISTINCT j.research_id FROM preview_jobs j JOIN research_questions q USING(research_id) "
+            "WHERE j.session_id=? AND j.account_scope=? AND j.status IN ('COMPLETED','PARTIAL','NEEDS_REVIEW','FAILED')",
+            (sid, scope),
+        )
+    }
+    ids = sorted(set(ids) | owned_ids)
     from travel_agent.preview.projection import project
 
     for rid in ids:
@@ -73,11 +106,18 @@ def references(db: Any, scope: str, sid: str) -> list[dict[str, Any]]:
                 continue
             if (
                 "reused_claim_ids" in p
-                and rid not in p.get("own_research_ids", [])
+                and rid not in set(p.get("own_research_ids", [])) | owned_ids
                 and e["claim_id"] not in [*p["reused_claim_ids"], *p.get("reused_context_ids", [])]
             ):
                 continue
-            if e["topic"] in {"ROUTE", "EXPERIENCE", "DURATION", "TRANSPORT", "RISK", "SEASON", "TRADEOFF"}:
+            if e["topic"] in {
+                "ROUTE",
+                "EXPERIENCE",
+                "DURATION",
+                "TRANSPORT",
+                "SEASON",
+                "TRADEOFF",
+            }:
                 from .local_materials import reference_binding
 
                 bound = p.get("reused_reference_bindings", {}).get(e["claim_id"])
@@ -130,7 +170,7 @@ def activities(
         parts = _SEQUENCE.split(text)
         if len(parts) == 1:
             marked = re.findall(r"(?:📍|地点[：:]|【)([^\n，。】]{2,30})", text)
-            parts = marked or ([text] if e["topic"] == "ROUTE" else [])
+            parts = marked or ([text] if e["topic"] == "ROUTE" else natural_names(text))
         for part in parts:
             name = place_name(part)
             if name:

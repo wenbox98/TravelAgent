@@ -96,6 +96,20 @@ def main():
             expect(page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)).to_be_visible(timeout=60000)
             expect(conditions).to_contain_text("自己驾驶")
             expect(page.get_by_text("请先明确本次交通方式", exact=False)).to_have_count(0)
+            points = page.get_by_role("region", name="正文拆分点", exact=True)
+            expect(points).to_be_visible()
+            with sqlite3.connect(database) as con:
+                before_choices = con.execute("SELECT count(*) FROM continuation_operations").fetchone()[0]
+            points.get_by_role("button", name="想了解这个", exact=True).first.click()
+            expect(points.get_by_role("button", name="撤回兴趣", exact=True)).to_have_count(1)
+            points.get_by_role("button", name="本轮不采用", exact=True).first.click()
+            expect(points.get_by_role("button", name="恢复这条参考", exact=True)).to_have_count(1)
+            points.get_by_role("button", name="恢复这条参考", exact=True).click()
+            points.get_by_role("button", name="想了解这个", exact=True).first.click()
+            page.reload()
+            expect(points.get_by_role("button", name="撤回兴趣", exact=True)).to_have_count(1)
+            with sqlite3.connect(database) as con:
+                assert con.execute("SELECT count(*) FROM continuation_operations").fetchone()[0] == before_choices
             calls = [json.loads(line) for line in (output / "dispatch.jsonl").read_text(encoding="utf8").splitlines()]
             kinds = [v["kind"] for v in calls]
             assert all(kind in kinds for kind in ("task-worker", "job-worker", "READER_CONSTRUCTOR", "CONNECT", "SEARCH", "DETAIL", "extract-worker", "review-worker", "worker")), kinds

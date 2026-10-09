@@ -24,6 +24,31 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         a.provenance == "SOURCE_MENTION" for a in draft.activities
     )
     refs = references(db, scope, sid)
+    # create_job freezes current choices after research. Later local choices must
+    # not rewrite the input of an already-completed, still-previewable proposal.
+    choice_context = p.get("conversation_model_context", {})
+    preferred = {
+        cid for point in choice_context.get("selected_points", []) for cid in point["citation_ids"]
+    }
+    excluded = {
+        cid
+        for point in [
+            *choice_context.get("excluded_points", []),
+            *choice_context.get("excluded_references", []),
+        ]
+        for cid in point["citation_ids"]
+    }
+    excluded_activities = set(choice_context.get("excluded_activity_ids", []))
+    for activity in draft.activities:
+        if set(activity.evidence_ids) & excluded:
+            if activity.locked or activity.locked_start:
+                raise ValueError("PLANNING_LOCKED_CONSTRAINT")
+            excluded_activities.add(activity.activity_id)
+    if draft.activities:
+        draft.activities = [a for a in draft.activities if a.activity_id not in excluded_activities]
+        if not draft.activities:
+            raise ValueError("CONVERSATION_ALL_ACTIVITIES_EXCLUDED")
+    refs = [e for e in refs if e["claim_id"] not in excluded]
     from .scoped_context import derive
 
     mentions = []
@@ -40,7 +65,11 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         needed = {identifier for a in draft.activities for identifier in a.evidence_ids}
         needed.update(c["citation_id"] for c in backgrounds)
         needed.update(b["citation_id"] for c in backgrounds for b in c["basis"])
+        needed.update(preferred)
         refs = [e for e in refs if e["claim_id"] in needed]
+    required = {cid for a in draft.activities for cid in a.evidence_ids}
+    # Keep mandatory activity evidence, then selected interests, then other context.
+    refs.sort(key=lambda e: (e["claim_id"] not in required, e["claim_id"] not in preferred))
     selected: list[dict[str, Any]] = list(mentions)
     lengths: dict[str, int] = {}
     for e in mentions:
@@ -92,6 +121,8 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
             }
         )
     allowed = {e["claim_id"]: e for e in selected}
+    if not preferred <= allowed.keys():
+        raise ValueError("SELECTED_POINT_REFERENCE_UNAVAILABLE")
     catalog = {a.activity_id: a for a in activities(refs, p["destination"])}
     for a in draft.activities:
         if a.provenance == "SOURCE_MENTION":
@@ -191,6 +222,10 @@ def assemble(
             for a in draft.activities
         ],
         "references": selected,
+        "content_points": [
+            dict(option_id=point["option_id"], citation_ids=point["citation_ids"])
+            for point in p.get("reference_model_choices", {}).get("selected_points", [])
+        ],
         "allowed_citation_ids": sorted(e["claim_id"] for e in selected),
         "known_map_values": [],
         "instructions": (
@@ -205,7 +240,10 @@ def assemble(
         excluded = set(result["conversation"].get("excluded_activity_ids", []))
         excluded_citations = {
             cid
-            for c in result["conversation"].get("excluded_references", [])
+            for c in [
+                *result["conversation"].get("excluded_references", []),
+                *result["conversation"].get("excluded_points", []),
+            ]
             for cid in c["citation_ids"]
         }
         for a in draft.activities:
@@ -224,7 +262,7 @@ def assemble(
         if draft.activities and not result["activities"]:
             raise ValueError("CONVERSATION_ALL_ACTIVITIES_EXCLUDED")
         result["instructions"] += (
-            " conversation是本次可修改的用户选择和最小对话摘要，不能作为来源事实。优先考虑selected方案及selected_reference路线对象；excluded/excluded_references是本轮排除方向，不照抄。路线对象只约束方向，不能变成每个地点特色；时长仅适用于原证明对象。只安排本次allowed activities，保护锁定项。无法落实时保留缺口，不假装修改成功。"
+            " conversation是本次可修改的用户选择和最小对话摘要，不能作为来源事实。优先考虑selected方案、selected_reference路线对象与selected_points正文兴趣；excluded/excluded_references/excluded_points本轮排除，不照抄。按各点自己的引用、角色和对象范围组合；不能把整体体验复制为各地点特色，时长仅适用于原证明对象。只安排本次allowed activities，保护锁定项。无法落实时保留缺口，不假装修改成功。"
         )
     return result
 

@@ -268,7 +268,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     )
     if data.get("conversation"):
         data["instructions"] += (
-            " conversation是本次用户可修改的选择、排除和对话摘要，不是来源事实；优先考虑暂定方向，活动排除优先于旧方向。只用当前activities，不能照抄已排除方案。未知条件保持未知，不能虚称已落实。"
+            " conversation是本次用户可修改的选择、排除和对话摘要，不是来源事实；优先考虑暂定方向和selected_points正文兴趣，其原文与条件见references。活动排除优先于旧方向，不使用excluded_points或excluded_references。只用当前activities，不能照抄已排除方案。按每点自己的角色与对象范围解释顺序、节奏和取舍，不把片区体验套给每站或把住宿线索变成商家事实。材料支持时给有实际取舍的备选，不能为凑数量编造。未知条件保持未知，不能虚称已落实。"
         )
     from .guide_assessment import materials
 

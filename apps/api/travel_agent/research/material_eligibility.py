@@ -56,6 +56,7 @@ def skip_reason(
         "SEASON": r"季节|春季|夏季|秋季|冬季|雨季|雪季|月份|气温|天气|[一二三四五六七八九十\d]+月",
         "TRANSPORT": r"公交|地铁|公共交通|铁路|高铁|火车|接驳|包车|班车|大巴|巴士",
         "DURATION": r"停留|用时|耗时|小时|分钟|[一二三四五六七八九十\d]+天",
+        "TRADEOFF": r"住宿|住在|入住|酒店|民宿|落脚|片区|取舍|不如|相比",
     }
     focused = any(
         topic in topics and any(len(p) >= 12 and re.search(pattern, p) for p in clauses)

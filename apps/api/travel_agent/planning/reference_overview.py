@@ -11,6 +11,7 @@ from travel_agent.research.quality import reference_conflicts
 from .local_materials import reference_binding
 
 VERSION = "local-route-overview-3"
+POINT_VERSION = "local-research-points-1"
 
 
 class ReferenceOverviewExport(StrictModel):
@@ -136,13 +137,64 @@ def project(rows: list[dict[str, Any]], p: dict[str, Any]) -> dict[str, Any]:
     gaps = [g["label"] for g in p.get("automatic_coverage", {}).get("gaps", [])]
     if not gaps:
         gaps = ["具体玩法、交通、季节和当前可行性仍须分别核实。"]
-    source_count = len({key[0] for key in grouped})
+    points = []
+    labels = {
+        "EXPERIENCE": "玩法与看点",
+        "DURATION": "时间参考",
+        "TRANSPORT": "交通条件",
+        "TRADEOFF": "取舍与住宿线索",
+        "SEASON": "时令条件",
+    }
+    for r in rows:
+        if (
+            r["claim_id"] in disputed
+            or r.get("topic") not in labels
+            or r.get("review_status") not in REVIEWED
+            or r.get("reference_kind") not in ROLES
+        ):
+            continue
+        points.append(
+            dict(
+                option_id="point-"
+                + fingerprint([r["source_id"], r["claim_id"], r["locator"]])[:32],
+                title=r["text"][:80],
+                topic_label=labels[r["topic"]],
+                source_count=1,
+                bindings={
+                    r["claim_id"]: fingerprint(
+                        [reference_binding(r), r.get("duration_scope", "UNKNOWN")]
+                    )
+                },
+                entries=[
+                    dict(
+                        citation_id=r["claim_id"],
+                        text=r["text"],
+                        conditions=r.get("conditions", []),
+                        topic=r["topic"],
+                        role=r["reference_kind"],
+                        role_label=ROLES[r["reference_kind"]],
+                        review=r["review_status"],
+                        source_title=r.get("source_title"),
+                        duration_scope=r.get("duration_scope", "UNKNOWN"),
+                        route_association=r.get("route_association"),
+                    )
+                ],
+            )
+        )
+    source_count = len(
+        {
+            r["source_id"]
+            for r in rows
+            if r["claim_id"] not in disputed and r.get("review_status") in REVIEWED
+        }
+    )
     if source_count < 2:
         gaps.append("这些备选只有一份或没有合格来源，不构成独立来源对照。")
     return dict(
         rule_version=VERSION,
         kind="LOCAL_REFERENCE_OVERVIEW",
         cards=cards,
+        points=points,
         source_count=source_count,
         direction_count=len(cards),
         confirmed_independent_authors=None,
@@ -177,12 +229,32 @@ def choices(rows: list[dict[str, Any]], p: dict[str, Any]) -> dict[str, Any]:
     selected = checked(p.get("selected_reference_overview"))
     if selected and selected["option_id"] in {v["option_id"] for v in excluded}:
         selected = None
-    return dict(selected_reference=selected, excluded_references=excluded)
+    points = {r["option_id"]: r for r in project(rows, p)["points"]}
+
+    def point_choices(name: str) -> list[dict[str, Any]]:
+        return [
+            dict(option_id=s["option_id"], citation_ids=list(points[s["option_id"]]["bindings"]))
+            for s in p.get(name, [])
+            if s.get("rule_version") == POINT_VERSION
+            and s["option_id"] in points
+            and s.get("bindings") == points[s["option_id"]]["bindings"]
+        ]
+
+    return dict(
+        selected_reference=selected,
+        excluded_references=excluded,
+        selected_points=point_choices("selected_research_points"),
+        excluded_points=point_choices("excluded_research_points"),
+    )
 
 
 def focused(rows: list[dict[str, Any]], p: dict[str, Any]) -> list[dict[str, Any]]:
     context = choices(rows, p)
-    excluded = {cid for c in context["excluded_references"] for cid in c["citation_ids"]}
+    excluded = {
+        cid
+        for c in [*context["excluded_references"], *context["excluded_points"]]
+        for cid in c["citation_ids"]
+    }
     selected = context["selected_reference"]
     bound = {cid for c in project(rows, p)["cards"] for cid in c["bindings"]}
     return [
@@ -197,7 +269,7 @@ def focused(rows: list[dict[str, Any]], p: dict[str, Any]) -> list[dict[str, Any
 
 def derive(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     data = project(references(db, scope, sid, p), p)
-    if not data["cards"]:
+    if not data["cards"] and not data["points"]:
         raise ValueError("REVIEWED_ROUTE_REFERENCE_REQUIRED")
     data["input_hash"] = fingerprint([p["destination"], p["draft"], data])
     history = p.setdefault("reference_overview_history", [])
@@ -225,12 +297,15 @@ def view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     chosen = p.get("selected_reference_overview")
     checked = choices(references(db, scope, sid, p), p)
     return dict(
-        available=bool(available["cards"]),
+        available=bool(available["cards"] or available["points"]),
+        projected=available,
         current=current,
         valid=valid,
         selected=chosen,
         selected_current=bool(checked["selected_reference"]),
         excluded_current=[v["option_id"] for v in checked["excluded_references"]],
+        selected_points=[v["option_id"] for v in checked["selected_points"]],
+        excluded_points=[v["option_id"] for v in checked["excluded_points"]],
         history_count=len(saved),
     )
 
@@ -245,7 +320,7 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         raise ValueError("REFERENCE_OVERVIEW_STALE")
     current = result["current"]
     lines = [
-        "# 本地路线参考",
+        "# 本地路线与正文参考",
         "",
         current["meaning"],
         "",
@@ -273,6 +348,22 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
                     else "未证明与其他条目的具体关联，不能因同源自动套用。"
                 )
             )
+    lines += ["", "## 正文拆分点（非独立来源或已规划活动）", ""]
+    for point in current.get("points", []):
+        for entry in point["entries"]:
+            lines += [
+                "- " + escaped(entry["text"]),
+                "  - 引用：" + escaped(entry["citation_id"]),
+                "  - 角色：" + entry["role_label"],
+                "  - 审核性质：" + entry["review"],
+                "  - 来源：" + escaped(entry.get("source_title") or "未提供标题"),
+                "  - 时长范围：" + (entry.get("duration_scope") or "UNKNOWN"),
+                "  - 条件：" + "；".join(escaped(c) for c in entry["conditions"]),
+                "  - 作用范围：" + (
+                    escaped(entry["route_association"]["object_quote"]) + "（" + entry["route_association"]["scope"] + "）"
+                    if entry.get("route_association") else "与具体路线或地点的关系未知，不能套为每站特色。"
+                ),
+            ]
     lines += ["", "## 仍缺的资料", ""] + ["- " + escaped(g) for g in current["gaps"]]
     return dict(
         filename="route-reference.md",

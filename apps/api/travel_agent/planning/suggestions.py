@@ -241,6 +241,10 @@ def model_available(db: Database, scope: str, p: dict[str, Any], sid: str = "") 
 def create_job(
     db: Database, scope: str, sid: str, revision: int, p: dict[str, Any], key: str
 ) -> str:
+    if not p.get("demo") and p.get("conversation"):
+        from .conversation import freeze_context
+
+        freeze_context(db, scope, sid, p)
     if not model_available(db, scope, p, sid):
         raise ValueError("PLANNING_UNAVAILABLE")
     payload = payload_for(p, db, scope, sid)
@@ -789,8 +793,11 @@ def launch(
                 if owner in _closing:
                     return
                 process = subprocess.Popen(
-                    command, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    command,
+                    cwd=PROJECT_ROOT,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
                 _workers[identity] = process

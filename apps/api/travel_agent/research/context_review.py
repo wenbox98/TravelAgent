@@ -76,12 +76,29 @@ REVIEW_SCHEMA: dict[str, Any] = {
     },
 }
 REVIEW_SCHEMA_V1 = deepcopy(REVIEW_SCHEMA)
-PROPERTIES["candidate_topic"] = {"enum": validator("EvidenceClaim").schema["$defs"]["EvidenceClaim"]["properties"]["topic"]["enum"]}
+PROPERTIES["candidate_topic"] = {
+    "enum": validator("EvidenceClaim").schema["$defs"]["EvidenceClaim"]["properties"]["topic"][
+        "enum"
+    ]
+}
 REVIEW_SCHEMA["properties"]["reviews"]["items"]["required"] = list(PROPERTIES)
-REVIEW_SCHEMA["properties"]["reviews"]["items"]["allOf"] = [{
-    "if": {"properties": {"candidate_topic": {"not": {"const": "DURATION"}}}},
-    "then": {"properties": {"duration_scope": {"const": "NONE"}}},
-}]
+REVIEW_SCHEMA["properties"]["reviews"]["items"]["allOf"] = [
+    {
+        "if": {"properties": {"candidate_topic": {"not": {"const": "DURATION"}}}},
+        "then": {"properties": {"duration_scope": {"const": "NONE"}}},
+    }
+]
+
+
+def transport_schema(version: int) -> dict[str, Any]:
+    """Bound the response, then keep the strict 200-character admission per item."""
+    schema = deepcopy(REVIEW_SCHEMA_V1 if version == 1 else REVIEW_SCHEMA)
+    schema["properties"]["reviews"]["items"]["properties"]["explanation"].update(
+        maxLength=4096,
+        description="Write at most 200 characters. Longer explanations remain pending.",
+    )
+    return schema
+
 
 # Guardrails target categories, never source IDs, locations or sample ordinals.
 PLAN = re.compile(r"计划|打算|准备|还没出发|尚未出发|还未出发|想.*(?:去|走|自驾)|求建议")
@@ -389,7 +406,11 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
     if isinstance(provider, OpenAICompatibleProvider):
         budget.check_provider(provider)
     data, ctx = build_input(
-        store, r["attempt_id"], r["account_scope"], json.loads(r["target_json"]), version=r["review_version"]
+        store,
+        r["attempt_id"],
+        r["account_scope"],
+        json.loads(r["target_json"]),
+        version=r["review_version"],
     )
     budget.check_permit("MODEL", "review:" + ctx["content"]["source_id"])
     if _digest(data) != r["input_hash"]:
@@ -405,8 +426,8 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
             raise ValueError("REVIEW_ALREADY_CLAIMED")
 
     def checkpoint(safe: dict[str, Any]) -> None:
-        if r['mode']=='RUNTIME' and safe.get('transport_phase')=='OPENING':
-            budget.check_job_active(ctx['attempt']['research_id'])
+        if r["mode"] == "RUNTIME" and safe.get("transport_phase") == "OPENING":
+            budget.check_job_active(ctx["attempt"]["research_id"])
         with store.db.transaction():
             con.execute(
                 "UPDATE context_review_runs SET diagnostic_json=? WHERE review_id=? AND status='RUNNING'",
@@ -416,10 +437,14 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
     if isinstance(provider, OpenAICompatibleProvider):
         provider.diagnostic_observer = checkpoint
     try:
-        if r['mode']=='RUNTIME':
-            budget.check_job_active(ctx['attempt']['research_id'])
+        if r["mode"] == "RUNTIME":
+            budget.check_job_active(ctx["attempt"]["research_id"])
         schema = REVIEW_SCHEMA_V1 if r["review_version"] == 1 else REVIEW_SCHEMA
-        output = validate_structured(provider.structured(f"review_evidence_context_v{r['review_version']}", data, schema), schema)
+        envelope = transport_schema(r["review_version"])
+        output = validate_structured(
+            provider.structured(f"review_evidence_context_v{r['review_version']}", data, envelope),
+            envelope,
+        )
         if isinstance(provider, OpenAICompatibleProvider) and provider.last_diagnostic is not None:
             # Transport checkpoints precede envelope/schema parsing and its final elapsed time.
             checkpoint(provider.last_diagnostic.safe_dict())
@@ -433,6 +458,19 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
             raise ValueError("DUPLICATE_REVIEW_CANDIDATE")
         for p in proposals:
             seen.add(p["candidate_index"])
+            try:
+                validate_structured({"reviews": [p]}, schema)
+            except LLMError as error:
+                # No trimming or approving an invalid proposal, and no loss of siblings.
+                results.append(
+                    dict(
+                        candidate_index=p["candidate_index"],
+                        proposal=None,
+                        program=dict(action="NEEDS_REVIEW", reason_code="INVALID_REFERENCE"),
+                        schema_errors=error.diagnostic.safe_dict().get("schema_errors", []),
+                    )
+                )
+                continue
             try:
                 d = check_decision(p, data, ctx)
             except (ValueError, LLMError) as error:
@@ -452,7 +490,11 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
             if r["mode"] == "RUNTIME":
                 budget.check_job_active(ctx["attempt"]["research_id"])
             fresh, _ = build_input(
-                store, r["attempt_id"], r["account_scope"], json.loads(r["target_json"]), version=r["review_version"]
+                store,
+                r["attempt_id"],
+                r["account_scope"],
+                json.loads(r["target_json"]),
+                version=r["review_version"],
             )
             if _digest(fresh) != r["input_hash"]:
                 raise ValueError("REVIEW_INPUT_CHANGED")
