@@ -321,10 +321,10 @@ def main():
             assert len(posts) == attempts
             day.fill("3")
             with sqlite3.connect(output / "synthetic.sqlite3") as con:
-                assert con.execute("SELECT count(*) FROM planning_tasks").fetchone()[0] == 1
+                assert con.execute("SELECT count(*) FROM planning_tasks").fetchone()[0] == 5
                 assert (
                     con.execute(
-                        "SELECT count(*) FROM preview_jobs WHERE research_id LIKE 'question-%'"
+                        "SELECT count(*) FROM preview_jobs WHERE json_extract(request_json,'$.task')='cached_travel_question_v1'"
                     ).fetchone()[0]
                     == 4
                 )

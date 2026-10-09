@@ -50,6 +50,40 @@ class Model(Provider):
         return result
 
 
+class GoalModel(Model):
+    """Finite authored UI fixture responses, never a production interpreter."""
+    def structured(self, task, data, schema):
+        if task == "travel_intake_v1":
+            self.followup = data["followup"]
+            text = data["user_text"]
+            hypothetical = text.startswith("如果")
+            question = text in {"为什么推荐这些？","这个方向为什么适合？","这条路线的依据是什么？","能比较一下已有方向吗？"}
+            fields = [] if hypothetical or question else [
+                ("destination", "合成青谷", "合成青谷"),
+                ("days", 7, "7天"), ("days", 5, "5天"),
+                ("driving", "NO", "不想自驾"), ("pace", "RELAXED", "轻松一点"),
+                ("driving", "YES", "想自驾"), ("transport", "SELF_DRIVE", "想自驾"),
+            ]
+            updates = [dict(field=k, value=v, quote=q, start=text.index(q), end=text.index(q)+len(q))
+                       for k,v,q in fields if q in text and not (q=="想自驾" and "不想自驾" in text)]
+            return dict(protocol="TRAVEL_INTAKE_V1", intent="HYPOTHETICAL" if hypothetical else "QUESTION" if question else "UPDATE",
+                        updates=updates, summary="合成离线理解：明确陈述和假设分别处理。", user_needs=[])
+        if task == "travel_supervisor_v1":
+            tool = "FINISH"
+            extra = dict(stop="PARTIAL")
+            if data["understanding"]["intent"] in {"QUESTION","HYPOTHETICAL"}:
+                tool, extra = "ANSWER", {}
+            elif not data["proposed"]:
+                steps=sum(r["tool"]=="RESEARCH_GAP" for r in data["previous_results"])
+                if not data["followup"] and steps<2 and data["available_tools"]["RESEARCH_GAP"]["allowed"]:
+                    gap=data["research_gaps"][0]["key"]
+                    tool, extra = "RESEARCH_GAP", dict(query=data["destination"]+" 玩法参考 "+str(steps),gap_key=gap)
+                elif data["available_tools"]["GENERATE"]["allowed"]:
+                    tool, extra = "GENERATE", {}
+            return dict(protocol="TRAVEL_SUPERVISOR_V1",tool=tool,reason="合成工具反馈驱动决策。",**extra)
+        return super().structured(task,data,schema)
+
+
 class Reader:
     text_first = False
 

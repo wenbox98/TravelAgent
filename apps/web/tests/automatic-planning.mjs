@@ -6,7 +6,11 @@ import {createSSRApp} from 'vue'
 import {renderToString} from 'vue/server-renderer'
 const {descriptor}=parse(readFileSync(new URL('../src/components/AutomaticPlanning.vue',import.meta.url),'utf8'))
 const setup=compileScript(descriptor,{id:'automatic',inlineTemplate:true,templateOptions:{ssr:true,cssVars:[]}})
-const script=ts.transpileModule(setup.content,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from ['"]([^'"]+)['"]/g,(_,name)=>`from "${name==='../intake'?new URL('../src/intake.ts',import.meta.url).href:import.meta.resolve(name)}"`)
+const child=parse(readFileSync(new URL('../src/components/AgentProgress.vue',import.meta.url),'utf8')).descriptor
+const childSetup=compileScript(child,{id:'agent',inlineTemplate:true,templateOptions:{ssr:true,cssVars:[]}})
+const childScript=ts.transpileModule(childSetup.content,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from ['"]([^'"]+)['"]/g,(_,name)=>`from "${import.meta.resolve(name)}"`)
+const childUrl='data:text/javascript;base64,'+Buffer.from(childScript).toString('base64')
+const script=ts.transpileModule(setup.content,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from ['"]([^'"]+)['"]/g,(_,name)=>`from "${name==='./AgentProgress.vue'?childUrl:name==='../intake'?new URL('../src/intake.ts',import.meta.url).href:import.meta.resolve(name)}"`)
 const component=(await import('data:text/javascript;base64,'+Buffer.from(script).toString('base64'))).default
 const task={status:'RUNNING',stage:'LOGIN_CHECK',login_state:'LOGIN_CHECK',research_attempted:false,changes:[],sources:[],limits:{search:3,detail:6,model:13,connect:1},search_count:0,candidate_count:0,unique_candidate_count:0,new_body_count:0,body_attempts:0,cache_source_count:0,accepted_source_count:0,duplicate_body_count:0,query_progress:[],generated:false,coverage:null}
 async function render(t,extra={}){return renderToString(createSSRApp(component,{plan:{destination:'合成北区',session_id:'fixture',draft:{days:7,activities:[]},combination_candidates:[],automatic_task:{...task,...t},job:{can_preview:true,proposals:[{title:'来源有限的玩法',reason:'合成参考',activities:[],unknowns:['交通未知']}]},...extra},busy:false}))}
@@ -46,3 +50,11 @@ console.log('PASS cited points: qualified partial material, editable interests, 
 assert(points.includes('引用：c2、card-c2'))
 assert.equal(points.split('在合成南园观鸟，限秋季作者计划。').length-1,1)
 console.log('PASS citation aliases: one excerpt keeps every proven citation')
+
+const queued=await render({protocol:'PRIVATE_GOAL_AGENT_V3',stage:'INTAKE',understanding:{status:'QUEUED',provisional:true},agent_rounds:[]})
+assert(queued.includes('正在等待模型理解')&&queued.includes('仅为暂定'))
+const understood=await render({protocol:'PRIVATE_GOAL_AGENT_V3',stage:'AGENT_DECISION',understanding:{status:'COMPLETED',result:{summary:'合成两段交通',intent:'UPDATE',updates:[{field:'arrival_transport',value:'AIR',quote:'坐飞机',start:0,end:3}],user_needs:[]}},agent_rounds:[{round:1,tool:'RESEARCH_GAP',reason:'玩法资料不足',status:'DISPATCHED'}]})
+assert(understood.includes('合成两段交通')&&understood.includes('坐飞机')&&understood.includes('按缺口查找并审核一篇正文')&&understood.includes('刷新不会重复派发'))
+const intakeFailed=await render({protocol:'PRIVATE_GOAL_AGENT_V3',stage:'INTAKE',understanding:{status:'FAILED',reason:'MODEL_UNAVAILABLE',model_executed:false},agent_rounds:[]})
+assert(intakeFailed.includes('模型理解未完成')&&intakeFailed.includes('尚无已执行模型的记录'))
+console.log('PASS goal agent: provisional intake, original evidence, per-round progress and honest failures')

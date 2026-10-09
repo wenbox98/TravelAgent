@@ -36,7 +36,7 @@ def main():
     parser.add_argument("--workspace", type=Path, required=True)
     args = parser.parse_args()
     database = args.workspace / "preview.sqlite3"
-    from automatic_fakes import Model, Reader, config
+    from automatic_fakes import Model, GoalModel, Reader, config
     from travel_agent.providers.llm import OpenAICompatibleProvider
     from travel_agent.persistence.database import Database
     from travel_agent.research.store import EvidenceStore
@@ -56,7 +56,7 @@ def main():
             raise AssertionError("SYNTHETIC_WORKER_LIVE_IMPORT_DENIED")
 
     sys.addaudithook(audit)
-    model = Model()
+    model = GoalModel() if args.kind in {'agent-worker','agent-model-worker'} else Model()
     OpenAICompatibleProvider.structured = lambda self, *a, **kw: model.structured(*a, **kw)
     calls_file = args.workspace / "dispatch.jsonl"
 
@@ -101,6 +101,12 @@ def main():
         if args.kind == "task-worker":
             # Real production launch/await path; no injected research/planning runner.
             run_task(database, args.job)
+        elif args.kind == 'agent-worker':
+            from travel_agent.planning.agent import run
+            run(database,args.job)
+        elif args.kind == 'agent-model-worker':
+            from travel_agent.planning.agent_model import run
+            run(database,args.job)
         elif args.kind == "job-worker":
             # Real constructor/startup path; no injected reader/provider/dispatch.
             worker.run_job(database, args.job, product=True)

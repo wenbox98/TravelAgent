@@ -140,6 +140,7 @@ def run_job(
     extract_dispatch: Any = None,
     review_dispatch: Any = None,
     product: bool = False,
+    reader_holder: dict[str, Any] | None = None,
 ) -> None:
     """Injection is for authored offline tests; production command accepts no provider/URL/path from UI."""
     with Database(database) as db:
@@ -161,7 +162,10 @@ def run_job(
         automatic = bool(budget.state()["gate"].get("automatic_task_id"))
         summary: dict[str, Any] = {}
         state = "FAILED"
-        owned = reader is None
+        if reader_holder is not None:
+            reader = reader_holder.get("reader")
+        owned = reader is None and reader_holder is None
+        already_connected = bool(reader_holder and reader_holder.get("connected"))
         phase = "PROVIDER_CONFIG"
 
         def progress(stage: str) -> None:
@@ -245,6 +249,8 @@ def run_job(
                 phase = "SOURCE_STARTUP"
                 progress(phase)
                 reader = LiveResearchReader(PROJECT_ROOT, login_prompt=login_prompt)
+                if reader_holder is not None:
+                    reader_holder["reader"] = reader
             phase = "COVERAGE_SETUP"
             before = {r[0] for r in con.execute("SELECT claim_id FROM claims")}
 
@@ -348,6 +354,8 @@ def run_job(
                 adaptive_queries=automatic,
                 deadline_seconds=2700 if automatic else None,
                 on_connected=lambda: progress("LOGIN_AUTHENTICATED"),
+                already_connected=already_connected,
+                detail_number_offset=budget.summary()["used"]["detail"] if data.get("agent_step") else 0,
             )
             service.planner = FocusedPlanner(data["focus"])
             coverage_evaluator = None
@@ -423,6 +431,14 @@ def run_job(
                 )
                 service.evaluator = coverage_evaluator
                 service.planner = CoveragePlanner(data["focus"], has_cache=bool(base_refs))
+            if data.get("agent_step"):
+                step = data["agent_step"]
+                class AgentQuery(QueryPlanner):
+                    def plan(self, request: Any, evidence: Any, gaps: Any, previous: Any) -> Any:
+                        if previous:
+                            return ()
+                        return (SearchQuery(step["query"], (step["gap_key"],), "模型按当前缺口选择的一次业务查询"),)
+                service.planner = AgentQuery()
             if product and data.get("planning_protocol") == 2:
                 from travel_agent.planning.spatial import ScopedSelector
 
@@ -434,9 +450,12 @@ def run_job(
                 revision=0,
                 account_scope=j["account_scope"],
                 budget=ResearchBudget(
-                    budget.state()["limits"]["SEARCH"], budget.state()["limits"]["DETAIL"]
+                    1 if data.get("agent_step") else budget.state()["limits"]["SEARCH"],
+                    1 if data.get("agent_step") else budget.state()["limits"]["DETAIL"],
                 ),
             )
+            if reader_holder is not None and budget.summary()["used"]["connect"]:
+                reader_holder["connected"] = True
             accepted = {c["claim_id"] for b in report.evidence for c in b["claims"]} - before
             counts = [o.get("counts", {}) for o in service.extraction_attempts]
             summary = {
@@ -454,6 +473,7 @@ def run_job(
                 "report": report.safe_summary(),
                 "budget": budget.summary(),
                 "unique_candidate_count": len(service.unique_candidates),
+                "candidate_source_ids": sorted(service.unique_candidates) if data.get("agent_step") else [],
                 "duplicate_body_count": service.duplicate_bodies,
                 "source_skips": service.source_skips,
                 "query_progress": [

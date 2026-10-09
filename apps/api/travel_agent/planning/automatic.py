@@ -177,7 +177,7 @@ def invalidate(db: Any, sid: str, reason: str = "CONDITIONS_CHANGED") -> None:
                 (db.stamp(), r["grant_id"]),
             )
     for row in db.connection.execute(
-        "SELECT job_id,continuation_id FROM preview_jobs WHERE session_id=? AND research_id LIKE 'question-%' AND status IN ('QUEUED','RUNNING')",
+        "SELECT job_id,continuation_id FROM preview_jobs WHERE session_id=? AND (research_id LIKE 'question-%' OR research_id LIKE 'agent-%') AND status IN ('QUEUED','RUNNING')",
         (sid,),
     ).fetchall():
         db.connection.execute(
@@ -314,6 +314,7 @@ class AutomaticService:
         self.plans = PlanningService(db, scope, daily_workbench=True)
 
     def start(self, body: AutomaticStart, key: str) -> dict[str, Any]:
+        from .agent_contract import CONSENT as AGENT_CONSENT
         payload = ["automatic-start", body.model_dump()]
         with self.db.transaction():
             old = self._receipt(key, payload)
@@ -324,16 +325,25 @@ class AutomaticService:
                 (self.scope,),
             ).fetchone():
                 raise ValueError("RUNNING")
+            destination = body.destination
+            if body.consent == AGENT_CONSENT and not destination:
+                from .intake import destination_from_idea
+                try:
+                    destination = destination_from_idea(body.request)
+                except ValueError:
+                    destination = "待理解目的区域"
             v = self.plans.create(
                 PlanCreate(
                     request=body.request,
-                    destination=body.destination,
+                    destination=destination,
                     travel_kind=body.travel_kind,
                     knowledge_first=True,
                 ),
                 key + "-trip",
             )
-            self._create(v["session_id"], payload, key, body.request)
+            self._create(v["session_id"], payload, key, body.request,
+                         agent=body.consent == AGENT_CONSENT, map_consent=bool(body.map_consent),
+                         destination_field=body.destination)
             return self.plans.get(v["session_id"])
 
     def _receipt(self, key: str, payload: Any) -> Any:
@@ -353,23 +363,35 @@ class AutomaticService:
         return dict(session_id=sid) if sid else None
 
     def _create(
-        self, sid: str, payload: Any, key: str, text: str, *, followup: bool = False
+        self, sid: str, payload: Any, key: str, text: str, *, followup: bool = False,
+        agent: bool = False,
+        map_consent: bool = False,
+        destination_field: str = "",
     ) -> None:
         _, state = self.plans.load(sid)
         p = state["planning"]
+        if agent and self.db.connection.execute(
+            "SELECT 1 FROM planning_tasks WHERE account_scope=? AND session_id!=? AND status IN ('QUEUED','RUNNING')",
+            (self.scope,sid),
+        ).fetchone():
+            raise ValueError("AUTOMATIC_ALREADY_RUNNING")
         invalidate(self.db, sid)
         p["automatic_material_source_limit"] = 6
-        _cached(self.db, self.scope, sid, state)
+        if not agent:
+            _cached(self.db, self.scope, sid, state)
         tid = "automatic-" + uuid4().hex
         p.pop("automatic_last_intent_key", None)
         p["automatic_task_id"] = tid
         p["automatic_generation"] = p.get("automatic_generation", 0) + 1
         from travel_agent.research.advisory_coverage import limits as research_limits
 
-        consent_version = "PRIVATE_CONVERSATION_LOOP_V1" if followup else CONSENT
+        from .agent_contract import CONSENT as AGENT_CONSENT
+        consent_version = AGENT_CONSENT if agent else "PRIVATE_CONVERSATION_LOOP_V1" if followup else CONSENT
         limits = research_limits(p["draft"].get("days"), p["travel_kind"] == "REGIONAL")
         if followup:
             limits.update(search=1, detail=2, model=5)
+        if agent and map_consent:
+            limits.update(map_place=2, map_route=1)
         p["automatic_coverage"] = coverage(self.db, self.scope, sid, p)
         if followup:
             p["conversation_iteration_decision"] = dict(
@@ -393,19 +415,32 @@ class AutomaticService:
             derive(self.db, self.scope, sid, p)
         p["conversation_model_context"] = model_context(p)
         # Only sufficient, currently validated material avoids fresh research.
-        if p["automatic_coverage"]["sufficient"]:
+        if p["automatic_coverage"]["sufficient"] and not agent:
             limits.update(connect=0, search=0, detail=0, model=1)
+        if agent:
+            p["agent_input"] = text
+            p["agent_destination_field"] = destination_field
+            p["agent_followup"] = followup
+            p["agent_rounds"] = []
+            p["agent_research_job_ids"] = []
+            p.pop("agent_browser_metrics", None)
+            p.pop("agent_stop_stage", None)
+            p.pop("proposed_conversation_conditions", None)
+            p.pop("agent_map_selection",None)
+            p["agent_understanding"] = dict(status="QUEUED", model_executed=False,
+                                           provisional=not followup)
         status = "QUEUED"
         grant = None
         try:
+            authorization=OperationAuthorization(confirm=True,tasks=["RESEARCH","PLANNING"],hours=1,**limits)
+            if agent and map_consent:
+                authorization.tasks.append("MAP")
             authorize(
                 self.db,
                 self.scope,
                 sid,
                 p,
-                OperationAuthorization(
-                    confirm=True, tasks=["RESEARCH", "PLANNING"], hours=1, **limits
-                ),
+                authorization,
             )
             grant = p["operation_grant"]
             self.db.connection.execute(
@@ -428,7 +463,7 @@ class AutomaticService:
                 fingerprint(payload),
                 json.dumps(dict(text=text, consent=consent_version, limits=limits)),
                 status,
-                "CACHE",
+                "INTAKE" if agent else "CACHE",
                 grant,
                 self.db.stamp(),
             ),
@@ -453,7 +488,8 @@ class AutomaticService:
                     key, ["automatic-receipt", payload], sid
                 )
                 return self.plans.get(sid)
-            if body.consent != CONSENT:
+            from .agent_contract import CONSENT as AGENT_CONSENT
+            if body.consent not in {CONSENT, AGENT_CONSENT}:
                 raise ValueError("OPERATION_NOT_AUTHORIZED")
             if self.db.connection.execute(
                 "SELECT 1 FROM planning_tasks WHERE account_scope=? AND session_id!=? AND status IN ('QUEUED','RUNNING','WAITING_CONFIGURATION')",
@@ -470,6 +506,9 @@ class AutomaticService:
             elif body.action == "revise":
                 if not body.text:
                     raise ValueError("INVALID_INPUT")
+                if body.consent == AGENT_CONSENT:
+                    self._create(sid, payload, key, body.text, followup=True, agent=True, map_consent=bool(body.map_consent))
+                    return self.plans.get(sid)
                 draft = revise(PlanDraft.model_validate(p["draft"]), body.text)
                 old = PlanDraft.model_validate(p["draft"])
                 labels = {
@@ -496,7 +535,12 @@ class AutomaticService:
             elif body.action == "research_more":
                 if p.get("automatic_coverage", {}).get("sufficient"):
                     raise ValueError("AUTOMATIC_CLARIFY_CHANGE")
-            self._create(sid, payload, key, body.text or p["request"], followup=followup)
+            agent_text = body.text or (p.get("agent_input",p["request"]) if body.action == "continue" else
+                "继续补充研究" if body.action == "research_more" else "按当前取舍更新建议")
+            agent_followup = p.get("agent_followup",False) if body.action == "continue" else True
+            self._create(sid, payload, key, agent_text if body.consent == AGENT_CONSENT else body.text or p["request"],
+                         followup=agent_followup if body.consent == AGENT_CONSENT else followup,
+                         agent=body.consent == AGENT_CONSENT, map_consent=bool(body.map_consent))
             return self.plans.get(sid)
 
 
@@ -574,11 +618,22 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
             else json.loads(research[1] or "{}").get("stage", stage)
         )
     sources = []
-    if research:
+    researches = [research] if research else []
+    if p.get("agent_research_job_ids"):
+        researches = [db.connection.execute(
+            "SELECT status,summary_json,research_id FROM preview_jobs WHERE job_id=? AND continuation_id=?",
+            (jid, row["grant_id"]),
+        ).fetchone() for jid in p["agent_research_job_ids"]]
+        researches = [r for r in researches if r]
+    seen_sources = set()
+    for step in researches:
         for s in db.connection.execute(
             "SELECT DISTINCT s.source_id,s.title,c.retrieved_at,c.content_completeness,c.published_at FROM research_runs r JOIN research_run_contents rc USING(run_id) JOIN source_contents c USING(content_id) JOIN sources s USING(source_id) WHERE r.research_id=? AND c.account_scope=?",
-            (research[2], scope),
+            (step[2], scope),
         ):
+            if s["source_id"] in seen_sources:
+                continue
+            seen_sources.add(s["source_id"])
             url = (
                 "https://www.xiaohongshu.com/explore/" + s["source_id"][4:]
                 if re.fullmatch(r"xhs:[a-fA-F0-9]{24}", s["source_id"])
@@ -596,6 +651,18 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
             )
     budget = DailyBudget(db, row["grant_id"]).summary() if row["grant_id"] else None
     research_summary = json.loads(research[1] or "{}") if research else {}
+    if p.get("agent_research_job_ids"):
+        summaries = [json.loads(r[1] or "{}") for r in researches]
+        research_summary = dict(research_summary)
+        research_summary["report"] = dict(
+            candidate_count=sum(s.get("report", {}).get("candidate_count", 0) for s in summaries),
+            source_count=sum(s.get("report", {}).get("source_count", 0) for s in summaries),
+        )
+        research_summary["unique_candidate_count"] = len({i for s in summaries for i in s.get("candidate_source_ids", [])})
+        research_summary["duplicate_body_count"] = sum(s.get("duplicate_body_count", 0) for s in summaries)
+        research_summary["source_skips"] = [q for s in summaries for q in s.get("source_skips", [])]
+        research_summary["query_progress"] = [dict(q, search_number=n) for n,q in enumerate(
+            (q for s in summaries for q in s.get("query_progress", [])), 1)]
     if not research:
         from .guide_assessment import references
 
@@ -627,7 +694,7 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
         budget=budget,
         generated=summary.get("generated", False),
         changes=p.get("automatic_changes", []),
-        coverage=research_summary.get("advisory_coverage") or p.get("automatic_coverage"),
+        coverage=p.get("automatic_coverage") if p.get("agent_understanding") else research_summary.get("advisory_coverage") or p.get("automatic_coverage"),
         login_state=research_summary.get("login_state", "NOT_CHECKED"),
         search_count=budget["used"]["search"] if budget else 0,
         candidate_count=research_summary.get("report", {}).get("candidate_count", 0),
@@ -640,6 +707,10 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
         research_stop=research_summary.get("research_stop"),
         created_at=row["created_at"],
         finished_at=row["finished_at"],
+        understanding=p.get("agent_understanding"),
+        agent_rounds=p.get("agent_rounds", []),
+        browser_metrics=p.get("agent_browser_metrics", {"measured": False}),
+        protocol=json.loads(row["request_json"]).get("consent"),
     )
 
 
@@ -647,6 +718,13 @@ def run_task(
     database: Path, tid: str, *, research_runner: Any = None, planning_runner: Any = None
 ) -> None:
     """Runner injection is test-only; HTTP cannot choose providers or substitute results."""
+    with Database(database) as probe:
+        row = probe.connection.execute("SELECT request_json FROM planning_tasks WHERE task_id=?", (tid,)).fetchone()
+        from .agent_contract import CONSENT as AGENT_CONSENT
+        if row and json.loads(row[0]).get("consent") == AGENT_CONSENT:
+            from .agent import run
+            run(database, tid)
+            return
     with Database(database) as db:
         with db.transaction():
             task = db.connection.execute(

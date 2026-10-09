@@ -43,7 +43,7 @@ def main():
         worker.configured_provider = missing_configuration
     if args.automatic_synthetic:
         # This switch exists ONLY in the deny-network test server, never product CLI.
-        from automatic_fakes import config, Model, Reader, research, planning
+        from automatic_fakes import config, Model, GoalModel, Reader, research, planning
         import travel_agent.preview.worker as worker
         import travel_agent.planning.suggestions as suggestions
         from travel_agent.planning.automatic import run_task
@@ -60,6 +60,16 @@ def main():
             if not options.get("automatic"):
                 raise AssertionError("UNEXPECTED_TEST_DISPATCH")
             def run():
+                from travel_agent.persistence.database import Database
+                with Database(database) as db:
+                    request=db.connection.execute("SELECT request_json FROM planning_tasks WHERE task_id=?",(jid,)).fetchone()
+                if json.loads(request[0])["consent"] == "PRIVATE_GOAL_AGENT_V3":
+                    from travel_agent.planning.agent import run as goal_run
+                    from test_workbench_pipeline import dispatches
+                    model=GoalModel()
+                    extract,review=dispatches(model)
+                    goal_run(database,jid,provider=model,reader=Reader(),extract_dispatch=extract,review_dispatch=review)
+                    return
                 model, reader = Model(), Reader()
                 run_task(database, jid, research_runner=research(model, reader), planning_runner=planning(model))
             threading.Thread(target=run,daemon=True).start()

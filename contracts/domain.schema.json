@@ -6729,6 +6729,27 @@
           "title": "Driving",
           "type": "string"
         },
+        "arrival_transport": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "AIR",
+            "RAIL",
+            "ROAD"
+          ],
+          "title": "Arrival Transport",
+          "type": "string"
+        },
+        "rental": {
+          "default": "UNKNOWN",
+          "enum": [
+            "UNKNOWN",
+            "YES",
+            "NO"
+          ],
+          "title": "Rental",
+          "type": "string"
+        },
         "transport": {
           "default": "UNKNOWN",
           "enum": [
@@ -8725,6 +8746,19 @@
     "AutomaticStart": {
       "additionalProperties": false,
       "properties": {
+        "map_consent": {
+          "anyOf": [
+            {
+              "const": "PRIVATE_KEY_LEG_V1",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Consent"
+        },
         "request": {
           "maxLength": 500,
           "minLength": 1,
@@ -8747,7 +8781,10 @@
           "type": "string"
         },
         "consent": {
-          "const": "PRIVATE_RESEARCH_AND_ADVICE_V2",
+          "enum": [
+            "PRIVATE_RESEARCH_AND_ADVICE_V2",
+            "PRIVATE_GOAL_AGENT_V3"
+          ],
           "title": "Consent",
           "type": "string"
         }
@@ -8762,6 +8799,19 @@
     "AutomaticAction": {
       "additionalProperties": false,
       "properties": {
+        "map_consent": {
+          "anyOf": [
+            {
+              "const": "PRIVATE_KEY_LEG_V1",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Consent"
+        },
         "action": {
           "enum": [
             "continue",
@@ -8787,7 +8837,10 @@
         "consent": {
           "anyOf": [
             {
-              "const": "PRIVATE_RESEARCH_AND_ADVICE_V2",
+              "enum": [
+                "PRIVATE_RESEARCH_AND_ADVICE_V2",
+                "PRIVATE_GOAL_AGENT_V3"
+              ],
               "type": "string"
             },
             {
@@ -8882,7 +8935,8 @@
               "enum": [
                 "PRIVATE_RESEARCH_AND_ADVICE_V2",
                 "PRIVATE_CACHED_QUESTION_V1",
-                "PRIVATE_CONVERSATION_LOOP_V1"
+                "PRIVATE_CONVERSATION_LOOP_V1",
+                "PRIVATE_GOAL_AGENT_V3"
               ],
               "type": "string"
             },
@@ -9234,6 +9288,289 @@
           }
         }
       }
+    },
+    "Update": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "enum": [
+            "destination",
+            "days",
+            "arrival_transport",
+            "transport",
+            "driving",
+            "rental",
+            "pace",
+            "walking_allowed",
+            "spatial",
+            "people",
+            "target_fen",
+            "activity_start",
+            "return_deadline",
+            "depart_at",
+            "return_by"
+          ],
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        },
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "value",
+        "start",
+        "end",
+        "quote"
+      ],
+      "title": "Update",
+      "type": "object"
+    },
+    "Understanding": {
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "const": "TRAVEL_INTAKE_V1",
+          "title": "Protocol",
+          "type": "string"
+        },
+        "intent": {
+          "enum": [
+            "UPDATE",
+            "QUESTION",
+            "HYPOTHETICAL",
+            "RESEARCH",
+            "REFINE"
+          ],
+          "title": "Intent",
+          "type": "string"
+        },
+        "updates": {
+          "items": {
+            "$ref": "#/$defs/Update"
+          },
+          "maxItems": 16,
+          "title": "Updates",
+          "type": "array"
+        },
+        "summary": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "user_needs": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "User Needs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "protocol",
+        "intent",
+        "updates",
+        "summary",
+        "user_needs"
+      ],
+      "title": "Understanding",
+      "type": "object"
+    },
+    "Decision": {
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "const": "TRAVEL_SUPERVISOR_V1",
+          "title": "Protocol",
+          "type": "string"
+        },
+        "tool": {
+          "enum": [
+            "CACHE",
+            "RESEARCH_GAP",
+            "DECOMPOSE",
+            "GENERATE",
+            "KEY_LEG",
+            "ANSWER",
+            "FINISH"
+          ],
+          "title": "Tool",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Query"
+        },
+        "gap_key": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gap Key"
+        },
+        "leg_id": {
+          "anyOf": [
+            {
+              "maxLength": 170,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Leg Id"
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "enum": [
+                "SUFFICIENT",
+                "PARTIAL",
+                "MISSING_INPUT",
+                "NEED_PERMISSION",
+                "NO_USEFUL_ACTION"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stop"
+        }
+      },
+      "required": [
+        "protocol",
+        "tool",
+        "reason"
+      ],
+      "title": "Decision",
+      "type": "object"
+    },
+    "AgentMapAction": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "pattern": "^automatic-[a-f0-9]{32}$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "leg_id": {
+          "maxLength": 170,
+          "minLength": 1,
+          "title": "Leg Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 0,
+          "title": "Expected Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "task_id",
+        "leg_id",
+        "expected_revision"
+      ],
+      "title": "AgentMapAction",
+      "type": "object"
+    },
+    "AgentMapResult": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "PUBLIC_PLACE_NOT_RESOLVED",
+            "PUBLIC_PLACE_CONFIRMATION_REQUIRED",
+            "MAP_REFERENCE_READY",
+            "MAP_REFERENCE_UNAVAILABLE"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "executed": {
+          "title": "Executed",
+          "type": "boolean"
+        },
+        "needs_confirmation": {
+          "title": "Needs Confirmation",
+          "type": "boolean"
+        },
+        "feasibility": {
+          "const": "UNVERIFIED",
+          "default": "UNVERIFIED",
+          "title": "Feasibility",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "executed",
+        "needs_confirmation"
+      ],
+      "title": "AgentMapResult",
+      "type": "object"
     }
   }
 }

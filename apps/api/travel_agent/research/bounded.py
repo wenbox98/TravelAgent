@@ -167,8 +167,9 @@ class BoundedBudget:
             trip = self.store.db.connection.execute("SELECT revision,state_json FROM preview_sessions WHERE session_id=? AND account_scope=?", (job["session_id"],job["account_scope"])).fetchone()
             planning = research_id.startswith("planning-")
             question = research_id.startswith("question-")
+            agent = research_id.startswith("agent-")
             p = json.loads(trip[1])["planning"] if trip else {}
-            if not trip or trip[0] != job["request_revision"] + (0 if planning or question else 1) or p.get("answer_job_id" if question else "job_id" if planning else "research_job_id") != job["job_id"]:
+            if not trip or trip[0] != job["request_revision"] + (0 if planning or question or agent else 1) or p.get("agent_model_job_id" if agent else "answer_job_id" if question else "job_id" if planning else "research_job_id") != job["job_id"]:
                 raise ValueError("JOB_NO_LONGER_ACTIVE")
 
     def summary(self) -> dict[str, Any]:

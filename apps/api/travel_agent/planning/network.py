@@ -18,7 +18,7 @@ def install(role: str, metrics_file: Path, *, model_only: bool = False) -> None:
     model_role = (
         role == "worker"
         if model_only
-        else role in {"worker", "extract-worker", "review-worker", "answer-worker"}
+        else role in {"worker", "extract-worker", "review-worker", "answer-worker", "agent-model-worker"}
     )
     amap_paths = {
         "/v5/place/text",
@@ -39,7 +39,7 @@ def install(role: str, metrics_file: Path, *, model_only: bool = False) -> None:
         with lock:
             if (
                 event == "import"
-                and (model_only or role not in {"job-worker", "research-preflight"})
+                and (model_only or role not in {"job-worker", "agent-worker", "research-preflight"})
                 and (
                     str(values[0]).startswith("xhs_sidecar")
                     or values[0] == "travel_agent.research.live"

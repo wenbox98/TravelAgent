@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AgentProgress from './AgentProgress.vue'
 import {computed,nextTick,ref,watch} from 'vue'
 import type {PlanView} from '../planning-api'
 import {readMessage,storeMessage,submitShortcut} from '../intake'
@@ -15,7 +16,8 @@ const startupFailure=computed(()=>!task.value?.research_attempted&&!task.value?.
 const hasMaterial=computed(()=>Boolean(props.plan.draft.activities.length||props.plan.job?.proposals.length||props.plan.references?.length||overview.value?.available))
 const ready=computed(()=>['COMPLETED','PARTIAL'].includes(task.value?.status||'')&&task.value?.generated)
 const active=computed(()=>['QUEUED','RUNNING'].includes(task.value?.status||''))
-const answering=computed(()=>['QUEUED','RUNNING'].includes(props.plan.answer_job?.status||''))
+const answering=computed(()=>['QUEUED','RUNNING'].includes(props.plan.answer_job?.status||'')||active.value&&task.value?.stage==='ANSWER')
+const answered=computed(()=>props.plan.answer_job?.status==='COMPLETED'||task.value?.protocol==='PRIVATE_GOAL_AGENT_V3'&&task.value.agent_rounds?.some(r=>r.tool==='ANSWER'&&r.result?.status==='ANSWERED'))
 const blocked=computed(()=>props.submitting?'正在提交消息，请稍候；不会重复发送。':props.busy?'正在处理上一项操作，完成后再发送。':props.blockedReason|| (props.unconfirmed?'上次提交结果尚未确认，请先读取已保存状态。':active.value?'当前任务仍在进行，请先等待完成或停止任务。':answering.value?'上一条消息仍在回答，请先等待完成。':!text.value.trim()?'请先写下想问或想修改的内容。':''))
 const sendLabel=computed(()=>props.submitting?'正在提交…':props.busy?'正在处理…':props.unconfirmed?'结果待确认':active.value?'任务进行中':answering.value?'正在回答…':'发送')
 const notice=computed(()=>attempted.value||(props.submitting?props.feedback||blocked.value:props.busy||props.blockedReason||props.unconfirmed||active.value||answering.value?blocked.value:props.feedback||blocked.value)||'发送后会先显示是否接收，再显示任务进度；尚未发送的文字仅留在当前浏览器。')
@@ -52,6 +54,7 @@ const problem=computed(()=>{
 </script>
 <template>
  <section class="card automatic-planning" aria-label="自动查资料与建议">
+  <AgentProgress v-if="task" :task="task" />
   <h2>{{ready?(task?.status==='PARTIAL'?'资料有限，先看局部建议':'先看看这几种玩法'):overview?.valid?'先看已有路线参考':active?stage:task?.status==='WAITING_CONFIGURATION'?'先完成一次模型配置':'查资料并给你初步建议'}}</h2>
   <p class="muted">本次对话记录 · 历史消息保留；当前生效条件见上方，尚未发送的消息不生效。</p><div class="conversation-log" ref="log" aria-label="旅行对话" role="log"><article v-for="m in conversation?.messages||[]" :key="m.message_id" :class="['bubble',m.role==='USER'?'user':'assistant']"><small>{{m.role==='USER'?'你':m.origin==='AI_CACHED_ADVICE'?'AI缓存问答 · 建议与解释，非事实核实':m.origin==='LOCAL_REFERENCE_OVERVIEW'?'路线资料整理 · 本地':m.origin==='LOCAL_REFERENCE_EXPLANATION'?'依据现有资料回答 · 本地':'旅行助手'}}</small><p>{{m.text}}</p><p v-for="g in m.gaps||[]" :key="g">仍需确认：{{g}}</p><details v-if="m.citations?.length"><summary>回答依据</summary><blockquote v-for="r in m.citations" :key="r.citation_id">{{r.text}}<small>{{r.source_title}} · {{r.role}} · {{r.review}}</small><p>{{r.conditions.join('；')}}</p></blockquote></details><small v-if="m.options?.length">历史方案版本保留；当前可选方案见下方，不自动重新采用。</small></article></div>
   <p>已识别：{{plan.destination}} · {{plan.draft.days?`${plan.draft.days} 天`:'天数未定'}}。人数、预算和日期可以以后再补。</p>
@@ -63,9 +66,9 @@ const problem=computed(()=>{
    <p id="message-feedback" role="status" aria-live="polite">{{notice}}</p>
    <p>发送会结合本次选择和必要公开资料交给现有DeepSeek处理；更新优先用缓存，需要补资料才有限查小红书。仅提问或假设不改条件、不查新资料，当前采用版保留。</p>
    <button :disabled="Boolean(blocked)">{{sendLabel}}</button><button type="button" class="quiet" :disabled="busy||active||answering||Boolean(blockedReason)||unconfirmed||!canUpdate" @click="emit('talk','submit',undefined,'按当前取舍更新建议')">按当前取舍更新建议</button>
-   <p v-if="answering" role="status">消息已接收，正在结合现有资料回答，刷新不会重复请求。</p><p v-else-if="plan.answer_job?.status==='COMPLETED'" role="status">本次缓存回答已完成；建议与事实核实仍有区别。</p><p v-if="plan.answer_job?.status==='FAILED'" class="warning">本次回答未完成：{{plan.answer_job.reason}}。失败已保留，不会自动重试。</p>
+   <p v-if="answering" role="status">消息已接收，正在结合现有资料回答，刷新不会重复请求。</p><p v-else-if="answered" role="status">本次缓存回答已完成；建议与事实核实仍有区别。</p><p v-if="plan.answer_job?.status==='FAILED'" class="warning">本次回答未完成：{{plan.answer_job.reason}}。失败已保留，不会自动重试。</p>
    <aside v-if="conversation.proposed_conditions&&Object.keys(conversation.proposed_conditions).length"><p>AI需要你确认的解释：{{conversation.proposed_conditions.days?`可用${conversation.proposed_conditions.days}天；`:''}}{{conversation.proposed_conditions.driving==='NO'?'不自驾；':conversation.proposed_conditions.driving==='YES'?'愿意自驾；':''}}{{conversation.proposed_conditions.pace==='RELAXED'?'轻松节奏；':''}}{{conversation.proposed_conditions.transport?`交通：${({UNKNOWN:'暂未决定',PUBLIC_TRANSIT:'公共交通',SELF_DRIVE:'自驾',LOCAL_SERVICE:'当地服务',WALKING:'步行'} as Record<string,string>)[conversation.proposed_conditions.transport]}；`:''}}</p><button type="button" :disabled="busy||active||answering" @click="emit('talk','confirm_update')">确认并更新建议</button><p>这次点击会按上方用途启动一次有界更新；旧采用版保留。</p></aside>
-   <details><summary>本次必要处理与调用范围</summary><p>接收方：api.deepseek.com；只发送本次条件、选择与过滤后的必要公开引用，每来源每次最多6000字，不发凭据、私址或地图返回。缓存问答或路线讨论最多模型1次，不查新资料；具体建议更新或明确补资料最多连接1、搜索1、正文2篇、模型5次，缓存足够时只需模型1次。地图、报价、embedding为0，不自动重试，不使用旧余额。</p></details>
+   <details><summary>本次必要处理与调用范围</summary><p>接收方：api.deepseek.com；只发送本次条件、选择与过滤后的必要公开引用，每来源每次最多6000字，不发凭据、私址或地图返回。普通发送先用模型理解本条原话，再在同一许可内按结果选择下一步；更新最多连接1、搜索1、正文2篇、模型5次，包含理解、决策、审核和建议生成，预算不足真实停止。问题或假设只用缓存回答，不查新资料。地图、报价、embedding为0，不自动重试，不使用旧余额。</p></details>
   </form>
   <template v-if="!task"><p>这次会先复用适用的本机资料；不足时查询小红书并阅读少量公开笔记，将过滤后的必要文字交给已配置的 DeepSeek 整理。</p><p>点击即启动本次有限任务；每来源最多6000字，不发送凭据、私址或地图返回。新建议不会覆盖采用版。</p><button :disabled="busy" @click="emit('run','continue')">查资料并生成旅行建议</button></template>
   <template v-else-if="task.status==='WAITING_CONFIGURATION'"><p>在本机用户环境变量配置 LLM_BASE_URL、LLM_MODEL 和 LLM_API_KEY，再正常重启工作台。密钥只在服务端读取，不填入本页面或聊天；无需额外测连接。</p><p>配置完成后仅需继续这一次任务，未产生任何外部调用。</p><button :disabled="busy" @click="emit('run','continue')">配置完成，继续本次任务</button></template>
@@ -106,7 +109,7 @@ const problem=computed(()=>{
   <details v-if="task?.sources.length"><summary>查看本次资料依据</summary><article v-for="(s,i) in task.sources" :key="i"><h3><a v-if="s.url" :href="s.url" target="_blank" rel="noreferrer">{{s.title}}</a><span v-else>{{s.title}}</span></h3><p>{{s.origin==='CACHE'?'本次复用历史资料':'本次取得正文'}} · {{s.completeness||'完整度见原记录'}} · 取得时间 {{s.retrieved_at||'历史记录未提供'}}</p><p>原旅行时间与适用条件以引用为准，取得时间不是旅行发生时间。</p></article></details>
   <aside v-if="!active&&conversation?.pending_question" class="bubble assistant"><p>{{conversation.pending_question.text}}</p><template v-if="hasMaterial"><p>可选补充，不是开始研究的必填项；当前采用版不会覆盖。</p><button v-for="choice in conversation.pending_question.choices.filter(c=>c!=='继续补充研究'&&c!=='为什么推荐这些')" :key="choice" class="quiet" :disabled="busy||answering" @click="emit('talk','submit',undefined,choice)">{{choice}}</button><button class="quiet" :disabled="busy||answering" @click="emit('talk','message',undefined,'为什么推荐这些')">为什么推荐这些</button></template></aside>
   <details v-if="task?.query_progress.length"><summary>每轮研究进展</summary><p v-for="q in task.query_progress" :key="q.search_number">第{{q.search_number}}次搜索：返回{{q.observed_candidates??'尚未确认'}}条列表条目，尝试读取详情{{q.body_reads||0}}次，新增{{q.new_facts||0}}条去重后的合格引用。无新增信息不会计作覆盖改善。</p></details>
-  <details v-if="task"><summary>高级：本次执行上限与用量</summary><p>上限：搜索{{task.limits.search}}次、正文{{task.limits.detail}}篇、模型{{task.limits.model}}次，连接{{task.limits.connect}}次；不调用地图、报价或embedding。覆盖满足本次研究目标后可提前停止，不自动重试。</p><p>已预留（失败也计数）：搜索{{task.budget?.used.search||0}}、正文{{task.budget?.used.detail||0}}、模型{{task.budget?.used.model||0}}。费用无法实时核算，次数上限不是价格承诺；本任务一小时内有效，结束即关闭。</p></details>
+  <details v-if="task"><summary>高级：本次执行上限与用量</summary><p>上限：搜索{{task.limits.search}}次、正文{{task.limits.detail}}篇、模型{{task.limits.model}}次，连接{{task.limits.connect}}次；{{task.limits.map_place?`本次允许高德地点${task.limits.map_place}次、路径${task.limits.map_route}次`:'本次不调用地图'}}；不调用报价或embedding。覆盖满足本次研究目标后可提前停止，不自动重试。</p><p>已预留（失败也计数）：搜索{{task.budget?.used.search||0}}、正文{{task.budget?.used.detail||0}}、模型{{task.budget?.used.model||0}}、地图地点{{task.budget?.used.map_place||0}}、路径{{task.budget?.used.map_route||0}}。费用无法实时核算，次数上限不是价格承诺；本任务一小时内有效，结束即关闭。</p></details>
  </section>
 </template>
 <style scoped>.conversation-log{max-height:50vh;overflow:auto;display:flex;flex-direction:column;gap:.8rem}.bubble{padding:1rem;border-radius:16px;max-width:92%;background:#edf1ea}.bubble.user{align-self:flex-end;background:#e1ebf5}.composer{background:#fff;padding:.7rem;border-top:1px solid #d7dfd5}.composer p{font-size:.85rem}.compact{font-size:.75rem;padding:.2rem .4rem}.choices{border-top:1px solid #dde3db;margin-top:.6rem}.options{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:1rem}.option{border:1px solid #cbd4ca;border-radius:12px;padding:1rem}button{margin:.4rem .4rem .4rem 0}form{margin-top:1rem}small{display:block}li{margin:.5rem 0}details{margin-top:1rem}</style>

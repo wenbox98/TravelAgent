@@ -89,6 +89,8 @@ def main() -> None:
             "worker",
             "job-worker",
             "task-worker",
+            "agent-worker",
+            "agent-model-worker",
             "extract-worker",
             "review-worker",
             "answer-worker",
@@ -110,6 +112,8 @@ def main() -> None:
     )
     parser.add_argument("--initialize-empty", action="store_true")
     args = parser.parse_args()
+    if args.action == "serve":
+        os.environ["TRAVEL_PREVIEW_PORT"] = str(args.port)
     workspace = args.workspace.resolve()
     database = workspace / "preview.sqlite3"
     scope = args.account_scope.strip()
@@ -197,6 +201,15 @@ def main() -> None:
         from travel_agent.planning.automatic import run_task
 
         run_task(database, args.job)
+        return
+    if args.action == "agent-worker":
+        from travel_agent.planning.agent import run as run_agent
+        sys.path.insert(0, str(PROJECT_ROOT / "integrations/xhs-sidecar"))
+        run_agent(database, args.job)
+        return
+    if args.action == "agent-model-worker":
+        from travel_agent.planning.agent_model import run as run_agent_model
+        run_agent_model(database, args.job)
         return
     if args.action == "answer-worker":
         from travel_agent.planning.questions import run

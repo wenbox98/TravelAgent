@@ -76,6 +76,8 @@ class PlanDraft(StrictModel):
     direction: str | None = Field(default=None, max_length=100)
     days: int | None = Field(default=None, ge=1, le=90)
     driving: Literal["UNKNOWN", "YES", "NO"] = "UNKNOWN"
+    arrival_transport: Literal["UNKNOWN", "AIR", "RAIL", "ROAD"] = "UNKNOWN"
+    rental: Literal["UNKNOWN", "YES", "NO"] = "UNKNOWN"
     transport: Literal["UNKNOWN", "PUBLIC_TRANSIT", "SELF_DRIVE", "LOCAL_SERVICE", "WALKING"] = (
         "UNKNOWN"
     )

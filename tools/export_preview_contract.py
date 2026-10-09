@@ -14,6 +14,8 @@ from travel_agent.planning.flow_models import PlanAction, PlanCreate, PlanView, 
 from travel_agent.knowledge.api import LibraryAction, LibraryResponse  # noqa: E402
 from travel_agent.planning.guide_models import GuideResponse, GuideExport  # noqa: E402
 from travel_agent.planning.automatic_models import AutomaticStart, AutomaticAction  # noqa: E402
+from travel_agent.planning.agent_contract import Understanding, Decision  # noqa: E402
+from travel_agent.planning.agent_map import AgentMapAction, AgentMapResult  # noqa: E402
 
 
 from travel_agent.planning.conversation import ConversationAction  # noqa: E402
@@ -23,7 +25,7 @@ from travel_agent.planning.reference_overview import ReferenceOverviewExport  # 
 
 def definitions():
     result = {}
-    for model in (CriticalMapAction, ReferenceOverviewExport, ConversationAction, AutomaticStart, AutomaticAction, GuideResponse, GuideExport, LibraryAction, LibraryResponse, PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse):
+    for model in (Understanding, Decision, AgentMapAction, AgentMapResult, CriticalMapAction, ReferenceOverviewExport, ConversationAction, AutomaticStart, AutomaticAction, GuideResponse, GuideExport, LibraryAction, LibraryResponse, PreviewCreate, PreviewMutation, PreviewView, PreviewIndex, JobCreate, JobAction, JobView, WorkbenchIndex, ReplayIndex, ReplayAdopt, MapAction, MapView, PlanAction, PlanCreate, PlanView, PlanIndex, PlanningResponse, ArrangementResponse, RevisionResponse):
         schema = model.model_json_schema()
         result.update(schema.pop("$defs", {}))
         result[model.__name__] = schema
@@ -44,6 +46,7 @@ def main():
     path = ROOT / "contracts/openapi.yaml"
     api = yaml.safe_load(path.read_text(encoding="utf-8"))
     routes = [
+        ('/api/v1/preview/agent-map/{session_id}', 'post', 'invokeAuthorizedAgentMap', 'AgentMapAction', 'AgentMapResult'),
         ('/api/v1/preview/key-leg/{session_id}', 'post', 'checkExplicitKeyLeg', 'CriticalMapAction', 'PlanView'),
         ('/api/v1/preview/planning/{session_id}/reference-overview-export', 'get', 'exportLocalRouteReference', None, 'ReferenceOverviewExport'),
         ('/api/v1/preview/conversation/{session_id}', 'post', 'changePlanningConversation', 'ConversationAction', 'PlanView'),
@@ -91,6 +94,9 @@ def main():
         if operation in {'checkExplicitKeyLeg', 'exportLocalRouteReference'}:
             value['security'] = [{'PreviewMapSession': []}]
             value['summary'] = ('显式单段许可：公共地点最多2次、路径最多1次；实际POI需确认，无自动重试，刷新重启零派发' if operation == 'checkExplicitKeyLeg' else '当前有效引用的版本化本地路线参考导出；不是已采用攻略或新模型生成，零外部调用')
+        if operation == 'invokeAuthorizedAgentMap':
+            value['security'] = [{'PreviewMapSession': []}]
+            value['summary'] = 'V3业务工具：只用当前显式MAP许可和同一账本；公共候选需确认，模型仅接收状态，地图返回只在服务内存'
         if body:
             value["requestBody"] = {"required": True, "content": {"application/json": {"schema": {"$ref": f"./domain.schema.json#/$defs/{body}"}}}}
         if 'BoundedResearch' in operation or operation=='readWorkbench':

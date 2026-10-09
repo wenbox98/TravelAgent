@@ -33,7 +33,8 @@ function driving(){if(draft.value.driving==='NO'&&draft.value.transport==='SELF_
 </script>
 <template>
  <section class="card trip-conditions" aria-label="本次旅行条件">
-  <h2>本次已生效条件</h2><p>仅用于这次旅行；下面的当前值为准，旧消息、来源条件和其他旅行不会成为长期偏好。</p>
+  <h2>{{plan.automatic_task?.understanding?.provisional?'本次暂定条件（等待模型理解）':'本次已生效条件'}}</h2><p>仅用于这次旅行；下面的当前值为准，旧消息、来源条件和其他旅行不会成为长期偏好。</p>
+  <p>到达方式：{{({AIR:'飞机',RAIL:'铁路',ROAD:'道路交通',UNKNOWN:'未定'} as Record<string,string>)[current.arrival_transport||'UNKNOWN']}}；本地移动：{{transportLabel(current.transport)}}；租车：{{current.rental==='YES'?'愿意租车':current.rental==='NO'?'不租车':'未定'}}。到达方式与当地交通分别保存，机场、日期与私人起点不推断。</p>
   <dl><dt>目的区域</dt><dd>{{plan.destination}}</dd><dt>可用天数</dt><dd>{{current.days?`${current.days}天`:'未定'}}</dd><dt>交通意向</dt><dd>{{transportLabel(current.transport)}} · {{drive(current.driving)}}</dd><dt>节奏</dt><dd>{{current.pace==='RELAXED'?'轻松一些':'未定'}}</dd><dt>人数与参考预算</dt><dd>{{current.trip_budget.people?`${current.trip_budget.people}人`:'人数未定'}} · {{current.trip_budget.target_fen===null?'预算未定':`总预算 ${(current.trip_budget.target_fen/100).toFixed(2)} 元`}}</dd><dt>日期与固定条件</dt><dd>{{current.inputs.depart_at||'日期未定'}}；{{current.start_constraint==='FIXED'?`首项固定 ${current.inputs.activity_start||'待核对'}`:'不要求精确开始时间'}}；{{current.return_deadline?`必须在 ${current.return_deadline} 返回`:'无已确认的返回硬截止'}}；{{current.activities.filter(a=>a.locked||a.locked_start).length}}个锁定项目</dd></dl>
   <details v-if="optional.length"><summary>可暂未定的条件及补充原因（不阻止首次研究）</summary><p v-for="value in optional" :key="String(value)">{{value}}</p></details>
   <p>资料是否足够、系统能否启动在研究进展中单独说明，不等于你漏填了条件。</p>

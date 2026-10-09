@@ -22,6 +22,18 @@ def install_automatic(app: FastAPI, config: PreviewConfig, present: Any) -> None
             launch(config.database, view["automatic_task"]["task_id"], automatic=True)
         return present(view)
 
+    from .agent_map import AgentMapAction, AgentMapResult
+    @app.post("/api/v1/preview/agent-map/{session_id}", response_model=AgentMapResult)
+    def map_tool(session_id: str, body: AgentMapAction, request: Request) -> Any:
+        from .agent_map import execute
+        try:
+            if not config.daily_workbench:
+                raise ValueError("DAILY_TRIP_REQUIRED")
+            return execute(app.state.private_flow_maps,session_id,body,
+                           request.headers.get("idempotency-key",""))
+        except ValueError as exc:
+            return error(str(exc),409)
+
     @app.post("/api/v1/preview/conversation/{session_id}", response_model=PlanView)
     def converse(session_id: str, body: ConversationAction, request: Request) -> Any:
         try:

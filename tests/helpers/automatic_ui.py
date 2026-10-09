@@ -142,18 +142,20 @@ def main():
                     "已识别：合成青谷 · 5 天。人数、预算和日期可以以后再补。", exact=True
                 )
             ).to_be_visible()
-            page.get_by_role("button", name="确认并更新建议", exact=True).click()
-            expect(
-                page.get_by_text(
-                    "已识别：合成青谷 · 3 天。人数、预算和日期可以以后再补。", exact=True
-                )
-            ).to_be_visible(timeout=30000)
+            expect(page.get_by_role("button", name="确认并更新建议", exact=True)).to_have_count(0)
+            # A hypothesis answers from cache without changing the confirmed five days.
+            expect(page.get_by_text("这次是问题或假设，不修改当前条件，也不查新资料。", exact=True)).to_be_visible()
             expect(page.get_by_role("button", name="按当前取舍更新建议", exact=True)).to_be_enabled(
                 timeout=30000
             )
             if page.locator("details.research-message").get_attribute("open") is None:
                 page.get_by_text("研究进展与资料依据", exact=False).click()
-            expect(page.get_by_text("本次已派发小红书搜索", exact=False)).to_be_visible()
+            # The latest task is a cache-only hypothesis; earlier real fixture reads
+            # remain historical and must not be counted as its new searches.
+            import sqlite3
+            with sqlite3.connect(output / "synthetic.sqlite3") as con:
+                grant=con.execute("SELECT grant_id FROM planning_tasks ORDER BY created_at DESC LIMIT 1").fetchone()[0]
+                assert con.execute("SELECT count(*) FROM continuation_operations WHERE continuation_id=? AND kind IN ('SEARCH','DETAIL','CONNECT')",(grant,)).fetchone()[0]==0
             key_leg = page.get_by_role("region", name="关键路段核实", exact=True)
             key_leg.get_by_role("combobox").first.select_option("WALKING")
             expect(key_leg.get_by_role("combobox", name="先查看哪一段", exact=True)).to_be_visible()
@@ -166,7 +168,7 @@ def main():
             expect(key_leg.get_by_text("估算约10分钟", exact=False)).to_be_visible()
             page.reload()
             expect(
-                page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)
+                page.get_by_role("region", name="本次旅行条件", exact=True)
             ).to_be_visible()
             page.set_viewport_size({"width": 390, "height": 844})
             assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")

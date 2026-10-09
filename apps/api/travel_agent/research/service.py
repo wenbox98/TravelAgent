@@ -76,8 +76,11 @@ class ResearchService:
         | None = None,
         deadline_seconds: float | None = None,
         on_connected: Callable[[], None] | None = None,
+        already_connected: bool = False,
+        detail_number_offset: int = 0,
     ) -> None:
         self.store, self.reader, self.extractor, self.policy = store, reader, extractor, policy
+        self.detail_number_offset = detail_number_offset
         self.selector = selector or CandidateSelector()
         self.selector.allow_external = self.selector.allow_external and policy_allows_model(
             policy,
@@ -95,6 +98,7 @@ class ResearchService:
         self.adaptive_queries, self.evidence_filter = adaptive_queries, evidence_filter
         self.deadline_seconds = deadline_seconds
         self.on_connected = on_connected
+        self.already_connected = already_connected
         self.unique_candidates: set[str] = set()
         self.duplicate_bodies = 0
         self.source_skips: list[dict[str, Any]] = []
@@ -221,7 +225,7 @@ class ResearchService:
                 candidate.source_id + (":fallback" if fallback else ""),
                 budget.max_feed_details,
             )
-            result = self.reader.detail(candidate, self.store.operations(run_id)["detail"])
+            result = self.reader.detail(candidate, self.store.operations(run_id)["detail"] + self.detail_number_offset)
             current()
             if result.source_id != candidate.source_id or not result.identity_match:
                 raise ResearchStopped("SOURCE_UNAVAILABLE", "IDENTITY_MISMATCH")
@@ -252,9 +256,10 @@ class ResearchService:
             return finish("SOURCE_UNAVAILABLE")
         try:
             current()
-            if self.continuation is not None:
-                self.continuation.reserve("CONNECT", "ordinary-session")
-            self.reader.connect()
+            if not self.already_connected:
+                if self.continuation is not None:
+                    self.continuation.reserve("CONNECT", "ordinary-session")
+                self.reader.connect()
             current()
             if self.on_connected:
                 self.on_connected()

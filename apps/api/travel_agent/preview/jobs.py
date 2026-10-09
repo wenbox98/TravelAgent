@@ -192,7 +192,8 @@ class JobService:
                     route_choices=route_choices,
                 )
             jid = "job-" + uuid4().hex
-            research = "research-" + uuid4().hex
+            from travel_agent.planning.agent_contract import CONSENT as AGENT_CONSENT
+            research = ("research-step-" if self.budget.state()["gate"].get("consent") == AGENT_CONSENT else "research-") + uuid4().hex
             con.execute(
                 "INSERT INTO preview_jobs VALUES(?,?,?,?,?,?,?,?,?,?,0,NULL,?,NULL)",
                 (

@@ -248,6 +248,8 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         return_deadline=draft.return_deadline,
         transport=draft.transport,
         driving=draft.driving,
+        arrival_transport=draft.arrival_transport,
+        rental=draft.rental,
         charter=draft.inputs.charter,
         walking_allowed=walking(draft, p.get("request", ""))["allowed"],
         walking_preference=walking(draft, p.get("request", ""))["state"],

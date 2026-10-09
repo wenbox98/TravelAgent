@@ -773,10 +773,17 @@ def launch(
         _workers[identity] = None
 
     def supervise() -> None:
+        task_action = "task-worker"
+        if automatic:
+            with Database(database) as db:
+                row = db.connection.execute("SELECT request_json FROM planning_tasks WHERE task_id=?",(jid,)).fetchone()
+                from .agent_contract import CONSENT as AGENT_CONSENT
+                if row and json.loads(row[0]).get("consent") == AGENT_CONSENT:
+                    task_action = "agent-worker"
         command = [
             sys.executable,
             str(PROJECT_ROOT / "scripts/product_preview.py"),
-            "task-worker"
+            task_action
             if automatic
             else "job-worker"
             if research

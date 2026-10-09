@@ -101,6 +101,8 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
         budget_context=context,
         available=bool(d.activities),
         feasibility="UNVERIFIED",
+        arrival_transport={"UNKNOWN":"到达方式未定","AIR":"飞机到达","RAIL":"铁路到达","ROAD":"公路到达"}[d.arrival_transport],
+        rental={"UNKNOWN":"租车意向未定","YES":"计划租车","NO":"不租车"}[d.rental],
         summary=f"{d.days or '天数未定'}{'天' if d.days else ''} · "
         + (
             "交通未定"
@@ -200,6 +202,7 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         "# " + escaped(p["destination"]) + " · 建议攻略",
         "",
         escaped(guide["summary"]),
+        escaped(guide["arrival_transport"] + "；" + guide["rental"] + "（与当地交通分别记录）"),
         escaped(guide["walking"]["label"]),
         escaped(guide["walking_suggestion"]) if guide["walking_suggestion"] else "",
         "",

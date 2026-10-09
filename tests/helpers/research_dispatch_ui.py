@@ -66,13 +66,10 @@ def main():
             expect(page.get_by_text("因系统启动故障尚未派发", exact=False)).to_be_visible()
             page.screenshot(path=str(output / "startup-failure.png"), full_page=True)
             with sqlite3.connect(database) as con:
-                assert con.execute("SELECT count(*) FROM continuation_operations").fetchone()[0] == 0
+                assert con.execute("SELECT count(*) FROM continuation_operations WHERE kind='MODEL'").fetchone()[0] == 2
+                assert con.execute("SELECT count(*) FROM continuation_operations WHERE kind!='MODEL'").fetchone()[0] == 0
                 failed = con.execute("SELECT summary_json FROM planning_tasks").fetchone()[0]
-            # An explicit question with no facts is rejected before model authorization.
-            message = page.get_by_label("继续聊聊这次旅行", exact=True)
-            message.fill("为什么推荐这些？")
-            page.get_by_role("button", name="发送", exact=True).click()
-            expect(page.get_by_role("alert").filter(has_text="当前没有可用于比较的资料").first).to_be_visible()
+            # Empty material does not expose a cache-comparison shortcut or authorize an answer.
             with sqlite3.connect(database) as con:
                 assert con.execute("SELECT count(*) FROM preview_jobs WHERE research_id LIKE 'question-%'").fetchone()[0] == 0
             # Local condition edit / cancellation does not alter the saved values.
@@ -88,11 +85,13 @@ def main():
             conditions.get_by_role("button", name="取消条件编辑", exact=True).click()
             expect(conditions).to_contain_text("7天")
             with sqlite3.connect(database) as con:
-                assert con.execute("SELECT count(*) FROM continuation_operations").fetchone()[0] == 0
+                assert con.execute("SELECT count(*) FROM continuation_operations").fetchone()[0] == 2
             (output / "fail-startup").unlink()
-            # A NEW explicit follow-up enters the production research launch chain.
-            message.fill("想自驾")
-            page.get_by_role("button", name="发送", exact=True).click()
+            # A new independent full task exercises the real subprocess chain.
+            # Its own cap includes intake and supervision; no old allowance is reused.
+            page.get_by_role("button",name="新建独立旅行",exact=True).click()
+            page.get_by_label("你想去哪里，怎么玩？",exact=True).fill("我想去合成青谷玩7天，想自驾")
+            page.get_by_role("button",name="查资料并生成旅行建议",exact=True).click()
             expect(page.get_by_role("heading", name="资料有限，先看局部建议", exact=True)).to_be_visible(timeout=60000)
             expect(conditions).to_contain_text("自己驾驶")
             expect(page.get_by_text("请先明确本次交通方式", exact=False)).to_have_count(0)
@@ -112,8 +111,8 @@ def main():
                 assert con.execute("SELECT count(*) FROM continuation_operations").fetchone()[0] == before_choices
             calls = [json.loads(line) for line in (output / "dispatch.jsonl").read_text(encoding="utf8").splitlines()]
             kinds = [v["kind"] for v in calls]
-            assert all(kind in kinds for kind in ("task-worker", "job-worker", "READER_CONSTRUCTOR", "CONNECT", "SEARCH", "DETAIL", "extract-worker", "review-worker", "worker")), kinds
-            assert kinds.count("CONNECT") == kinds.count("SEARCH") == 1
+            assert all(kind in kinds for kind in ("agent-worker", "agent-model-worker", "READER_CONSTRUCTOR", "CONNECT", "SEARCH", "DETAIL", "extract-worker", "review-worker", "worker")), kinds
+            assert kinds.count("CONNECT")==1 and kinds.count("SEARCH")==2
             assert "不自驾" not in next(v["query"] for v in calls if v["kind"] == "SEARCH")
             with sqlite3.connect(database) as con:
                 assert con.execute("SELECT summary_json FROM planning_tasks ORDER BY created_at LIMIT 1").fetchone()[0] == failed

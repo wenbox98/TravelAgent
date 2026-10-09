@@ -1462,6 +1462,47 @@ paths:
             application/json:
               schema:
                 $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/preview/agent-map/{session_id}:
+    post:
+      operationId: invokeAuthorizedAgentMap
+      summary: V3业务工具：只用当前显式MAP许可和同一账本；公共候选需确认，模型仅接收状态，地图返回只在服务内存
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 本机已审核缓存和用户选择
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/AgentMapResult
+        default:
+          description: 安全错误；不返回原始异常或正文
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./domain.schema.json#/$defs/AgentMapAction
 components:
   securitySchemes:
     LocalSession:
