@@ -24,7 +24,7 @@ from .store import EvidenceStore
 
 TASK = "review_evidence_context_v2"
 REVIEW_VERSION = 2
-RULE_VERSION = 5
+RULE_VERSION = 6
 REASONS = sorted(
     (CONTEXT_REASONS - {"WORK_CONTEXT_VERIFIED", "DEPENDENCY_INDEPENDENT"})
     | {
@@ -396,7 +396,14 @@ def check_decision(
     }
     if raw["topic"] == "DURATION":
         d["duration_scope"] = p["duration_scope"]
-    if p["object_span_id"]:
+    # A play/food/tradeoff subject is already retained as an exact reviewed
+    # condition above. It does not assert a route or depend on an accepted ROUTE
+    # object. Keep route lineage requirements for actual route-derived claims.
+    if p["object_span_id"] and (
+        raw["topic"] in {"ROUTE", "DURATION", "TRANSPORT"}
+        or data["review_version"] == 1
+        or p["object_span_id"] == parent["span_id"]
+    ):
         d["route_association"] = {"object_span_id": p["object_span_id"], "scope": p["object_scope"]}
     return d
 

@@ -29,6 +29,50 @@ def test_legacy_day_route_contract_conflict(tmp_path, clock):
 
 
 SHA = "a" * 40
+
+
+@pytest.mark.parametrize("topic,scope,expected", [
+    ("EXPERIENCE", "NONE", 1),
+    ("TRADEOFF", "NONE", 1),
+    ("DURATION", "DAY_SEGMENT", 0),
+    ("TRANSPORT", "NONE", 0),
+])
+def test_reviewed_play_subject_is_not_a_route_dependency(tmp_path, clock, topic, scope, expected):
+    from travel_agent.research.context_review import RULE_VERSION
+    body = "Day1：合成青谷公园。\n在合成青谷公园散步赏花两小时。"
+    with Database(tmp_path / "subject.sqlite3", clock=clock) as db:
+        store, _, out = execute(db, clock, lambda s: [choice(s, 1, (0,), topic, kind="GUIDE_SUGGESTION")], body)
+        data, ctx = build_input(store, out["attempt_id"], "owner", {})
+        p = proposal(data)
+        p.update(reference_scope="GUIDE_SUGGESTION", duration_scope=scope,
+                 object_span_id=data["candidates"][0]["condition_span_ids"][0])
+        decision = check_decision(p, data, ctx)
+        assert ("route_association" in decision) == (topic in {"DURATION", "TRANSPORT"})
+        assert p["object_span_id"] in decision["context_span_ids"]
+        db.connection.execute(
+            "INSERT INTO research_continuations VALUES('fixture-closed','owner','fixture','{}',?,NULL,?,'{}','{}')",
+            (db.stamp(), db.stamp()),
+        )
+        rid = "review-cccccccccccccccccccccccccccccccc"
+        results = [dict(candidate_index=0, proposal=p,
+            program=dict(action="NEEDS_REVIEW", reason_code="DEPENDENCY_UNRESOLVED"))]
+        db.connection.execute(
+            "INSERT INTO context_review_runs VALUES(?,'fixture-closed',?,'owner','RUNTIME',0,?,'{}','COMPLETED',NULL,?,?,?,2,?)",
+            (rid, out["attempt_id"], _digest(data), json.dumps(results), db.stamp(), db.stamp(), RULE_VERSION - 1),
+        )
+        before = frozen(db)
+        dry = replay(store, rid, "owner", SHA)
+        assert dry["added"] == expected
+        assert frozen(db) == before
+        result = replay(store, rid, "owner", SHA, dry_run=False)
+        assert result["added"] == expected
+        assert frozen(db) == before
+        assert replay(store, rid, "owner", SHA, dry_run=False)["revalidation_id"] == result["revalidation_id"]
+        if expected:
+            bundle = store.lookup("research-" + result["revalidation_id"], "合成青谷", "owner")[0]
+            meta = next(iter(bundle["claim_metadata"].values()))
+            assert body.splitlines()[0] in meta["applicable_conditions"]
+            assert not meta.get("route_association")
 BODY = "我计划秋季出发，还没出发。\n行程草案。\nDay4：合成甲地到合成乙地。\nDay4：我想在湖边散步。\nDay4：大巴每天八点发车。\n景色也许很美。"
 
 
@@ -488,5 +532,8 @@ def test_explanations_whitelist_readonly_and_adoption(tmp_path, clock):
             c.post("/api/v1/preview/review-update", json=payload, headers=headers).json() == adopted
         )
     with Database(path, clock=clock) as db:
-        assert PreviewService(db, "owner", "CACHED_PRIVATE_PREVIEW").latest() == adopted
+        from travel_agent.preview.models import PreviewView
+        # Compare the actual API contract, which supplies optional projection
+        # defaults (for example clause_context=[]), with the same persisted view.
+        assert PreviewView.model_validate(PreviewService(db, "owner", "CACHED_PRIVATE_PREVIEW").latest()).model_dump(mode="json") == adopted
         assert frozen(db) == original
