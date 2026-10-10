@@ -42,6 +42,34 @@ def send(s, v, act, *, key=None, **fields):
     return action(s.db, "owner", v["session_id"], body, key or str(uuid4()))
 
 
+def test_plan_read_reuses_references_but_write_invalidates_and_results_are_isolated(conversation, monkeypatch):
+    from travel_agent.planning import materials
+    from travel_agent.preview.service import view_cache
+
+    s, v, model, reader = conversation
+    original = materials._references
+    calls = []
+
+    def counted(db, scope, sid):
+        calls.append((scope, sid))
+        return original(db, scope, sid)
+
+    monkeypatch.setattr(materials, "_references", counted)
+    external = (list(model.calls), list(reader.calls))
+    s.plans.get(v["session_id"])
+    assert len(calls) == 1  # Full page projection has several independent consumers.
+    with view_cache():
+        rows = materials.references(s.db, "owner", v["session_id"])
+        assert rows
+        rows.clear()
+        assert materials.references(s.db, "owner", v["session_id"])
+        assert len(calls) == 2
+        s.db.connection.execute("UPDATE source_contents SET expires_at='2020-01-01T00:00:00+00:00'")
+        assert not materials.references(s.db, "owner", v["session_id"])
+        assert len(calls) == 3
+    assert external == (model.calls, reader.calls)
+
+
 def test_choice_question_constraint_and_next_payload_include_entire_relevant_state(conversation):
     s, v, model, reader = conversation
     original = deepcopy(v["draft"])

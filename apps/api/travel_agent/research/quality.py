@@ -34,7 +34,7 @@ def metadata_for(bundle: Mapping[str, Any], claim: dict[str, Any]) -> dict[str, 
     return dict(bundle.get("claim_metadata", {}).get(claim["claim_id"], {}))
 
 
-def confidence_level(bundle: EvidenceBundle, claim: dict[str, Any]) -> str:
+def confidence_level(bundle: Mapping[str, Any], claim: dict[str, Any]) -> str:
     # Legacy numeric confidence does not prove T06 grounding. It can still be displayed.
     return str(metadata_for(bundle, claim).get("confidence_level", "LOW"))
 

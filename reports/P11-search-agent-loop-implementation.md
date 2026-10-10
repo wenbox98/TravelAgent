@@ -112,3 +112,11 @@ context_review.check_decision规则6：独立审核的非路线主题、不同�
 ### 采用版原生文件下载
 
 实际页面Blob导出提示成功，但两次受支持下载事件均未确认文件，不能判为下载成功；内部下载页被浏览器策略禁止，未绕过。新增flow_api.download_guide，通过原export_guide生成相同Markdown并返回UTF-8附件；原JSON出口保留，普通页面使用原生同源下载链接，取消点击即成功提示。OpenAPI与攻略契约同步新增路径；不改变domain或SQLite。合成接口验证文件字节与JSON完全相同、采用版未改、认证401、外源403、no-store；test_advisory_guide.py 30项通过16.20秒，Ruff、mypy112、全网页测试与构建通过。初次混合验证命令工作目录误设为apps/web，Python/Ruff未执行；随后在正确仓库目录实际补齐。静态index-DydIdkRa.js已构建但未部署；B仍在研究，不重启。A采用v1仍内容不足，下载文件验收待部署后执行。
+
+### 正文兴趣保存等待超时与资料重复解析
+
+A普通页面点击一次正文兴趣，15秒后显示本机等待超时，未重复提交。随后DB会话版本22→23、页面出现撤回兴趣，证明原选择最终保存；草稿/采用版哈希和操作账本不变。不能把超时误认为后台任务停止，也不能接受这种等待为正常体验。B同期间正常推进到5搜索/17正文尝试/30模型，未中断它部署。
+
+修改preview.service.cached_view/_cache/_load_cache、planning.materials.references/_references、research.reporting.build_directions/_statement、quality.confidence_level、content_store.audit_grounding：同一请求复用已投影引用并返回独立副本；SQLite本连接total_changes或外连接data_version变化失效，另一个请求重做完整校验；报告只解码已验证DomainModel一次。逐条原文/审核/权限检查保留，但不再为每条已验证原始claim重新验证相同包外壳。无契约或数据库变化。
+
+实际验证：cached_overview、planning_conversation、research_depth、advisory_guide共71项通过20.82秒，含读取复用、返回值隔离、写入过期、外连接权限撤回、逐字引用与选择保存；Ruff通过，mypy112文件通过。直接基线包与当前包对同一A状态使用与HTTP相同只读快照，耗时6.899秒→2.766秒，revision35一致；原始对比留在.local/root-p11-review/read-performance-comparison.json。早期未使用快照的分析受B外连接写入影响导致缓存多次失效，23秒不作为可比基准。首个基线临时包因PROJECT_ROOT相对位置失败，显式绑定同一仓库后成功；没有业务网络调用。当前仍未部署；与351a471下载修改一起等待B空闲后部署。A和B完整内容验收仍未通过。

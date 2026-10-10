@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from travel_agent.preview.projection import fingerprint
-from travel_agent.preview.service import PreviewService
+from travel_agent.preview.service import PreviewService, cached_view
 from .flow_models import Activity
 
 _SEQUENCE = re.compile(r"\s*(?:→|->|➡|➜|➝|➞|➔|➠|—>|👉)\s*")
@@ -72,6 +72,11 @@ def place_name(text: str) -> str | None:
 
 
 def references(db: Any, scope: str, sid: str) -> list[dict[str, Any]]:
+    return cached_view(db, ("planning_references", scope, sid),
+                       lambda: _references(db, scope, sid))
+
+
+def _references(db: Any, scope: str, sid: str) -> list[dict[str, Any]]:
     from .flow import PlanningService
 
     row, state = PlanningService(db, scope).load(sid)

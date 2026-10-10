@@ -7,7 +7,8 @@ import json
 from typing import Any
 from uuid import uuid4
 
-from travel_agent.domain.models import EvidenceBundle, SourcePolicy, validator
+from collections.abc import Mapping
+from travel_agent.domain.models import SourcePolicy, validator
 from travel_agent.domain.source_policy import SENSITIVE_RESEARCH_TEXT, is_private, scope_allowed
 from travel_agent.persistence.database import Database
 
@@ -170,7 +171,7 @@ class SourceContentStore:
         return tuple(result)
 
 
-def audit_grounding(bundle: EvidenceBundle, contents: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+def audit_grounding(bundle: Mapping[str, Any], contents: tuple[dict[str, Any], ...]) -> dict[str, Any]:
     """Recheck persisted exact quotes and conditions against their versioned blocks."""
     checked = unsupported = 0
     for claim in bundle["claims"]:

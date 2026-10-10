@@ -2,9 +2,9 @@
 from copy import deepcopy
 from contextlib import contextmanager
 from contextvars import ContextVar
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 import json
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 from uuid import uuid4
 
 from travel_agent.domain.models import EvidenceBundle, SourcePolicy
@@ -18,6 +18,7 @@ from .projection import EMPTY, fingerprint, gaps, parse_preferences, project, qu
 
 
 _view_cache: ContextVar[dict[tuple[Any, ...], Any] | None] = ContextVar("preview_view_cache", default=None)
+_ReadValue = TypeVar("_ReadValue")
 
 
 @contextmanager
@@ -33,20 +34,26 @@ def view_cache() -> Iterator[None]:
         _view_cache.reset(token)
 
 
+def cached_view(db: Database, key: tuple[Any, ...], load: Callable[[], _ReadValue]) -> _ReadValue:
+    """Request-local only; every write/other-connection commit invalidates the read."""
+    cache = _view_cache.get()
+    if cache is None:
+        return load()
+    con = db.connection
+    versioned = (id(con), con.total_changes,
+                 con.execute("PRAGMA data_version").fetchone()[0], *key)
+    if versioned not in cache:
+        cache[versioned] = load()
+    return cast(_ReadValue, deepcopy(cache[versioned]))
+
+
 class PreviewService:
     def __init__(self, db: Database, scope: str, mode: Mode):
         self.db, self.scope, self.mode = db, scope, mode
 
     def _cache(self, research_id: str) -> tuple[dict[str, Any], tuple[EvidenceBundle, ...]]:
-        cache = _view_cache.get()
-        if cache is None:
-            return self._load_cache(research_id)
-        con = self.db.connection
-        key = (id(con), self.scope, self.mode, research_id, con.total_changes,
-               con.execute("PRAGMA data_version").fetchone()[0])
-        if key not in cache:
-            cache[key] = self._load_cache(research_id)
-        return cast(tuple[dict[str, Any], tuple[EvidenceBundle, ...]], deepcopy(cache[key]))
+        return cached_view(self.db, ("evidence", self.scope, self.mode, research_id),
+                           lambda: self._load_cache(research_id))
 
     def _load_cache(self, research_id: str) -> tuple[dict[str, Any], tuple[EvidenceBundle, ...]]:
         q = self.db.connection.execute("SELECT * FROM research_questions WHERE research_id=? AND account_scope=?",
@@ -95,7 +102,10 @@ class PreviewService:
                     if model is None or not any(i['candidate_index']==meta.get('audit_candidate_index') and
                         i['program']['action']=='ACCEPT' for i in json.loads(model[0])):
                         continue
-                singleton = EvidenceBundle(b | {"claims": [claim], "claim_metadata": {claim["claim_id"]: meta}})
+                # The repository validated this entire bundle already. Audit the
+                # exact stored claim without schema-validating the same source
+                # envelope once again for every claim.
+                singleton = b | {"claims": [claim], "claim_metadata": {claim["claim_id"]: meta}}
                 if audit_grounding(singleton, cached)["unsupported"]:
                     continue
                 try:

@@ -1,6 +1,7 @@
 """Render only grounded source material into a readable provisional research report."""
 
 from datetime import datetime, timezone
+from collections.abc import Mapping
 import re
 from typing import Any
 
@@ -31,7 +32,7 @@ def _quote_blocks(claim: dict[str, Any], metadata: dict[str, Any]) -> set[int]:
     return result
 
 
-def _statement(bundle: EvidenceBundle, claim: dict[str, Any], now: datetime) -> dict[str, Any]:
+def _statement(bundle: Mapping[str, Any], claim: dict[str, Any], now: datetime) -> dict[str, Any]:
     meta = metadata_for(bundle, claim)
     return {"claim_id": claim["claim_id"], "text": claim["text"], "source_id": bundle["source_id"],
             "source_title": bundle["source_title"], "source_locator": claim["locator"],
@@ -50,7 +51,8 @@ def _statement(bundle: EvidenceBundle, claim: dict[str, Any], now: datetime) -> 
 def build_directions(evidence: tuple[EvidenceBundle, ...], *, now: datetime | None = None) -> list[dict[str, Any]]:
     now = now or datetime.now(timezone.utc)
     groups: dict[tuple[str, str], dict[str, Any]] = {}
-    for bundle in evidence:
+    for item_bundle in evidence:
+        bundle = item_bundle.to_dict()
         metadata = bundle.get("claim_metadata", {})
         routes = [claim for claim in bundle["claims"] if claim["topic"] == "ROUTE" and is_grounded(bundle, claim)]
         for route in routes:
