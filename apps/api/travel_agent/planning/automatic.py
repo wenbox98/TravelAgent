@@ -780,9 +780,11 @@ class AutomaticService:
             "SELECT * FROM planning_tasks WHERE task_id=? AND session_id=? AND account_scope=?",
             (p.get("automatic_task_id"), sid, self.scope),
         ).fetchone()
-        if not prior or consent != CURRENT_CONSENT or prior["status"] != "BLOCKED" or json.loads(
-            prior["summary_json"] or "{}"
-        ).get("reason") != "KNOWLEDGE_STALE_OR_DELETED":
+        reason = json.loads(prior["summary_json"] or "{}").get("reason") if prior else None
+        if not prior or consent != CURRENT_CONSENT or not (
+            (prior["status"] == "BLOCKED" and reason == "KNOWLEDGE_STALE_OR_DELETED")
+            or (prior["status"] == "PARTIAL" and reason == "RESEARCH_BUDGET_EXHAUSTED")
+        ):
             return None
         budget = DailyBudget(self.db, prior["grant_id"])
         original = budget.state()
@@ -795,19 +797,36 @@ class AutomaticService:
             (prior["research_job_id"], sid, self.scope, prior["grant_id"]),
         ).fetchone()
         info = json.loads(child["summary_json"] or "{}") if child else {}
+        report = info.get("research_report") or info.get("report") or {}
+        usage = budget.summary()
+        # Only the diagnosed pre-V5 browser 3/6 hard stop qualifies. Website
+        # access/login/HTTP errors never qualify; this merely retains old scope
+        # and merges already reviewed evidence after explicit page intent.
+        reader_limit_repair = bool(
+            reason == "RESEARCH_BUDGET_EXHAUSTED"
+            and info.get("reason") == report.get("diagnostic") == "BUDGET_EXHAUSTED"
+            and info.get("research_stop") == report.get("stop_reason") == "SOURCE_UNAVAILABLE"
+            and usage["remaining"]["search"] > 0 and usage["remaining"]["detail"] > 0
+            and ((usage["used"]["detail"] == 7 and original["limits"]["DETAIL"] > 6)
+                 or (usage["used"]["search"] == 4 and original["limits"]["SEARCH"] > 3))
+        )
+        if reason == "RESEARCH_BUDGET_EXHAUSTED" and not reader_limit_repair:
+            raise ValueError("AUTOMATIC_NO_RETRY")
         if not child or child["status"] not in {"COMPLETED", "PARTIAL"} or not info.get("new_evidence_count") or info.get(
             "research_stop"
-        ) in {"ERROR", "NEED_LOGIN", "VERIFICATION_REQUIRED", "SOURCE_UNAVAILABLE"}:
+        ) in {"ERROR", "NEED_LOGIN", "VERIFICATION_REQUIRED"} or (
+            info.get("research_stop") == "SOURCE_UNAVAILABLE" and not reader_limit_repair
+        ):
             raise ValueError("AUTOMATIC_NO_RETRY")
         rounds = deepcopy(p.get("agent_rounds", []))
         if not rounds or rounds[-1]["tool"] != "RESEARCH_GAP":
             raise ValueError("AUTOMATIC_NO_RETRY")
         merge_research(self.db, self.scope, sid, state, child["research_id"], update_grant=False)
-        report = info.get("research_report") or info.get("report") or {}
         rounds[-1].update(status="COMPLETE", decision_origin="LOCAL_MERGE_RECOVERY", result=dict(
             status=child["status"], accepted=info["new_evidence_count"],
             search_count=report.get("query_count", 0), body_count=report.get("operations", {}).get("detail", 0),
             recovered_from_task=prior["task_id"], recovered_job_id=child["job_id"],
+            repair_reason="BROWSER_LIMIT_MISMATCH" if reader_limit_repair else "KNOWLEDGE_VERSION_REFRESH",
         ))
         return dict(predecessor_task=prior["task_id"], predecessor_grant=prior["grant_id"],
                     merged_job=child["job_id"], remaining=budget.summary()["remaining"],

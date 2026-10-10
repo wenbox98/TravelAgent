@@ -14,7 +14,7 @@ const conversation=computed(()=>props.plan.conversation)
 watch(()=>conversation.value?.version,async()=>{await nextTick();if(log.value)log.value.scrollTop=log.value.scrollHeight})
 watch(()=>props.acknowledgment,ack=>{if(ack?.session_id===props.plan.session_id&&ack.text===text.value)text.value=''},{immediate:true})
 const task=computed(()=>props.plan.automatic_task)
-const mergeRepair=computed(()=>task.value?.reason==='KNOWLEDGE_STALE_OR_DELETED')
+const mergeRepair=computed(()=>['KNOWLEDGE_STALE_OR_DELETED','RESEARCH_BUDGET_EXHAUSTED'].includes(task.value?.reason||''))
 const startupFailure=computed(()=>!task.value?.research_attempted&&!task.value?.search_count&&/JOB_STOPPED_BEFORE_COMPLETION|XHS_PROFILE_UNAVAILABLE|CONFIGURED_|BOUNDED_|WORKER_START_FAILED|WORKER_NOT_STARTED/.test(task.value?.reason||''))
 const hasMaterial=computed(()=>Boolean(props.plan.draft.activities.length||props.plan.job?.proposals.length||props.plan.references?.length||overview.value?.available))
 const ready=computed(()=>['COMPLETED','PARTIAL'].includes(task.value?.status||'')&&task.value?.generated)
@@ -48,6 +48,7 @@ const problem=computed(()=>{
  if(r==='ROUTE_REFERENCE_ONLY')return '资料支持下面的路线参考，暂不支持具体玩法安排；交通与当前可行性仍有缺口。'
  if(r.startsWith('CACHE_BODY_'))return '缓存正文重新分析已停止：正文、权限、版本、任务或当前缺口未通过检查。旧结果与用量保留，不重新访问来源兜底。'
  if(r==='KNOWLEDGE_STALE_OR_DELETED')return '资料卡版本在研究整理后发生变化，合并未完成。这是程序的版本衔接问题，不是你改了旅行条件；已读正文、合格引用和用量保留，旧采用版没有改变。'
+ if(r==='RESEARCH_BUDGET_EXHAUSTED')return '读取器提前报告了额度用尽，本轮未完成；已读资料和累计用量保留。修复后可合并已审核资料，并在原范围的剩余额度内继续；不会重发已失败请求或重置上限。'
  if(r.includes('VERIFICATION')||r.includes('DENIED')||r.includes('RATE_LIMIT'))return '网站需要验证或限制了访问，已停止。请查看官方页面；不会尝试规避，也不会自动重试。'
  if(r.includes('LOGIN'))return '尚未完成正常登录，未继续查找。已有资料和结果保留。'
  if(r==='TASK_DEADLINE')return '本次任务超过总等待时限，已停止；已有资料、原采用版和用量保留，不会自动重试。'

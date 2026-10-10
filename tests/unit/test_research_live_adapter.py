@@ -17,6 +17,14 @@ NOTE_ID = "synthetic-research-note"
 SOURCE_ID = f"xhs:{NOTE_ID}"
 
 
+@pytest.mark.parametrize("search,detail", [(3, 6), (5, 20), (2, 9)])
+def test_reader_passes_exact_granted_scope_to_real_backend_without_starting_browser(tmp_path, search, detail):
+    reader = LiveResearchReader(tmp_path, max_search_operations=search, max_feed_details=detail)
+    assert reader.backend.max_search_operations == search
+    assert reader.backend.max_feed_details == detail
+    assert reader.backend.browser_starts == 0
+
+
 def search_payload():
     return {
         "feeds": [{"id": NOTE_ID, "modelType": "note", "noteCard": {

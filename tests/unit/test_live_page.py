@@ -331,7 +331,7 @@ class FakeRoutingContext:
         self.handlers.remove((pattern, handler))
 
 
-def fake_backend(page=None, observations=None, policy=ResourcePolicy.OBSERVE_ONLY):
+def fake_backend(page=None, observations=None, policy=ResourcePolicy.OBSERVE_ONLY, *, search_limit=3, detail_limit=6):
     page = page if page is not None else FakePage()
     resource = FakeResource(page, observations or [clean_observation()])
     backend = object.__new__(LiveBrowserBackend)
@@ -339,6 +339,8 @@ def fake_backend(page=None, observations=None, policy=ResourcePolicy.OBSERVE_ONL
     backend.observer = FakeObserver()
     backend.goto_attempts = 0
     backend._search_windows = 0
+    backend.max_search_operations = search_limit
+    backend.max_feed_details = detail_limit
     backend.resource_policy = ResourcePolicyController(backend.observer, policy)
     return backend, BrowserSession(resource), page
 
@@ -614,6 +616,23 @@ def test_multiple_research_searches_use_distinct_bounded_windows():
         backend.search(session, "合成四")
     assert backend.observer.windows == ["SEARCH", "SEARCH_2", "SEARCH_3"]
     assert len(page.goto_calls) == 3
+
+
+def test_v5_real_browser_backend_reaches_fifth_search_and_twentieth_body():
+    backend, session, page = fake_backend(search_limit=5, detail_limit=20)
+    for n in range(1, 6):
+        backend.search(session, f"合成缺口{n}")
+    for n in range(1, 21):
+        backend.detail(session, href="https://www.xiaohongshu.com/explore/synthetic-note",
+                       note_id="synthetic-note", detail_number=n)
+    assert len(page.goto_calls) == 25
+    assert backend.observer.windows[-1] == "DETAIL_20"
+    with pytest.raises(LiveReadStopped, match="BUDGET_EXHAUSTED"):
+        backend.search(session, "合成第六次")
+    with pytest.raises(LiveReadStopped, match="BUDGET_EXHAUSTED"):
+        backend.detail(session, href="https://www.xiaohongshu.com/explore/synthetic-note",
+                       note_id="synthetic-note", detail_number=21)
+    assert len(page.goto_calls) == 25
 
 
 @pytest.mark.parametrize("number", [0, 7, True, -1])

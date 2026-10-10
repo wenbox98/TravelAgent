@@ -105,8 +105,14 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
     def __init__(
         self, profile: ProfileStore, observer: LiveNetworkObserver,
         *, resource_policy: ResourcePolicy = ResourcePolicy.OBSERVE_ONLY,
+        max_search_operations: int = 3, max_feed_details: int = 6,
     ) -> None:
+        if (type(max_search_operations) is not int or not 0 <= max_search_operations <= 5
+            or type(max_feed_details) is not int or not 0 <= max_feed_details <= 20):
+            raise ValueError("读取范围必须为0至5次搜索、0至20篇正文")
         super().__init__(profile)
+        self.max_search_operations = max_search_operations
+        self.max_feed_details = max_feed_details
         self.observer = observer
         self.resource: OrdinaryBrowserResource | None = None
         self.browser_starts = 0
@@ -356,7 +362,7 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
     def search(self, session: BrowserSession, keyword: str) -> object:
         resource = self._owned(session)
         with resource._lock:
-            if self._search_windows >= 3:
+            if self._search_windows >= self.max_search_operations:
                 raise LiveReadStopped("BUDGET_EXHAUSTED")
             self._search_windows += 1
             url = "https://www.xiaohongshu.com/search_result?" + urlencode({
@@ -373,6 +379,6 @@ class LiveBrowserBackend(OrdinaryBrowserBackend):
         self, session: BrowserSession, *, href: str, note_id: str, detail_number: int,
     ) -> object:
         # href is a parser-validated private locator, never a CLI-supplied URL.
-        if type(detail_number) is not int or not 1 <= detail_number <= 6:
+        if type(detail_number) is not int or not 1 <= detail_number <= self.max_feed_details:
             raise LiveReadStopped("BUDGET_EXHAUSTED")
         return self._read(session, href, note_id=note_id, detail_number=detail_number)

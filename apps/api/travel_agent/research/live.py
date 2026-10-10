@@ -30,12 +30,15 @@ def _stopped(code: str, *, technical: bool = False) -> ResearchStopped:
 
 class LiveResearchReader:
     def __init__(self, project: Path, *, resource_policy: ResourcePolicy = ResourcePolicy.OBSERVE_ONLY,
-                 login_prompt: Callable[[], None] | None = None) -> None:
+                 login_prompt: Callable[[], None] | None = None,
+                 max_search_operations: int = 3, max_feed_details: int = 6) -> None:
         self.profile = ProfileStore(project)
         self.profile_present_at_start = self.profile.exists()
         self.observer = LiveNetworkObserver()
         self.backend = LiveBrowserBackend(self.profile, self.observer,
-                                          resource_policy=resource_policy)
+                                          resource_policy=resource_policy,
+                                          max_search_operations=max_search_operations,
+                                          max_feed_details=max_feed_details)
         self.browser = CountingBrowserManager(self.backend)
         self.login = LoginLifecycle(self.browser, self.profile)
         self._candidates: dict[str, LiveCandidate] = {}

@@ -70,6 +70,19 @@ def observed():
     return context, observer
 
 
+def test_v5_all_navigation_windows_are_observed_and_still_bounded(observed):
+    _, observer = observed
+    labels = ["SEARCH", *[f"SEARCH_{n}" for n in range(2, 6)],
+              *[f"DETAIL_{n}" for n in range(1, 21)]]
+    for label in labels:
+        observer.start_window(label)
+        observer.finish_window()
+        assert observer.snapshot(label).window_finished
+    for label in ("SEARCH_6", "DETAIL_21"):
+        with pytest.raises(ValueError, match="网络观测窗口名称无效"):
+            observer.start_window(label)
+
+
 def test_t04_11_unmeasured_is_not_zero_and_observed_bytes_stay_unknown(observed):
     missing = LiveNetworkObserver().snapshot()
     assert missing.measurement == "NOT_MEASURED"

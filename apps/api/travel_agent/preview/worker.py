@@ -275,7 +275,9 @@ def run_job(
 
                 phase = "SOURCE_STARTUP"
                 progress(phase)
-                reader = LiveResearchReader(PROJECT_ROOT, login_prompt=login_prompt)
+                reader = LiveResearchReader(PROJECT_ROOT, login_prompt=login_prompt,
+                    max_search_operations=budget.state()["limits"]["SEARCH"],
+                    max_feed_details=budget.state()["limits"]["DETAIL"])
                 if reader_holder is not None:
                     reader_holder["reader"] = reader
             phase = "COVERAGE_SETUP"

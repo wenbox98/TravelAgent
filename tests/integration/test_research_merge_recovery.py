@@ -65,7 +65,8 @@ def test_current_research_can_refresh_only_unlocked_valid_source_bindings(normal
 
 
 @pytest.mark.parametrize("with_map", [False, True])
-def test_explicit_merge_repair_reuses_saved_child_and_only_remaining_scope(service, monkeypatch, with_map):
+@pytest.mark.parametrize("failure", ["merge", "reader_limit", "access_denied"])
+def test_explicit_merge_repair_reuses_saved_child_and_only_remaining_scope(service, monkeypatch, with_map, failure):
     monkeypatch.setenv("AMAP_WEB_SERVICE_KEY", "authored-map-key")
     oracle = MultiModel()
     def respond(task, data):
@@ -86,6 +87,21 @@ def test_explicit_merge_repair_reuses_saved_child_and_only_remaining_scope(servi
     run(service.db.path, tid, provider=config(), reader=MultiReader(), extract_dispatch=extract, review_dispatch=review)
     failed = service.plans.get(first["session_id"])
     assert failed["automatic_task"]["reason"] == "KNOWLEDGE_STALE_OR_DELETED", wire.errors
+    if failure != "merge":
+        # Authored historical browser-cap failure after its seventh charged read.
+        budget = DailyBudget(service.db, gid)
+        while budget.summary()["used"]["detail"] < 7:
+            budget.reserve_count("DETAIL", f"authored-limit-{budget.summary()['used']['detail']}", budget.state()["limits"])
+        task = service.db.connection.execute("SELECT * FROM planning_tasks WHERE task_id=?", (tid,)).fetchone()
+        summary = json.loads(task["summary_json"])
+        summary["reason"] = "RESEARCH_BUDGET_EXHAUSTED"
+        service.db.connection.execute("UPDATE planning_tasks SET status='PARTIAL',summary_json=? WHERE task_id=?", (json.dumps(summary), tid))
+        child = service.db.connection.execute("SELECT summary_json FROM preview_jobs WHERE job_id=?", (task["research_job_id"],)).fetchone()
+        info = json.loads(child[0])
+        info.update(reason="BUDGET_EXHAUSTED", research_stop="SOURCE_UNAVAILABLE")
+        info.setdefault("report", {}).update(stop_reason="SOURCE_UNAVAILABLE", diagnostic=(
+            "ACCESS_RESTRICTED" if failure == "access_denied" else "BUDGET_EXHAUSTED"))
+        service.db.connection.execute("UPDATE preview_jobs SET status='PARTIAL',summary_json=? WHERE job_id=?", (json.dumps(info), task["research_job_id"]))
     original_grant = tuple(service.db.connection.execute("SELECT * FROM research_continuations WHERE continuation_id=?", (gid,)).fetchone())
     original_ops = [tuple(r) for r in service.db.connection.execute("SELECT * FROM continuation_operations WHERE continuation_id=?", (gid,))]
     remaining = DailyBudget(service.db, gid).summary()["remaining"]
@@ -93,6 +109,12 @@ def test_explicit_merge_repair_reuses_saved_child_and_only_remaining_scope(servi
     monkeypatch.setattr("travel_agent.planning.automatic.merge_research", merge_research)
     key = str(uuid4())
     body = AutomaticAction(action="research_more", consent=CURRENT_CONSENT, expected_revision=failed["revision"])
+    if failure == "access_denied":
+        with pytest.raises(ValueError, match="AUTOMATIC_NO_RETRY"):
+            service.action(first["session_id"], body, key)
+        assert len(wire.sent) == sent
+        assert tuple(service.db.connection.execute("SELECT * FROM research_continuations WHERE continuation_id=?", (gid,)).fetchone()) == original_grant
+        return
     resumed = service.action(first["session_id"], body, key)
     new_task = service.db.connection.execute("SELECT * FROM planning_tasks WHERE task_id=?", (resumed["automatic_task"]["task_id"],)).fetchone()
     assert new_task["task_id"] != tid and len(wire.sent) == sent

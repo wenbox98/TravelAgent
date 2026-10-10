@@ -22,10 +22,9 @@ from playwright.sync_api import BrowserContext, Request, Response
 
 _CATEGORIES = ("document", "xhr_fetch", "image", "media", "font", "stylesheet", "script", "other")
 _PURPOSES = ("comment", "analytics", "image", "media", "document", "other", "unknown")
-_LABELS = frozenset({
-    "LOGIN", "SEARCH", "SEARCH_2", "SEARCH_3",
-    "DETAIL_1", "DETAIL_2", "DETAIL_3", "DETAIL_4", "DETAIL_5", "DETAIL_6",
-})
+_LABELS = frozenset({"LOGIN", "SEARCH"}
+                    | {f"SEARCH_{n}" for n in range(2, 6)}
+                    | {f"DETAIL_{n}" for n in range(1, 21)})
 _METHODS = frozenset({"GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH", "DELETE"})
 _COMMENT_SEGMENTS = frozenset({"comment", "comments"})
 _ANALYTICS_SEGMENTS = frozenset({"analytics", "collect", "beacon", "track", "tracking"})
