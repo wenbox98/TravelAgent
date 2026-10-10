@@ -6,7 +6,7 @@
   "packageManager": "pnpm@11.24.0",
   "scripts": {
     "build": "vue-tsc --noEmit && vite build",
-    "test": "node tests/review-panel.mjs && node tests/route-panel.mjs && node tests/place-choices.mjs && node tests/place-discovery.mjs && node tests/revision-review.mjs && node tests/operation-panel.mjs && node tests/knowledge-library.mjs && node tests/advisory-guide.mjs && node tests/local-materials.mjs && node tests/automatic-planning.mjs && node tests/current-trip.mjs"
+    "test": "node tests/review-panel.mjs && node tests/route-panel.mjs && node tests/place-choices.mjs && node tests/place-discovery.mjs && node tests/revision-review.mjs && node tests/operation-panel.mjs && node tests/knowledge-library.mjs && node tests/advisory-guide.mjs && node tests/local-materials.mjs && node tests/automatic-planning.mjs && node tests/current-trip.mjs && node tests/plan-snapshot.mjs"
   },
   "dependencies": {
     "vue": "3.5.43"

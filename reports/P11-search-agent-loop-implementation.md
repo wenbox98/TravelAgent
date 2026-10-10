@@ -102,3 +102,8 @@ context_review.check_decision规则6：独立审核的非路线主题、不同�
 ### 只用缓存仍触发搜索的真实失败与修复
 
 普通页面明确要求不再搜索或读取新正文，理解模型正确，但缓存限制解析仅识别固定短语，目标守卫覆盖GENERATE。立即从页面取消；记录新增CONNECT1/SEARCH1/DETAIL1/MODEL2，原账本不修改。没有把该次操作当成合规通过。授权前支持普通联合禁令，并以V5合成真实worker证明读源次数0；假设与引语不当成限制指令。89项合成回归19.60秒通过，Ruff与mypy112文件通过。缓存投影改为一次解码，完整审核、引用、写入失效规则保留；诊断读取耗时由16.28秒降至10.40秒（cProfile条件，状态已取消有变化，不作为精确同状态性能基准）。空闲备份before-cache-scope-fix.sqlite3，当前停机部署；A及B仍未验收。
+
+
+### 页面慢读取覆盖预览与采用版本
+
+普通页面预览A后首次采用报STALE_REVISION，DB仍保留revision34合法预览；刷新读取后再次采用，DB确认revision35、采用v1、预览标记清除。页面PlanningPanel.poll在busy期间仍发读取，晚返回可覆盖已保存的新revision；apply未拒绝较旧版本。新增plan-snapshot.acceptsPlanSnapshot并用于apply，busy期间不启动轮询。同版本进度和不同旅行切换仍允许。新增延迟读取竞态回归，全部npm test通过；npm run build首次沙盒spawn EPERM，按主机权限重跑通过，静态index-BTS0vzsF.js。后台B真实任务仍正常运行，不重启。无新业务请求；私有DB/旧采用/账本/T03未修改。A本地复核采用只证明保存链路，仍缺玩法与住宿；B真实内容未验收。前批否定报价修复的mypy112文件实际通过。

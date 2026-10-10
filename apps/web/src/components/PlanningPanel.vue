@@ -13,6 +13,7 @@ import CriticalMap from './CriticalMap.vue'
 import TripConditions from './TripConditions.vue'
 import {readIdea,storeIdea,readMessage,storeMessage} from '../intake'
 import {readCurrentTrip,rememberCurrentTrip} from '../current-trip'
+import {acceptsPlanSnapshot} from '../plan-snapshot'
 import { originLabel, transportLabel, type Draft, type PlanView, type PlanIndex } from '../planning-api'
 const data = ref<PlanView | null>(null), form = ref<Draft | null>(null)
 const index = ref<PlanIndex | null>(null)
@@ -81,7 +82,7 @@ const readable = (s: string) => (data.value?.draft.activities || []).reduce((tex
 const scopeLabel = (s:string) => ({MATCH:'来源支持范围匹配',MISMATCH:'来源指向当前范围以外',UNKNOWN:'范围待核实'}[s] || '范围待核实')
 const proposalReason = (s:string) => ({PLANNING_LOCKED_TRANSPORT:'违反交通条件',PLANNING_LOCKED_ANCHOR:'改变固定开始时间',PLANNING_LOCKED_CONSTRAINT:'违反预约或硬截止',PLANNING_SCOPE_UNVERIFIED:'活动范围未通过',PLANNING_UNKNOWN_REFERENCE:'活动或引用不受支持',PLANNING_PROPOSAL_SCHEMA:'方案字段不完整',PLANNING_INVALID_TIME:'时间安排无效',PLANNING_UNSUPPORTED_FACT:'触发事实边界检查'}[s] || '未通过检查')
 const deltaLabel = (s: string) => ({activities: '活动顺序或停留', direction: '兴趣方向', inputs: '时间/往返条件', days: '可用天数', transport: '交通意向', driving: '驾驶意愿', return_deadline: '返回硬约束', first_day: '开始日序', first_period: '开始时段', anchor_origin: '开始时间'}[s] || '本行程条件')
-function apply(v: PlanView, submitted?:string) { reconcileSubmission(v); const keep=submitted!==undefined&&JSON.stringify(form.value)!==submitted; if (v.job && !['QUEUED','RUNNING'].includes(v.job.status) && status.value.startsWith('AI正在')) status.value = ''; if (v.research_job && !['QUEUED','RUNNING','WAITING_LOGIN'].includes(v.research_job.status) && status.value.startsWith('正在查找')) status.value = ''; if (data.value?.session_id !== v.session_id) { selectedActivities.value = []; status.value = '' }; data.value = v; if(!keep)form.value = clone(v.draft); rememberCurrentTrip(v.session_id) }
+function apply(v: PlanView, submitted?:string) { if(!acceptsPlanSnapshot(data.value,v))return; reconcileSubmission(v); const keep=submitted!==undefined&&JSON.stringify(form.value)!==submitted; if (v.job && !['QUEUED','RUNNING'].includes(v.job.status) && status.value.startsWith('AI正在')) status.value = ''; if (v.research_job && !['QUEUED','RUNNING','WAITING_LOGIN'].includes(v.research_job.status) && status.value.startsWith('正在查找')) status.value = ''; if (data.value?.session_id !== v.session_id) { selectedActivities.value = []; status.value = '' }; data.value = v; if(!keep)form.value = clone(v.draft); rememberCurrentTrip(v.session_id) }
 async function refreshIndex() { index.value = await request<PlanIndex>('/api/v1/preview/planning') }
 async function load(sid?: string) {
   if(conditionEditing.value){error.value='请先保存或取消未提交的条件草稿，再切换或刷新。';return}
@@ -196,7 +197,7 @@ onMounted(async () => {
   poll = setInterval(async () => {
     // Continue detecting owner loss while editing or awaiting an uncertain POST.
     // Recovery only reads local state; it never resubmits a previous intent.
-    if (!polling && (++ticks%3===0 || externalRunning.value || ['QUEUED','RUNNING'].includes(data.value?.job?.status||''))) {
+    if (!busy.value && !polling && (++ticks%3===0 || externalRunning.value || ['QUEUED','RUNNING'].includes(data.value?.job?.status||''))) {
       polling = true
       const ticket = generation, sid = data.value?.session_id, baseline=JSON.stringify(data.value?.draft)
       try {
