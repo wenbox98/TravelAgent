@@ -281,3 +281,18 @@ def test_generated_day_play_and_lodging_gaps_are_goal_feedback():
     complete = dict(assessment=dict(coverage=dict(missing_days=[]), content_limited=False), lodging=dict(area_ids=["authored-area"]))
     assert not proposal_gaps([partial, complete], draft)
     assert "LODGING" not in {g["key"] for g in proposal_gaps([partial], dict(draft, trip_budget=dict(nights=0)))}
+
+
+def test_diversity_cannot_evict_a_second_reviewed_play_for_route_only_names(monkeypatch):
+    from travel_agent.planning.automatic import material_pool
+    monkeypatch.setattr("travel_agent.knowledge.planning.card_references", lambda cards: [])
+    monkeypatch.setattr("travel_agent.planning.activity_content.content_references", lambda a, refs: ["reviewed"] if a["activity_id"].startswith("play") else [])
+    class Cards:
+        def get(self, ref):
+            return dict(kind="SOURCE_REFERENCE", sources=[dict(source_id=ref["source"])])
+    def item(key, source):
+        return dict(name="合成" + key + "公园", activity_id=key, knowledge_refs=[dict(card_id=key, source=source)])
+    items = [item("playA", "one"), item("playB", "one"), *[item("route" + str(i), str(i)) for i in range(14)]]
+    selected = material_pool(items, Cards(), 20)
+    assert [a["activity_id"] for a in selected[:2]] == ["playA", "playB"]
+    assert len(selected) == 12

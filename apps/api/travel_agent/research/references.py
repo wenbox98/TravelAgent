@@ -79,6 +79,7 @@ def clause_context(reference: dict[str, Any], conditions: list[str]) -> list[str
         texts = [c for c in conditions if len(c) == size]
         matching = [s for s in spans if s["end"] - s["start"] == size]
         if (len(texts) == len(matching) == 1
+            and span["end"] <= statement["start"]
             and all(span[k] == statement[k] for k in ("parent_start", "parent_end"))):
             result.append((span["start"], texts[0]))
     return [text for _, text in sorted(result)]

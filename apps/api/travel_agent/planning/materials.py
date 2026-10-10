@@ -141,7 +141,10 @@ def same_conditions(left: list[str], right: list[str]) -> bool:
 def candidate_from_name(
     name: str, rows: list[dict[str, Any]], region: str, intent: str = "UNDECIDED"
 ) -> Activity:
-    if place_name(name) != name or not rows or any(name not in e["text"] for e in rows):
+    from .activity_content import reviewed_clause_subject
+    if place_name(name) != name or not rows or any(
+        name not in e["text"] and not reviewed_clause_subject(name, e) for e in rows
+    ):
         raise ValueError("ACTIVITY_SUPPORT_REQUIRED")
     if any(re.search(r"不去|不要去|不推荐|禁止|不能去", e["text"]) for e in rows):
         raise ValueError("ACTIVITY_CONTEXT_NEGATIVE")
@@ -169,6 +172,7 @@ def activities(
     rows: list[dict[str, Any]], region: str, intent: str = "UNDECIDED", *, limit: int | None = 12
 ) -> list[Activity]:
     grouped: dict[str, list[dict[str, Any]]] = {}
+    from .activity_content import reviewed_subject_names
     for e in rows:
         if e["topic"] not in {"ROUTE", "EXPERIENCE"}:
             continue
@@ -186,6 +190,10 @@ def activities(
             name = place_name(part)
             if name:
                 grouped.setdefault(name, []).append(e)
+        if e["topic"] == "EXPERIENCE":
+            for name in reviewed_subject_names(e):
+                if e not in grouped.get(name, []):
+                    grouped.setdefault(name, []).append(e)
     output = []
     for name, support in grouped.items():
         try:
@@ -196,6 +204,6 @@ def activities(
     # reviewed, explicitly named action can be considered. This is selection
     # priority only, never a new content/identity/evidence classification.
     action_names = {name for e in rows if e["topic"] == "EXPERIENCE"
-                    for name in natural_names(e["text"])}
+                    for name in [*natural_names(e["text"]), *reviewed_subject_names(e)]}
     output.sort(key=lambda a: a.name not in action_names)
     return output if limit is None else output[:limit]

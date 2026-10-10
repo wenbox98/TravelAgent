@@ -248,6 +248,20 @@ class DeepModel(Model):
             if task == "select_evidence_references_v1":
                 if any("住宿" in span["text"] for span in data["spans"]):
                     result["claims"][1]["topic"] = "TRADEOFF"
+                    # Clause catalogue v2 splits this authored tradeoff. Model
+                    # selection must retain both its benefit and restriction.
+                    result["claims"][1]["condition_span_ids"] += [
+                        span["span_id"] for span in data["spans"]
+                        if span["parent_block"] == 3
+                    ]
+                else:
+                    from test_reference_selection import choice
+
+                    # Preserve both authored activities now that each is a
+                    # separate clause, rather than pretending one covers both.
+                    result["claims"].append(choice(
+                        data["spans"], 3, (0, 1), "EXPERIENCE", 1
+                    ))
             return result
         return super().structured(task, data, schema)
 
@@ -301,7 +315,8 @@ def test_multi_source_points_choice_actual_advisory_payload_and_zero_access_reco
     cid = lodging["entries"][0]["citation_id"]
     assert cid in result["allowed_citation_ids"]
     assert any(
-        e["claim_id"] == cid and "少搬行李" in e["text"] and e["conditions"]
+        e["claim_id"] == cid and all(term in "\n".join([e["text"], *e["conditions"]])
+            for term in ("少搬行李", "离展馆较远")) and e["conditions"]
         for e in result["references"]
     )
     assert result["conversation"]["selected_points"][0]["citation_ids"] == [cid]
@@ -498,7 +513,8 @@ def test_new_plan_dispatch_refreshes_post_research_context_and_selected_text(aut
     )
     assert len(captured) == 2
     cid = point["entries"][0]["citation_id"]
-    assert any(r["claim_id"] == cid and "少搬行李" in r["text"] for r in captured[-1]["references"])
+    assert any(r["claim_id"] == cid and all(term in "\n".join([r["text"], *r["conditions"]])
+        for term in ("少搬行李", "离展馆较远")) for r in captured[-1]["references"])
     assert captured[-1]["conversation"]["selected_points"][0]["citation_ids"] == [cid]
     v = s.plans.get(v["session_id"])
     assert v["job"]["can_preview"]

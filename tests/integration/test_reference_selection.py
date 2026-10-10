@@ -132,6 +132,31 @@ def test_only_reviewed_same_parent_subject_is_used_for_play_not_day_or_route():
     assert reviewed_clause_subject("合成青谷公园", dict(text="15点沿合成青谷公园散步，"))
 
 
+def test_preceding_reviewed_subject_creates_play_candidate_without_later_stop():
+    from travel_agent.planning.materials import activities
+    from travel_agent.planning.activity_content import content_references
+    body = "上午去合成青谷公园，重点看林间花草，下午去合成南馆。"
+    view = canonicalize(body)
+    directory = catalog(view, "synthetic:subject", "subject-body", "a" * 64)
+    spans = payload(directory, view)
+    raw = materialize(dict(topic="EXPERIENCE", statement_span_id=spans[1]["span_id"],
+        condition_span_ids=[spans[0]["span_id"], spans[2]["span_id"]],
+        proposed_reference_kind="GUIDE_SUGGESTION"), directory, view)
+    from travel_agent.research.references import clause_context
+    row = dict(claim_id="subject-play", source_id="synthetic:subject", source_version="v1",
+        locator="subject:chars:1-20", text=raw["quote"], topic="EXPERIENCE",
+        conditions=[c["text"] for c in raw["applicable_conditions"]], reference_kind="GUIDE_SUGGESTION",
+        review_status="MODEL_CONTEXT_REVIEWED", route_association=None)
+    row["clause_context"] = clause_context(raw["reference_selection"], row["conditions"])
+    assert row["clause_context"] == [spans[0]["text"]]
+    candidates = activities([row], "合成区域", limit=None)
+    assert [a.name for a in candidates] == ["合成青谷公园"]
+    assert content_references(candidates[0].model_dump(), [row]) == [row]
+    assert spans[2]["text"] in row["conditions"]
+    for context in [["Day1：合成青谷公园。"], ["如果去合成青谷公园，"], ["不去合成青谷公园，"]]:
+        assert activities([dict(row, clause_context=context)], "合成区域", limit=None) == []
+
+
 def test_program_union_second_occurrence_persistence_and_zero_access_recovery(tmp_path,clock):
     path=tmp_path/"reference.sqlite3"
     with Database(path,clock=clock) as db:

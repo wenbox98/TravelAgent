@@ -5,6 +5,24 @@ from typing import Any
 
 from .scoped_context import REVIEWED, same_document
 
+PLAY = r"散步|观赏|欣赏|参观|徒步|品尝|看展|漫步|拍照|体验|观鸟|看花|重点看|追随|感受|老建筑|吊脚楼|文化"
+
+
+def reviewed_subject_names(row: dict[str, Any]) -> list[str]:
+    """Exact nouns from audited preceding subject premises, never day headers."""
+    if row.get("review_status") not in REVIEWED or not re.search(PLAY, row["text"]):
+        return []
+    from .materials import place_name, activity_subject
+    names = []
+    for clause in row.get("clause_context", []):
+        if re.search(r"不|没|未|如果|假设|→|➡|->|Day\s*\d|D\s*\d|第.{1,3}天", clause, re.I):
+            continue
+        match = re.search(r"(?:前往|打卡|到|去|在|沿)(?:免费的)?([\u4e00-\u9fffA-Za-z·]{2,24})[，。；\s]*$", clause)
+        name = place_name(match[1]) if match else None
+        if name and activity_subject(name) and re.search(r"公园|街区|景区|风景区|古镇|小镇|湿地|步道|广场|博物馆|纪念馆|大坝|画廊|洞|湖|寺|山|谷", name):
+            names.append(name)
+    return list(dict.fromkeys(names))
+
 
 def explicit_subject(name: str, text: str) -> bool:
     if re.search(r"→|➜|➡|➝|➠|->", text):
@@ -40,10 +58,10 @@ def reviewed_clause_subject(name: str, row: dict[str, Any]) -> bool:
     if explicit_subject(name, row["text"]):
         return True
     if not row.get("clause_context") or not re.search(
-        r"散步|观赏|欣赏|参观|徒步|品尝|看展|漫步|拍照|体验|观鸟|看花", row["text"]
+        PLAY, row["text"]
     ) or re.search(r"→|➜|➡|->", row["text"]):
         return False
-    subject = re.compile(r"(?:前往|到|去|在|沿)(?:免费的)?" + re.escape(name)
+    subject = re.compile(r"(?:前往|打卡|到|去|在|沿)(?:免费的)?" + re.escape(name)
         + r"(?:风景区|景区)?[，。；\s]*$")
     return any(subject.search(c) and not re.search(r"不|没|未|如果|假设|→|➡|->", c)
                for c in row["clause_context"])
