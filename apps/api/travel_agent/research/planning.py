@@ -108,6 +108,7 @@ class CandidateSelector:
         query_context: str | None = None,
         grounded_terms: tuple[str, ...] = (),
         previous_titles: tuple[str, ...] = (),
+        focus_gap_ids: tuple[str, ...] = (),
     ) -> tuple[CandidateChoice, ...]:
         self.last_mode = "DETERMINISTIC"
         selected: list[tuple[int, Candidate]] = []
@@ -121,7 +122,7 @@ class CandidateSelector:
             "EXPERIENCES": ("体验", "游玩"),
             "PLAY": ("玩法", "怎么玩", "体验", "游玩", "看点", "散步", "观鸟", "展陈"),
             "ACTIVITY_SCOPE": ("玩法", "体验", "游玩", "公园", "展馆"),
-            "LODGING": ("住宿", "住哪", "片区", "落脚", "民宿"),
+            "LODGING": ("住宿", "住哪", "片区", "落脚", "民宿", "酒店", "旅馆"),
             "SEASON": ("季节", "月份", "秋", "冬", "雨季"),
             "DURATION": ("天", "日"),
             "TRANSPORT": ("交通", "自驾", "班车"),
@@ -151,6 +152,13 @@ class CandidateSelector:
             )
             weak = query_related and travel_signal
             if request.destination and not explicit and not weak:
+                continue
+            # An explicitly lodging-focused query cannot spend body reads on a
+            # generic itinerary merely because its title matches the destination.
+            # This filters metadata for purpose; it establishes no source facts.
+            if set(focus_gap_ids) == {"LODGING"} and not any(
+                term in title for term in gap_terms["LODGING"]
+            ):
                 continue
             signals[candidate.source_id] = (
                 "标题含请求地点或有依据的实体词；归属仍须核对正文"

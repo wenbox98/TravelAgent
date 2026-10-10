@@ -61,13 +61,18 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     backgrounds = derive([a.model_dump() for a in draft.activities], [*refs, *mentions])[
         "backgrounds"
     ]
+    from .activity_content import content_references
+    direct = {r['claim_id'] for a in draft.activities
+              for r in content_references(a.model_dump(), refs)}
     if p.get("protocol_version") == 2 and draft.activities:
         needed = {identifier for a in draft.activities for identifier in a.evidence_ids}
         needed.update(c["citation_id"] for c in backgrounds)
         needed.update(b["citation_id"] for c in backgrounds for b in c["basis"])
         needed.update(preferred)
+        needed.update(direct)
         refs = [e for e in refs if e["claim_id"] in needed]
     required = {cid for a in draft.activities for cid in a.evidence_ids}
+    required.update(direct)
     # Keep mandatory activity evidence, then selected interests, then other context.
     refs.sort(key=lambda e: (e["claim_id"] not in required, e["claim_id"] not in preferred))
     selected: list[dict[str, Any]] = list(mentions)

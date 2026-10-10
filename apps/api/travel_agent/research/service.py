@@ -326,14 +326,25 @@ class ResearchService:
                     external=True,
                     now=datetime.now(timezone.utc),
                 )
+                def query_gaps() -> tuple[ResearchGap, ...]:
+                    # Lodging is an explicit narrow follow-up, not permission to
+                    # refill route slots. General play/route research keeps its
+                    # existing multi-source and complementary-topic semantics.
+                    if set(query.gap_ids) == {"LODGING"}:
+                        return tuple(g for g in gaps if g.gap_id == "LODGING")
+                    return gaps
+
                 def selections() -> Any:
                     if not self.adaptive_candidate_selection:
-                        yield from self.selector.select(candidates, request, gaps, attempted, query_context=query.text)
+                        if query_gaps():
+                            yield from self.selector.select(candidates, request, query_gaps(), attempted,
+                                                            query_context=query.text, focus_gap_ids=query.gap_ids)
                         return
-                    while gaps:
+                    while query_gaps():
                         # Re-rank the SAME observed list after each real result. No new search,
                         # no repeat of a failed source, and no metadata promoted to evidence.
-                        selected = self.selector.select(candidates, request, gaps, attempted, query_context=query.text,
+                        selected = self.selector.select(candidates, request, query_gaps(), attempted, query_context=query.text,
+                                                        focus_gap_ids=query.gap_ids,
                                                         previous_titles=tuple(c.candidate.title or "" for c in choices))
                         if not selected:
                             return
@@ -353,6 +364,8 @@ class ResearchService:
                 )
                 selection_count = 0
                 for index, choice in enumerate(selections()):
+                    if not query_gaps():
+                        break
                     if self.adaptive_queries and index >= per_query:
                         break
                     if self.store.operations(run_id)["detail"] >= budget.max_feed_details:
@@ -422,7 +435,7 @@ class ResearchService:
                             if self.continuation is not None:
                                 from .material_eligibility import skip_reason
 
-                                code = skip_reason(request, gaps, state_body, dom_body)
+                                code = skip_reason(request, query_gaps(), state_body, dom_body)
                                 if code:
                                     extra_gaps[code] = self._material_gap(code)
                                     continue
@@ -434,7 +447,7 @@ class ResearchService:
                                 policy=self.policy,
                                 batch_id=self.model_batch_id or research_id,
                                 max_attempts=self.model_max_attempts,
-                                research_gaps=tuple(g.gap_id for g in gaps),
+                                research_gaps=tuple(g.gap_id for g in query_gaps()),
                                 dispatch=self.extraction_dispatch,
                             )
                             safe_outcome = {k: v for k, v in outcome.items() if k != "result"}
@@ -500,7 +513,7 @@ class ResearchService:
                                 destination=request.destination,
                                 image_count=material.image_count,
                                 temporary_read_allowed=self.temporary_read_allowed,
-                                research_gaps=tuple(gap.gap_id for gap in gaps),
+                                research_gaps=tuple(gap.gap_id for gap in query_gaps()),
                             )
                     finally:
                         content.close()

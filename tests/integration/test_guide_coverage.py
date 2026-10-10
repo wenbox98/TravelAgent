@@ -248,6 +248,9 @@ def test_source_purpose_cannot_be_upgraded_by_name_quantity_or_plan():
         text="虚构水边 → 虚构树林",
         topic="ROUTE",
         reference_kind="AUTHOR_PROPOSED_PLAN",
+        review_status="MODEL_CONTEXT_REVIEWED",
+        source_id="authored-source", source_version="authored-v1", locator="authored-v1:chars:0-70",
+        conditions=[],
     )
     assert materials([a], [ref])[0]["level"] == "ROUTE_CONTEXT"
     assert materials([a], [ref])[0]["roles"] == ["AUTHOR_PROPOSED_PLAN"]

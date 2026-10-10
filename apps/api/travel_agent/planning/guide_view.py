@@ -7,6 +7,7 @@ from travel_agent.preview.projection import safe_text
 from .flow_models import PlanDraft
 from .guide_context import walking, budget_context
 from .trip_budget import calculate, defaults
+from .activity_content import presentation, source_contexts, travel_conditions
 
 PERIODS = {"UNDECIDED": "时段自定", "MORNING": "上午", "AFTERNOON": "午后", "EVENING": "傍晚"}
 DINING = {
@@ -85,6 +86,11 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
         lodging = "UNDECIDED"
     areas = {a["area_id"]: a["name"] for a in p.get("lodging_areas", [])}
     walk = walking(d, p.get("request", ""))
+    activity_rows = [a.model_dump() for a in d.activities]
+    content = {a.activity_id: presentation(a.model_dump(), refs or []) for a in d.activities}
+    contexts = source_contexts(activity_rows, refs or [])
+    represented = {c for r in contexts for c in r['conditions']}
+    unlinked_conditions = list(dict.fromkeys(c for a in d.activities for c in a.conditions if c not in represented))
     return dict(
         context=context_background,
         assessment=assessment,
@@ -123,6 +129,8 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
         )
         + " · "
         + ("往返自行安排" if d.inputs.planning_scope == "ACTIVITY_WINDOW" else "门到门范围待核实"),
+        source_contexts=contexts,
+        unlinked_source_conditions=unlinked_conditions,
         activities=[
             dict(
                 activity_id=a.activity_id,
@@ -131,7 +139,8 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
                 period=PERIODS[a.period],
                 stay="停留待选" if a.stay_min is None else f"建议 {a.stay_min}–{a.stay_max} 分钟",
                 rest="休息自定" if a.rest_minutes is None else f"建议休息 {a.rest_minutes} 分钟",
-                highlight="已发现地点，具体看点资料不足"
+                highlight=content[a.activity_id][0]['text'] if content[a.activity_id] else
+                "已发现地点，具体看点资料不足"
                 if a.provenance == "SOURCE_MENTION"
                 else "自编合成项目，不是现实地点"
                 if a.provenance == "SYNTHETIC_TEST"
@@ -141,6 +150,8 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
                 locked_start=a.locked_start,
                 locked=a.locked,
                 conditions=a.conditions,
+                travel_conditions=travel_conditions(a.model_dump(), activity_rows),
+                content_references=content[a.activity_id],
                 spatial_status=a.spatial_status,
             )
             for a in d.activities
@@ -259,7 +270,20 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         ]
         if a["locked_start"]:
             lines.append("用户锁定预约：" + a["locked_start"])
-        lines += ["- 适用条件：" + escaped(c) for c in a["conditions"]]
+        for ref in a["content_references"]:
+            lines += ["- 已审核来源体验参考（非当前核实）：" + escaped(ref["text"]),
+                      "  - 性质：" + escaped(ref["role"]) + "；引用：" + escaped(ref["citation_id"]),
+                      "  - 完整前提见相关来源引用与上下文，不将其他对象描述作为本站限制。"]
+        lines += ["- 适用条件：" + escaped(c) for c in a["travel_conditions"]]
+    if guide["source_contexts"]:
+        lines += ["", "## 相关来源引用与上下文", "", "完整前提保留；其中其他对象的介绍不等于当前每站的特色或适用条件。"]
+        for ref in guide["source_contexts"]:
+            lines += ["- 引用：" + escaped(ref["citation_id"]) + "（" + escaped(ref["role"]) + "）",
+                      "  - 来源内容：" + escaped(ref["text"])]
+            lines += ["  - 来源前提：" + escaped(c) for c in ref["conditions"]]
+    if guide['unlinked_source_conditions']:
+        lines += ["", "## 引用暂不可用的保留前提", ""]
+        lines += ["- " + escaped(c) for c in guide['unlinked_source_conditions']]
     context = guide["context"]
     if context["backgrounds"] or context["supplements"]:
         lines += ["", "## 这组玩法的背景与取舍", ""]

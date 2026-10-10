@@ -10,7 +10,7 @@ from .guide_models import GuideProposal, GuideContent, BudgetLine
 from .arrangements import Rejected, _safety, _check, required_citation_ids
 from .guide_context import walking, budget_context
 
-VERSION = "advisory-guide-1.7"
+VERSION = "advisory-guide-1.8"
 SYNTHETIC = "GUIDE_MULTI_DAY"
 PROMPT = (
     "Return JSON only, protocol_version 4, Simplified Chinese, matching the supplied schema. "
@@ -289,12 +289,17 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         hard_notes=draft.hard_notes,
     )
     originals = {a.activity_id: a for a in draft.activities}
+    from .activity_content import content_references
     for a in data["activities"]:
         a["locked"] = originals[a["activity_id"]].locked if a["activity_id"] in originals else False
+        a['content_citation_ids'] = [r['claim_id'] for r in content_references(a, data['references'])]
     data["instructions"] = (
         "仅用本次活动和最小引用给建议攻略。时刻/交通/休息未知不是错误；用建议日段和取舍。"
         "只保护明确锁定时刻、预约、返回硬截止和交通限制。名称提及不是体验，停留是AI建议。"
         "食宿用策略，不编商家或当前事实；金额仅作预算预留，不是报价。"
+        " content_citation_ids仅指已审核且明确以本项目为主语的来源体验引用，仍需保留作者性质和原条件。"
+        " references.conditions含定位、对象和段落前提，不是全部都适用于当前地点的旅行限制；"
+        "不得把其中其他对象的介绍套用到本项目。完整前提不得删除或用于推定用户偏好。"
     )
     if data.get("conversation"):
         data["instructions"] += (

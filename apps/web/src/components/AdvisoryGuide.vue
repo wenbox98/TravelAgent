@@ -73,8 +73,11 @@ async function download(){error.value='';try{const v=await request<{filename:str
         <label>明确预约（可留空）<input :value="form.activities[i].locked_start||''" type="time" @change="form.activities[i].locked_start=($event.target as HTMLInputElement).value||null;save()" /></label>
         <label class="check"><input v-model="form.activities[i].locked" type="checkbox" @change="save" />锁定保留这个项目</label>
       </div></fieldset></details>
-      <details v-if="a.conditions.length"><summary>来源条件</summary><p v-for="c in a.conditions" :key="c">{{c}}</p></details>
+      <div v-for="r in a.content_references||[]" :key="r.citation_id"><p>已审核来源体验参考（{{r.role}}，非当前核实）：{{r.text}}</p><p>引用：{{r.citation_id}}；完整前提见下方“相关来源引用与上下文”，不将其他对象描述作为本站限制。</p></div>
+      <details v-if="a.travel_conditions?.length"><summary>本站来源限制</summary><p v-for="c in a.travel_conditions" :key="c">{{c}}</p></details>
     </article>
+    <details v-if="guide.source_contexts?.length"><summary>相关来源引用与上下文</summary><p>完整前提保留；其中其他对象的介绍不等于当前每站的特色或适用条件。</p><article v-for="r in guide.source_contexts" :key="r.citation_id"><h4>{{r.citation_id}} · {{r.role}}</h4><p>{{r.text}}</p><p v-for="c in r.conditions" :key="c">来源前提：{{c}}</p></article></details>
+    <details v-if="guide.unlinked_source_conditions?.length"><summary>引用暂不可用的保留前提</summary><p v-for="c in guide.unlinked_source_conditions" :key="c">{{c}}</p></details>
     <div class="actions"><button :disabled="busy||!plan.model_available" @click="emit('action','suggest',{})">让AI给出建议攻略</button><button v-if="plan.job && ['QUEUED','RUNNING'].includes(plan.job.status)" class="quiet" :disabled="busy" @click="emit('action','cancel_job',{})">停止本次生成</button></div>
     <p v-if="!plan.model_available">{{plan.model_reason}} 本地修改和导出仍可使用。</p>
     <p v-if="plan.job" role="status">{{['QUEUED','RUNNING'].includes(plan.job.status)?'正在生成建议，原采用版保留。':`原返回 ${plan.job.generated_count??0} 个提议；当时校验接纳 ${plan.job.accepted_count}，拒绝 ${plan.job.rejected_count}。`}}</p>

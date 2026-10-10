@@ -48,3 +48,13 @@ const context={backgrounds:[{context_id:'authored',scope:'GROUP_BACKGROUND',subj
 const scoped=await renderToString(createSSRApp({ssrRender,data:()=>({guide:{...guide,context,assessment},form,plan,busy:false,editing:false,composing:false,selected:[],error:'',exported:'',money:()=> '未知'})}))
 for(const text of ['这组玩法的背景与取舍','整体背景','春季；作者未亲历','雨天不推荐','不证明每站特色','未关联的来源补充','AI取舍建议','只有名称线索，具体玩法不足','来自 1 个来源']) assert(scoped.includes(text),text)
 console.log('PASS AdvisoryGuide: scoped background, conditions, independent name-only support and AI advice remain separate')
+
+const direct={citation_id:'authored-play',text:'甲园：可以欣赏树影',role:'GUIDE_SUGGESTION',conditions:['秋季'],review_status:'MODEL_CONTEXT_REVIEWED'}
+const mixed='乙馆纸艺、丙湖观鸟属于别的对象'
+const linkedGuide={...guide,activities:[{...activity,highlight:direct.text,conditions:['秋季',mixed],travel_conditions:['秋季'],content_references:[direct]}],source_contexts:[{...direct,text:'甲园→乙馆',conditions:['秋季',mixed]}]}
+const linked=await renderToString(createSSRApp({ssrRender,data:()=>({guide:linkedGuide,form,plan,busy:false,editing:false,composing:false,selected:[],error:'',exported:'',money:()=> '未知'})}))
+assert(linked.includes('已审核来源体验参考（GUIDE_SUGGESTION，非当前核实）'))
+assert(linked.includes('本站来源限制') && linked.includes('相关来源引用与上下文'))
+assert.equal(linked.split(mixed).length-1,1)
+assert(linked.includes('其他对象的介绍不等于当前每站的特色或适用条件'))
+console.log('PASS AdvisoryGuide: direct reviewed subject and deduplicated full source premises stay distinct')

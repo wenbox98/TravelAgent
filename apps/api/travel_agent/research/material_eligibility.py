@@ -14,9 +14,6 @@ PLAY_QUESTION = re.compile(r"玩法|怎么玩|体验|看点|取舍|游玩|观赏
 PLAY_CONTENT = re.compile(
     r"展陈|展览|参观|观赏|欣赏|手作|手工|互动|散步|拍照|体验|游玩|攀爬|观鸟|露营"
 )
-PLAY_DESCRIPTION = re.compile(
-    r"可以|适合|喜欢|建议|比较|不同|不如|需要|不想|值得|感受|推荐|欣赏|观赏"
-)
 
 
 def play_focused(request: ResearchRequest) -> bool:
@@ -45,12 +42,16 @@ def skip_reason(
     ]
     enough = sum(map(len, clauses)) >= 40
     topics = {topic for gap in gaps for topic in gap.topics}
+    if {gap.gap_id for gap in gaps} == {"LODGING"}:
+        lodging = enough and any(len(p) >= 12 and re.search(
+            r"住宿|住在|住哪|入住|旅馆|酒店|民宿|落脚", p) for p in clauses)
+        return None if lodging else "INSUFFICIENT_TEXT_FOR_EXTRACTION"
     question = request.research_question
     route_needed = bool(ROUTE.search(question)) or bool(topics & {"ROUTE", "DURATION", "TRANSPORT"})
     play_needed = bool(PLAY_QUESTION.search(question)) or "EXPERIENCE" in topics
     route = route_needed and any(ROUTE.search(p) for p in clauses)
     play = play_needed and any(
-        len(p) >= 12 and PLAY_CONTENT.search(p) and PLAY_DESCRIPTION.search(p) for p in clauses
+        len(p) >= 12 and PLAY_CONTENT.search(p) for p in clauses
     )
     topic_signals = {
         "SEASON": r"季节|春季|夏季|秋季|冬季|雨季|雪季|月份|气温|天气|[一二三四五六七八九十\d]+月",

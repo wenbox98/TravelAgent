@@ -51,6 +51,7 @@ def required_citation_ids(activity: dict[str, Any]) -> list[str]:
         activity.get("evidence_ids", [])
         + activity.get("discovery_ids", [])
         + activity.get("knowledge_citation_ids", [])
+        + activity.get("content_citation_ids", [])
     ))
 
 

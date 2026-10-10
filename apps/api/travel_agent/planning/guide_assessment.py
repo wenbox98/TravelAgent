@@ -7,7 +7,7 @@ from travel_agent.preview.projection import safe_text
 from .flow_models import PlanDraft
 from .guide_models import GuideDayChoice
 
-VERSION = "advisory-assessment-1.1"
+VERSION = "advisory-assessment-1.2"
 DAY_LABELS = {
     "ACTIVITIES": "已有项目建议",
     "REST": "建议留作休息",
@@ -86,6 +86,7 @@ def materials(activities: list[dict[str, Any]], refs: list[dict[str, Any]]) -> l
             )
         )
         bound = [by_id[i] for i in ids if i in by_id]
+        direct_content = []
         level = "UNVERIFIED"
         if a.get("provenance") == "SYNTHETIC_TEST":
             level = "SYNTHETIC"
@@ -99,25 +100,13 @@ def materials(activities: list[dict[str, Any]], refs: list[dict[str, Any]]) -> l
                 if any(r.get("topic") in {"ROUTE", "EXPERIENCE"} for r in bound)
                 else "UNVERIFIED"
             )
-            names = sorted({v["name"] for v in activities}, key=len, reverse=True)
-
-            def has_content(row: dict[str, Any]) -> bool:
-                remainder = row["text"]
-                for name in names:
-                    remainder = remainder.replace(name, "")
-                remainder = re.sub(r"[\W\d_]+", "", remainder)
-                return (
-                    row.get("topic") == "EXPERIENCE"
-                    and a["name"] in row["text"]
-                    and len(remainder) >= 8
-                    and not re.search(r"→|➜|➡|->", row["text"])
-                )
-
-            if any(has_content(r) for r in bound):
+            from .activity_content import content_references
+            direct_content = content_references(a, refs)
+            if direct_content:
                 level = "CONTENT_REFERENCE"
         excerpts = []
         if level in {"ROUTE_CONTEXT", "CONTENT_REFERENCE"}:
-            for r in bound:
+            for r in [*direct_content, *bound]:
                 if a["name"] not in r["text"]:
                     continue
                 try:
@@ -132,6 +121,7 @@ def materials(activities: list[dict[str, Any]], refs: list[dict[str, Any]]) -> l
                         role=r.get("reference_kind", "UNKNOWN"),
                     )
                 )
+        excerpts = list({r['citation_id']: r for r in excerpts}.values())
         result.append(
             dict(
                 activity_id=a["activity_id"],

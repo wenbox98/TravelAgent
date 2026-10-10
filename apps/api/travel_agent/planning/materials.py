@@ -18,7 +18,8 @@ _BAD_NAME = re.compile(
 
 def natural_names(text: str) -> list[str]:
     """Exact public noun phrases next to explicit actions; no outside entity lookup."""
-    names = []
+    names = [name for raw in re.findall(r"📍([^\n，。；：:]{2,30})[：:]", text)
+             if (name := place_name(raw))]
     for clause in re.split(r"[，。；！？\n]", text):
         if re.search(r"不推荐|不要|不能|禁止|不去|没去|未去", clause):
             continue
@@ -174,7 +175,7 @@ def activities(
         )
         parts = _SEQUENCE.split(text)
         if len(parts) == 1:
-            marked = re.findall(r"(?:📍|地点[：:]|【)([^\n，。】]{2,30})", text)
+            marked = re.findall(r"(?:📍|地点[：:]|【)([^\n，。】：:]{2,30})", text)
             parts = marked or ([text] if e["topic"] == "ROUTE" else natural_names(text))
         for part in parts:
             name = place_name(part)
