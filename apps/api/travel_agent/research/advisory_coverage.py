@@ -24,7 +24,7 @@ def limits(days: int | None, regional: bool = False) -> dict[str, int]:
 
 
 def assess(
-    rows: list[dict[str, Any]], request: ResearchRequest, intent: str = "UNDECIDED"
+    rows: list[dict[str, Any]], request: ResearchRequest, intent: str = "UNDECIDED", *, require_activity_content: bool = False
 ) -> dict[str, Any]:
     from travel_agent.planning.materials import activities
 
@@ -101,6 +101,19 @@ def assess(
             rows,
         ),
     ]
+    uncovered_play: list[str] = []
+    if require_activity_content:
+        from travel_agent.planning.activity_content import content_references
+        supported = []
+        for activity in candidates:
+            direct = content_references(activity.model_dump(), rows)
+            if direct:
+                supported.extend(direct)
+            else:
+                uncovered_play.append(activity.name)
+        supported_count = len(candidates) - len(uncovered_play)
+        specs.append(("PLAY_DETAIL", "主要备选项目的具体玩法与体验取舍", bool(candidates) and
+                      supported_count >= min(target, len(candidates)), supported))
     if request.days and request.days > 1:
         lodging = [
             r
@@ -141,6 +154,7 @@ def assess(
         confirmed_independent_authors=None,
         unique_fact_count=len(unique),
         conflict_count=len(conflicts),
+        uncovered_play=uncovered_play,
         conditions=sorted(set(conditions)),
         meaning="仅表示建议研究的材料覆盖；不证明天数、季节、交通或实际可行性已经核实。",
     )
@@ -148,7 +162,8 @@ def assess(
 
 class CoverageEvaluator(SufficiencyEvaluator):
     def __init__(
-        self, base: list[dict[str, Any]], scope: str, research_id: str, intent: str, clock: Any
+        self, base: list[dict[str, Any]], scope: str, research_id: str, intent: str, clock: Any,
+        *, require_activity_content: bool = False, perspective_gap: str | None = None,
     ):
         self.base, self.scope, self.research_id, self.intent, self.clock = (
             base,
@@ -158,16 +173,24 @@ class CoverageEvaluator(SufficiencyEvaluator):
             clock,
         )
         self.last: dict[str, Any] = {}
+        self.require_activity_content = require_activity_content
+        self.perspective_gap = perspective_gap
 
     def gaps(self, request: ResearchRequest, evidence: Any) -> tuple[ResearchGap, ...]:
         from travel_agent.preview.projection import project
 
         p = project(evidence, scope=self.scope, research_id=self.research_id, now=self.clock())
         rows = [*self.base, *[e for o in p["options"] for e in o["evidence"]], *p["other_clues"]]
-        self.last = assess(rows, request, self.intent)
+        self.last = assess(rows, request, self.intent, require_activity_content=self.require_activity_content)
+        # An explicit new perspective must get a chance to inspect one different
+        # body even if coarse historical dimensions already appeared covered.
+        if self.perspective_gap in {"DIRECT_REVIEW", "CROSS_CHECK"} and not evidence:
+            self.last["gaps"].append(dict(key=self.perspective_gap,
+                label="按本次新研究视角核对不同正文", status="GAP", citation_ids=[]))
         topics = {
             "ROUTES": ("ROUTE",),
             "PLAY": ("EXPERIENCE",),
+            "PLAY_DETAIL": ("EXPERIENCE",),
             "DURATION": ("DURATION",),
             "TRANSPORT": ("TRANSPORT",),
             "SEASON": ("SEASON",),

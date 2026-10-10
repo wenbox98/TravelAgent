@@ -484,6 +484,15 @@ class ResearchService:
                                     continue
                                 return finish("SOURCE_UNAVAILABLE")
                             if outcome["status"] not in {"SUCCEEDED", "PARTIAL_SUCCESS"}:
+                                failure = outcome.get("diagnostic") or {}
+                                if self.continuation is not None and failure.get("category") == "SCHEMA_INVALID":
+                                    self.source_skips.append(dict(
+                                        reason="SCHEMA_INVALID", detail_number=self.detail_number_offset + self.store.operations(run_id)["detail"],
+                                        next_action="保留已审核资料；隔离本篇无效响应，选择不同正文补缺，不重发本篇请求",
+                                    ))
+                                    extra_gaps["SCHEMA_ITEMS_REJECTED"] = self._material_gap("SCHEMA_ITEMS_REJECTED")
+                                    gaps = assess(evidence)
+                                    continue
                                 diagnostic = "LIVE_LLM_EXTRACTION_FAILED"
                                 return finish("ERROR")
                             # A supervised child commits candidates, not an in-memory ExtractionResult.

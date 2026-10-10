@@ -48,7 +48,7 @@ onUnmounted(() => {disposed = true; clearTimeout(timer)})
     <p>查看缓存、刷新和修改条件均不联网。只有下方研究按钮会启动授权范围内的新资料研究。</p>
     <template v-if="workbench">
       <p class="muted">{{ workbench.data_use }}</p>
-      <p>本轮剩余额度：搜索 {{ workbench.budget.remaining.search }} 次、详情 {{ workbench.budget.remaining.detail }} 篇、模型 {{ workbench.budget.remaining.model }} 次。失败也消耗已派发额度。</p>
+      <p>本轮剩余额度：搜索 {{ workbench.budget.remaining.search }} 次、详情 {{ workbench.budget.remaining.detail }} 篇、模型 {{ workbench.budget.remaining.model===null?'不限次数':`${workbench.budget.remaining.model}次` }}。失败也消耗已派发额度。</p>
       <p v-if="!workbench.configured" class="warning">模型配置或本轮许可不可用；本地资料仍可浏览。</p>
       <p v-else-if="workbench.budget.gate !== 'PASS'" class="warning">缓存自动审核门槛尚未通过；真实研究未开放。</p>
       <p v-else-if="workbench.budget.closed" class="muted">本轮验证已结束，保留材料和未用额度记录，不再派发。</p>

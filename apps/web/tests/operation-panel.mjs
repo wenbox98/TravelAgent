@@ -8,7 +8,7 @@ const compiled=compileTemplate({source:descriptor.template.content,filename:'Ope
 assert.deepEqual(compiled.errors,[])
 const code=compiled.code.replace(/from "([^"]+)"/g,(_,name)=>`from "${import.meta.resolve(name)}"`)
 const {ssrRender}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'))
-async function render(operation, editing=false){return renderToString(createSSRApp({ssrRender,data:()=>({plan:{operation,reuse_options:[]},busy:false,editing,planning:true,research:false,maps:true,limits:{model:2,map_place:2,map_route:1,hours:24},names:{model:'模型',map_place:'地点'},configuration:s=>s,availability:s=>s,permitState:s=>s,chosen:null})}))}
+async function render(operation, editing=false){return renderToString(createSSRApp({ssrRender,data:()=>({plan:{operation,reuse_options:[]},busy:false,editing,unlimitedModel:true,planning:true,research:false,maps:true,limits:{model:2,map_place:2,map_route:1,hours:24},names:{model:'模型',map_place:'地点'},configuration:s=>s,availability:s=>s,permitState:s=>s,chosen:null})}))}
 const empty={history:[],current:null,active:false,status:'NOT_AUTHORIZED',model_configuration:'CONFIGURED_NOT_VERIFIED',map_configuration:'NOT_CONFIGURED',research_status:'NOT_AUTHORIZED',map_status:'NOT_CONFIGURED'}
 const html=await render(empty,true)
 assert(html.includes('尚未授权') && html.includes('确认以上用途与调用上限'))

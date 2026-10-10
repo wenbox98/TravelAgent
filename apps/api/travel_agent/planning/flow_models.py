@@ -125,9 +125,9 @@ class OperationAuthorization(StrictModel):
     )
     hours: int = Field(default=24, ge=1, le=168)
     connect: int = Field(default=0, ge=0, le=1)
-    search: int = Field(default=0, ge=0, le=3)
-    detail: int = Field(default=0, ge=0, le=6)
-    model: int = Field(default=0, ge=0, le=20)
+    search: int = Field(default=0, ge=0, le=5)
+    detail: int = Field(default=0, ge=0, le=20)
+    model: int | None = Field(default=0, ge=0)
     map_place: int = Field(default=0, ge=0, le=16)
     map_route: int = Field(default=0, ge=0, le=16)
 

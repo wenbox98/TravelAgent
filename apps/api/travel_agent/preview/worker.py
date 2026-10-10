@@ -14,7 +14,7 @@ from typing import Any
 
 from travel_agent.persistence.database import Database
 from travel_agent.providers.llm import OpenAICompatibleProvider
-from travel_agent.research.bounded import BoundedBudget
+from travel_agent.research.bounded import BoundedBudget, has_capacity
 from travel_agent.research.context_review import reserve_review
 from travel_agent.research.extractor import EvidenceExtractor
 from travel_agent.research.models import (
@@ -230,7 +230,7 @@ def run_job(
 
                 reserve = COMPLETION_RESERVE if data.get("agent_step") else 1
                 if (data.get("planning_protocol") == 2
-                    and budget.summary()["remaining"]["model"] < 2 + reserve):
+                    and not has_capacity(budget.summary()["remaining"]["model"], 2 + reserve)):
                     raise ResearchStopped("BUDGET_EXHAUSTED", "PLANNING_MODEL_RESERVED")
 
             def reserve(self, kind: str, fingerprint: str) -> None:
@@ -477,6 +477,8 @@ def run_job(
                     j["research_id"],
                     data.get("spatial_intent", "UNDECIDED"),
                     db.clock,
+                    require_activity_content=budget.state()["gate"].get("consent") == "PRIVATE_GOAL_AGENT_V5",
+                    perspective_gap=data.get("agent_step", {}).get("gap_key"),
                 )
                 service.evaluator = coverage_evaluator
                 service.planner = CoveragePlanner(data["focus"], has_cache=bool(base_refs))

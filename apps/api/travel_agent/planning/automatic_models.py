@@ -13,7 +13,7 @@ class AutomaticStart(StrictModel):
     request: str = Field(min_length=1, max_length=500)
     destination: str = Field(default="", max_length=80)
     travel_kind: Literal["CITY", "REGIONAL"] = "CITY"
-    consent: Literal["PRIVATE_RESEARCH_AND_ADVICE_V2", "PRIVATE_GOAL_AGENT_V3", "PRIVATE_GOAL_AGENT_V4"]
+    consent: Literal["PRIVATE_RESEARCH_AND_ADVICE_V2", "PRIVATE_GOAL_AGENT_V3", "PRIVATE_GOAL_AGENT_V4", "PRIVATE_GOAL_AGENT_V5"]
 
     @field_validator("request", "destination")
     @classmethod
@@ -26,7 +26,7 @@ class AutomaticAction(StrictModel):
     action: Literal["continue", "cancel", "revise", "research_more", "refine"]
     expected_revision: int = Field(ge=0)
     text: str = Field(default="", max_length=500)
-    consent: Literal["PRIVATE_RESEARCH_AND_ADVICE_V2", "PRIVATE_GOAL_AGENT_V3", "PRIVATE_GOAL_AGENT_V4"] | None = None
+    consent: Literal["PRIVATE_RESEARCH_AND_ADVICE_V2", "PRIVATE_GOAL_AGENT_V3", "PRIVATE_GOAL_AGENT_V4", "PRIVATE_GOAL_AGENT_V5"] | None = None
 
     @field_validator("text")
     @classmethod

@@ -39,7 +39,8 @@ def coverage(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]
     from .reference_overview import references, focused
 
     return assess(
-        focused(references(db, scope, sid, p), p), request_for(p), p["draft"]["spatial"]["intent"]
+        focused(references(db, scope, sid, p), p), request_for(p), p["draft"]["spatial"]["intent"],
+        require_activity_content=p.get("automatic_material_source_limit") == 20,
     )
 
 
@@ -127,7 +128,7 @@ def merge_research(db: Any, scope: str, sid: str, state: dict[str, Any], rid: st
     sources: set[str] = set()
     for a in items:
         ids = item_sources(a)
-        if len(sources | ids) <= 6 and len(selected) < 12:
+        if len(sources | ids) <= p.get("automatic_material_source_limit", 6) and len(selected) < 12:
             selected.append(a)
             sources |= ids
         elif a.get("locked") or a.get("locked_start"):
@@ -253,7 +254,7 @@ def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
         if (
             not items
             or c["spatial_status"] == "MISMATCH"
-            or len(sources | ids) > 6
+            or len(sources | ids) > p.get("automatic_material_source_limit", 6)
             or len(selected) + len(items) > 12
         ):
             continue
@@ -356,7 +357,7 @@ def _activities(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
         ids = {e["source_id"] for e in refs if e["claim_id"] in a.evidence_ids}
         old = previous.get(a.activity_id)
         locked = old and (old.get("locked") or old.get("locked_start"))
-        if a.spatial_status == "MISMATCH" or len(allowed_sources | ids) > 6 or len(chosen) >= 12:
+        if a.spatial_status == "MISMATCH" or len(allowed_sources | ids) > p.get("automatic_material_source_limit", 6) or len(chosen) >= 12:
             if locked:
                 raise ValueError("PLANNING_LOCKED_CONSTRAINT")
             continue
@@ -469,7 +470,7 @@ class AutomaticService:
         ):
             raise ValueError("AUTOMATIC_ALREADY_RUNNING")
         invalidate(self.db, sid)
-        p["automatic_material_source_limit"] = 6
+        p["automatic_material_source_limit"] = 20 if agent_consent == "PRIVATE_GOAL_AGENT_V5" else 6
         if not agent:
             _cached(self.db, self.scope, sid, state)
         tid = "automatic-" + uuid4().hex
@@ -478,7 +479,7 @@ class AutomaticService:
         p["automatic_generation"] = p.get("automatic_generation", 0) + 1
         from travel_agent.research.advisory_coverage import limits as research_limits
 
-        from .agent_contract import CONSENT as AGENT_CONSENT, limits as agent_limits
+        from .agent_contract import CONSENT as AGENT_CONSENT, CURRENT_CONSENT, limits as agent_limits
 
         consent_version = (
             agent_consent if agent else "PRIVATE_CONVERSATION_LOOP_V1" if followup else CONSENT
@@ -486,9 +487,9 @@ class AutomaticService:
         limits = research_limits(p["draft"].get("days"), p["travel_kind"] == "REGIONAL")
         if followup:
             limits.update(search=1, detail=2, model=5)
-        if agent and agent_consent == AGENT_CONSENT:
+        if agent and agent_consent in {AGENT_CONSENT, CURRENT_CONSENT}:
             limits = agent_limits(
-                p["draft"].get("days"), p["travel_kind"] == "REGIONAL", followup=followup
+                p["draft"].get("days"), p["travel_kind"] == "REGIONAL", followup=followup, consent=agent_consent
             )
         if agent:
             from .agent_contract import (
@@ -500,10 +501,11 @@ class AutomaticService:
                 limits.update(connect=0, search=0, detail=0)
             if cached_reprocess:
                 limits.update(map_place=0, map_route=0)
-                limits["model"] = min(limits["model"], 8)
+                if limits["model"] is not None:
+                    limits["model"] = min(limits["model"], 8)
             if (cap := requested_model_cap(text)) is not None:
-                limits["model"] = min(limits["model"], cap)
-            if cached_reprocess and limits["model"] < 5:
+                limits["model"] = cap if limits["model"] is None else min(limits["model"], cap)
+            if cached_reprocess and limits["model"] is not None and limits["model"] < 5:
                 raise ValueError("CACHE_BODY_INSUFFICIENT_MODEL_PERMISSION")
         if agent and map_consent and not cached_reprocess:
             limits.update(map_place=2, map_route=1)
@@ -551,7 +553,7 @@ class AutomaticService:
         grant = None
         try:
             authorization = OperationAuthorization(
-                confirm=True, tasks=["RESEARCH", "PLANNING"], hours=1, **limits
+                confirm=True, tasks=["RESEARCH", "PLANNING"], hours=4 if consent_version == CURRENT_CONSENT else 1, **limits
             )
             if agent and map_consent and not cached_reprocess:
                 authorization.tasks.append("MAP")

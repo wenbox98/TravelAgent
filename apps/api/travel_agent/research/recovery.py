@@ -28,7 +28,7 @@ class ExtractionRecovery:
                 dispatch: Callable[[str, tuple[str, ...]], dict[str, Any]] | None = None,
                 cached_reprocess: bool = False) -> dict[str, Any]:
         db = self.store.db
-        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", batch_id) or not 1 <= max_attempts <= 12:
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", batch_id) or not 1 <= max_attempts <= 20:
             raise ValueError("INVALID_EXTRACTION_BATCH")
         if retry_fix_commit is not None and re.fullmatch(r"[a-f0-9]{40}", retry_fix_commit) is None:
             raise ValueError("RETRY_REQUIRES_FIX_COMMIT")

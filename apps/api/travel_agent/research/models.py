@@ -46,9 +46,9 @@ class ResearchBudget:
 
     def __post_init__(self) -> None:
         if (type(self.max_search_operations) is not int
-            or not 0 <= self.max_search_operations <= 3
-            or type(self.max_feed_details) is not int or not 0 <= self.max_feed_details <= 6):
-            raise ValueError("PoC 上限为 3 次搜索、6 次详情，允许零预算")
+            or not 0 <= self.max_search_operations <= 5
+            or type(self.max_feed_details) is not int or not 0 <= self.max_feed_details <= 20):
+            raise ValueError("研究上限为 5 次搜索、20 篇正文，允许零预算")
 
 
 @dataclass(frozen=True)

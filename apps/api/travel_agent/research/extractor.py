@@ -20,7 +20,7 @@ from .references import catalog, materialize, payload, selection_schema, validat
 __all__ = ["BodyBlock", "body_blocks", "EvidenceExtractor", "ExtractionResult", "EXTRACTION_SCHEMA"]
 
 _TOPICS = validator("EvidenceClaim").schema["$defs"]["EvidenceClaim"]["properties"]["topic"]["enum"]
-EXTRACTION_SCHEMA = {
+EXTRACTION_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False, "required": ["claims"],
     "properties": {"claims": {"type": "array", "maxItems": 12, "items": {
         "type": "object", "additionalProperties": False,
@@ -57,6 +57,15 @@ _TOPIC_PATTERNS = (
     ("TRADEOFF", r"拥挤|排队|小心|注意|不建议|风险"),
     ("EXPERIENCE", r"体验|徒步|风景|景色|游玩|美食|温泉"),
 )
+
+
+def extraction_envelope_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Keep the response envelope bounded; validate each claim independently below."""
+    from copy import deepcopy
+
+    envelope = deepcopy(schema)
+    envelope["properties"]["claims"]["items"] = {}
+    return envelope
 
 
 @dataclass(frozen=True, repr=False)
@@ -219,6 +228,9 @@ class EvidenceExtractor:
             gaps.append("PUBLISH_TIME_UNKNOWN")
         rows: list[dict[str, Any]] = []
         mode, called, rejected = "NO_BODY", False, 0
+        schema_errors: list[dict[str, Any]] = []
+        generated_count = 0
+        sensitive_output = False
         sent_block_ids: set[int] | None = None
         diagnostic: Diagnostic | None = None
         canonical: CanonicalBody | None = view
@@ -280,7 +292,23 @@ class EvidenceExtractor:
                             "completeness": completeness, "research_gaps": list(research_gaps),
                             "extraction_version": 3, "prompt_version": REFERENCE_PROMPT_VERSION}
                     output = provider.structured(task, model_input, schema)
-                    rows = validate_structured(output, schema)["claims"]
+                    received = validate_structured(output, extraction_envelope_schema(schema))["claims"]
+                    generated_count = len(received)
+                    # Inspect the entire response BEFORE filtering malformed rows. A
+                    # schema-invalid private row must not escape the batch policy gate.
+                    sensitive_output = bool(_PRIVATE.search(json.dumps(output, ensure_ascii=False)))
+                    rows = []
+                    for ordinal, item in enumerate(received):
+                        try:
+                            rows.append(validate_structured(item, schema["properties"]["claims"]["items"]))
+                        except LLMError as error:
+                            rejected += 1
+                            schema_errors.extend(
+                                {**issue, "path": ["claims", ordinal, *issue["path"]]}
+                                for issue in error.diagnostic.schema_errors
+                            )
+                    if schema_errors:
+                        gaps.append("SCHEMA_ITEMS_REJECTED")
                     if self.protocol_version == 3:
                         selected = []
                         for row in rows:
@@ -309,7 +337,7 @@ class EvidenceExtractor:
         seen: set[str] = set()
         candidate_checks: list[dict[str, Any]] = []
         # A sensitive candidate contaminates this response as a whole; retain no private rows.
-        sensitive_batch = any(_PRIVATE.search(t) or len(outbound_blocks(body_blocks(t))) != len(body_blocks(t)) for row in rows for t in
+        sensitive_batch = sensitive_output or any(_PRIVATE.search(t) or len(outbound_blocks(body_blocks(t))) != len(body_blocks(t)) for row in rows for t in
             [row["claim"], row["quote"], *[c[k] for c in row["applicable_conditions"] for k in ("text", "quote")]])
         for ordinal, row in enumerate(rows):
             grounded = (GroundingResult(False, "SENSITIVE_CONTENT_REJECTED", tuple(row["source_block_ids"]))
@@ -330,10 +358,12 @@ class EvidenceExtractor:
             gaps.append("NO_GROUNDED_CLAIMS")
         if mode in {"LLM", "MOCK"}:
             diagnostic = diagnostic or Diagnostic()
-            diagnostic.generated_claims = diagnostic.reviewed_claims = len(rows)
+            diagnostic.generated_claims = generated_count
+            diagnostic.reviewed_claims = len(rows)
+            diagnostic.schema_errors = schema_errors[:8]
             diagnostic.rejected_claims, diagnostic.accepted_claims = rejected, len(claims)
             diagnostic.stage = "GROUNDING" if rejected or not claims else "COMPLETE"
-            diagnostic.category = "UNGROUNDED" if rejected else "NO_CLAIMS" if not claims else "SUCCESS"
+            diagnostic.category = "SCHEMA_INVALID" if schema_errors else "UNGROUNDED" if rejected else "NO_CLAIMS" if not claims else "SUCCESS"
         travel_date = _travel_date(canonical.text) if canonical is not None and blocks else None
         if travel_date is None:
             gaps.append("TRAVEL_TIME_UNKNOWN")

@@ -357,6 +357,12 @@ class OpenAICompatibleProvider:
             except ValueError:
                 fail("CONTENT_JSON", "INVALID_JSON")
             validation_schema = schema
+            if task in {"extract_evidence", "select_evidence_references_v1"}:
+                from travel_agent.research.extractor import extraction_envelope_schema
+
+                # The strict schema is still sent to the model. Only these
+                # extraction receivers isolate individual malformed siblings.
+                validation_schema = extraction_envelope_schema(schema)
             if task == "planning_arrangement_v2":
                 from travel_agent.planning.arrangements import envelope_schema
                 validation_schema = envelope_schema()

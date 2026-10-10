@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from travel_agent.preview.projection import fingerprint
-from travel_agent.research.bounded import BoundedBudget
+from travel_agent.research.bounded import BoundedBudget, has_capacity
 from travel_agent.research.store import EvidenceStore
 
 KINDS = ("CONNECT", "SEARCH", "DETAIL", "MODEL", "MAP_PLACE", "MAP_ROUTE")
@@ -108,7 +108,7 @@ class DailyBudget(BoundedBudget):
         super().__init__(EvidenceStore(db), identifier)
 
     @property
-    def limits(self) -> dict[str, int]:
+    def limits(self) -> dict[str, int | None]:
         return dict(self.state()["limits"])
 
     def check_trip(self, scope: str, sid: str, *, bind: bool = False) -> dict[str, Any]:
@@ -184,16 +184,16 @@ def authorize(db: Any, scope: str, sid: str, p: dict[str, Any], proposal: Any) -
     if p.get("demo") == "GUIDE_MULTI_DAY" and any(limits[k] for k in KINDS if k != "MODEL"):
         raise ValueError("OPERATION_NOT_AUTHORIZED")
     tasks = sorted(set(proposal.tasks))
-    if not any(limits.values()) or not tasks:
+    if not any(v is None or v > 0 for v in limits.values()) or not tasks:
         raise ValueError("INVALID_INPUT")
     if (
         (any(limits[k] for k in ("CONNECT", "SEARCH", "DETAIL")) and "RESEARCH" not in tasks)
         or (any(limits[k] for k in ("MAP_PLACE", "MAP_ROUTE")) and "MAP" not in tasks)
-        or (limits["MODEL"] and not set(tasks) & {"RESEARCH", "PLANNING", "REVISION", "QUESTION"})
+        or (limits["MODEL"] != 0 and not set(tasks) & {"RESEARCH", "PLANNING", "REVISION", "QUESTION"})
     ):
         raise ValueError("INVALID_INPUT")
     config: dict[str, Any] = {"model_disabled": True}
-    if limits["MODEL"]:
+    if limits["MODEL"] != 0:
         provider = configured_provider()
         config = _config(provider, 180)
         if config["host"] != "api.deepseek.com":
@@ -238,7 +238,7 @@ def authorize(db: Any, scope: str, sid: str, p: dict[str, Any], proposal: Any) -
         recipients=[
             h
             for enabled, h in (
-                (limits["MODEL"], "api.deepseek.com"),
+                (limits["MODEL"] != 0, "api.deepseek.com"),
                 (limits["MAP_PLACE"] + limits["MAP_ROUTE"], "restapi.amap.com"),
                 (limits["CONNECT"] + limits["SEARCH"] + limits["DETAIL"], "www.xiaohongshu.com"),
             )
@@ -353,7 +353,7 @@ def overview(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]
         else capability(
             "RESEARCH",
             configured,
-            remaining["search"] > 0 and remaining["detail"] > 0 and remaining["model"] >= 3,
+            remaining["search"] > 0 and remaining["detail"] > 0 and has_capacity(remaining["model"], 3),
         ),
         map_status=capability(
             "MAP", map_configured, remaining["map_place"] + remaining["map_route"] > 0
@@ -379,7 +379,7 @@ def model_status(db: Any, scope: str, sid: str, p: dict[str, Any]) -> str:
         budget.task(
             "REVISION" if p["draft"]["adjustment"] in {"FEWER", "LONGER_FIRST"} else "PLANNING"
         )
-        if budget.summary()["remaining"]["model"] <= 0:
+        if not has_capacity(budget.summary()["remaining"]["model"]):
             return "BUDGET_EXHAUSTED"
         if db.connection.execute(
             "SELECT 1 FROM preview_jobs WHERE session_id=? AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",

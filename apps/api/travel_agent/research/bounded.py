@@ -3,12 +3,18 @@
 from hashlib import sha256
 import json
 from typing import Any
+from collections.abc import Mapping
 
 from travel_agent.providers.llm import OpenAICompatibleProvider
 from .retry import _config
 from .store import EvidenceStore
 
 LIMITS = {"CONNECT": 1, "SEARCH": 1, "DETAIL": 1, "MODEL": 4}
+
+
+def has_capacity(remaining: int | None, needed: int = 1) -> bool:
+    """None means no model call-count ceiling, never unknown or zero usage."""
+    return remaining is None or remaining >= needed
 
 
 class BoundedBudget:
@@ -117,10 +123,13 @@ class BoundedBudget:
                 raise ValueError("EVALUATION_GATE_NOT_PASS")
             self.reserve_count(kind, fingerprint, state["limits"])
 
-    def reserve_count(self, kind: str, fingerprint: str, limits: dict[str, int]) -> None:
+    def reserve_count(self, kind: str, fingerprint: str, limits: Mapping[str, int | None]) -> None:
         """Shared atomic counter for an already checked grant, including P03 maps."""
         if kind not in limits:
             raise ValueError("BOUNDED_NOT_ACTIVE")
+        if limits[kind] is None and kind != "MODEL":
+            raise ValueError("BOUNDED_NOT_ACTIVE")
+        limit = limits[kind]
         with self.store.db.transaction() as con:
             count = con.execute(
                 "SELECT count(*) FROM continuation_operations WHERE continuation_id=? AND kind=?",
@@ -128,7 +137,7 @@ class BoundedBudget:
             ).fetchone()[0]
             digest = sha256(fingerprint.encode()).hexdigest()
             if (
-                count >= limits[kind]
+                (limit is not None and count >= limit)
                 or con.execute(
                     "SELECT 1 FROM continuation_operations "
                     "WHERE continuation_id=? AND kind=? AND fingerprint=?",
@@ -183,7 +192,7 @@ class BoundedBudget:
             used[r[0].lower()] = r[1]
         return {
             "used": used,
-            "remaining": {k.lower(): v - used[k.lower()] for k, v in s["limits"].items()},
+            "remaining": {k.lower(): None if v is None else v - used[k.lower()] for k, v in s["limits"].items()},
             "gate": s["gate"]["status"],
             "closed": bool(s["finished_at"]),
         }

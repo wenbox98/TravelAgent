@@ -260,9 +260,16 @@ class WorkbenchCounts(StrictModel):
     model: int = Field(ge=0)
 
 
+class WorkbenchRemaining(StrictModel):
+    connect: int = Field(ge=0)
+    search: int = Field(ge=0)
+    detail: int = Field(ge=0)
+    model: int | None = Field(ge=0)
+
+
 class WorkbenchBudget(StrictModel):
     used: WorkbenchCounts
-    remaining: WorkbenchCounts
+    remaining: WorkbenchRemaining
     gate: str
     closed: bool
 

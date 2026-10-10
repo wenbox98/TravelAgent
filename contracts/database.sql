@@ -1,4 +1,8 @@
 -- TravelAgent v0.1 initial schema DRAFT. Executed against SQLite for structural validation only.
+-- PRIVATE_GOAL_AGENT_V5: existing research_continuations.limits_json MODEL=null
+-- means no model call-count ceiling; used continuation_operations remain immutable.
+-- New grants allow SEARCH<=5 and DETAIL<=20; migration 019 expands the source
+-- batch constraint, preserving old limits, attempts and child references.
 -- No external content may be written until application SourcePolicy checks succeed.
 -- Immutable v1 baseline. Apply migrations/002_poc.sql for the current v1.1 contract.
 -- Runtime applies 003..009; 009 retains fixed continuation budgets independently of cache deletion.

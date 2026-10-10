@@ -1,6 +1,8 @@
 openapi: 3.1.0
 info:
   title: TravelAgent local API
+  x-current-agent-consent: PRIVATE_GOAL_AGENT_V5
+  x-agent-budget-semantics: New V5 grants allow 5 searches and 20 bodies; MODEL null means no call-count ceiling, with every dispatch audited. Historical grants keep their original limits.
   version: 0.1.1-design
   description: Design contract, not an implemented server. Loopback-only authenticated
     local application. Domain contracts now use NEED_LOGIN and VERIFICATION_REQUIRED;

@@ -3112,18 +3112,31 @@
           "minimum": 0
         },
         "response_format": {
-          "enum": ["json_object", "json_schema", null]
+          "enum": [
+            "json_object",
+            "json_schema",
+            null
+          ]
         },
         "schema_sha256": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^[a-f0-9]{64}$"
         },
         "system_prompt_sha256": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^[a-f0-9]{64}$"
         },
         "citation_requirement_count": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 1000
         }
@@ -4699,7 +4712,7 @@
           "$ref": "#/$defs/WorkbenchCounts"
         },
         "remaining": {
-          "$ref": "#/$defs/WorkbenchCounts"
+          "$ref": "#/$defs/WorkbenchRemaining"
         },
         "gate": {
           "title": "Gate",
@@ -7990,24 +8003,30 @@
         },
         "search": {
           "default": 0,
-          "maximum": 3,
+          "maximum": 5,
           "minimum": 0,
           "title": "Search",
           "type": "integer"
         },
         "detail": {
           "default": 0,
-          "maximum": 6,
+          "maximum": 20,
           "minimum": 0,
           "title": "Detail",
           "type": "integer"
         },
         "model": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": 0,
-          "maximum": 20,
-          "minimum": 0,
-          "title": "Model",
-          "type": "integer"
+          "title": "Model"
         },
         "map_place": {
           "default": 0,
@@ -8800,7 +8819,8 @@
           "enum": [
             "PRIVATE_RESEARCH_AND_ADVICE_V2",
             "PRIVATE_GOAL_AGENT_V3",
-            "PRIVATE_GOAL_AGENT_V4"
+            "PRIVATE_GOAL_AGENT_V4",
+            "PRIVATE_GOAL_AGENT_V5"
           ],
           "title": "Consent",
           "type": "string"
@@ -8857,7 +8877,8 @@
               "enum": [
                 "PRIVATE_RESEARCH_AND_ADVICE_V2",
                 "PRIVATE_GOAL_AGENT_V3",
-                "PRIVATE_GOAL_AGENT_V4"
+                "PRIVATE_GOAL_AGENT_V4",
+                "PRIVATE_GOAL_AGENT_V5"
               ],
               "type": "string"
             },
@@ -8955,7 +8976,8 @@
                 "PRIVATE_CACHED_QUESTION_V1",
                 "PRIVATE_CONVERSATION_LOOP_V1",
                 "PRIVATE_GOAL_AGENT_V3",
-                "PRIVATE_GOAL_AGENT_V4"
+                "PRIVATE_GOAL_AGENT_V4",
+                "PRIVATE_GOAL_AGENT_V5"
               ],
               "type": "string"
             },
@@ -10210,6 +10232,46 @@
         "value"
       ],
       "title": "WalkingUpdate",
+      "type": "object"
+    },
+    "WorkbenchRemaining": {
+      "additionalProperties": false,
+      "properties": {
+        "connect": {
+          "minimum": 0,
+          "title": "Connect",
+          "type": "integer"
+        },
+        "search": {
+          "minimum": 0,
+          "title": "Search",
+          "type": "integer"
+        },
+        "detail": {
+          "minimum": 0,
+          "title": "Detail",
+          "type": "integer"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model"
+        }
+      },
+      "required": [
+        "connect",
+        "search",
+        "detail",
+        "model"
+      ],
+      "title": "WorkbenchRemaining",
       "type": "object"
     }
   }

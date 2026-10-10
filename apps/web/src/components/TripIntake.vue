@@ -25,7 +25,7 @@ function keyboard(e:KeyboardEvent){if(!composing.value&&submitShortcut(e)){e.pre
     <label><input type="checkbox" v-model="mapConsent" />允许为本次一段关键公共衔接查询高德（最多2个地点和1段路径；不发送私址，地点候选仍需确认；可不选）</label>
     <button type="submit" :disabled="Boolean(blocked)" aria-describedby="intake-reason">{{buttonLabel}}</button>
     <p id="intake-reason" role="status" aria-live="polite">{{attempted||blocked||'无需先填写人数、预算或日期；只有采用时才覆盖你的版本。'}}</p>
-    <details><summary>高级：执行范围与本地模式</summary><p>本次新许可（V4）按天数和旅行范围，最多连接1次、搜索2–3次、正文4–6篇、模型13–18次，一小时内有效；资料覆盖足够就提前停止，不自动重试。同一搜索列表可按缺口择读多篇，先预留后续决策与建议生成的次数。适用缓存已足够时可跳过小红书。监督最多使用6个来源的必要引用（含缓存），每来源每次最多6000字。模型次数包含首次理解、最多6轮决策、提取审核和建议生成；旧许可总额不变。次数上限不是费用承诺。</p><button type="button" :disabled="Boolean(blocked)" @click="start(true)">只建立本地旅行</button></details>
+    <details><summary>高级：执行范围与本地模式</summary><p>本次最多连接1次、搜索5次、读取20篇正文；模型调用次数不限，逐次记账，四小时内有效。会结合实际缺口开展正面玩法与侧面交通、住宿研究，同一搜索列表可择读多篇。适用缓存优先，问题或假设不查新资料。每来源每次最多6000字发给既定DeepSeek，不发送凭据、私址或地图返回。取消、无进展、明确服务故障或登录验证会停止；失败不自动重试，旧许可与用量不变。次数不是费用承诺。</p><button type="button" :disabled="Boolean(blocked)" @click="start(true)">只建立本地旅行</button></details>
     <p class="muted">尚未提交的想法仅保留在当前浏览器本机，恢复连接后可以继续。</p>
   </form>
 </template>

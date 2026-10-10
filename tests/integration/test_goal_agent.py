@@ -601,7 +601,7 @@ def test_migration_18_preserves_legacy_rows_and_limits_one_active_agent_child(
                 "continuation_operations",
             )
         }
-    with Database(path) as db:
+    with Database(path, target_version=18) as db:
         assert db.version == 18
         for name, rows in protected.items():
             assert [tuple(r) for r in db.connection.execute("SELECT * FROM " + name)] == rows

@@ -3,6 +3,7 @@
 import json
 import re
 from typing import Any
+from travel_agent.research.bounded import has_capacity
 
 from travel_agent.domain.models import SourcePolicy
 from .extractor import REFERENCE_PROMPT_VERSION, policy_allows_model
@@ -57,7 +58,7 @@ def prepare(db: Any, scope: str, sid: str, p: dict[str, Any], text: str,
         raise ValueError("CACHE_BODY_NO_CURRENT_GAP")
     # Version + gap + exact immutable snapshot is the recipe. Old failures remain
     # terminal even when a later task has another allowance.
-    old = []
+    old: list[dict[str, Any]] = []
     for row in db.connection.execute(
         "SELECT request_json,continuation_id FROM preview_jobs WHERE session_id=? AND account_scope=?",
         (sid, scope),
@@ -168,7 +169,7 @@ def analyze(store: EvidenceStore, job: Any, data: dict[str, Any], recovery: Any,
             active()
             validate(store, job, step)
             # Keep a decision + useful advisory generation available after strict review.
-            if budget.summary()["remaining"]["model"] < 4:
+            if not has_capacity(budget.summary()["remaining"]["model"], 4):
                 break
             policy = store._latest_policy(content["policy_id"])
             store.register_policy(run_id, 0, policy)

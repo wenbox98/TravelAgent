@@ -17,7 +17,7 @@ from travel_agent.persistence.database import Database
 from travel_agent.preview.projection import fingerprint, safe_text
 from travel_agent.preview.worker import configured_provider
 from travel_agent.providers.llm import OpenAICompatibleProvider
-from travel_agent.research.bounded import BoundedBudget
+from travel_agent.research.bounded import BoundedBudget, has_capacity
 from travel_agent.research.retry import _config
 from travel_agent.research.store import EvidenceStore
 from travel_agent.settings import PROJECT_ROOT
@@ -164,7 +164,7 @@ def model_available(db: Database, scope: str, p: dict[str, Any], sid: str = "") 
                 "SELECT count(*) FROM preview_jobs WHERE continuation_id=? AND research_id LIKE 'planning-%'",
                 (PRIVATE_ID,),
             ).fetchone()[0]
-            if n >= 2 or budget.summary()["remaining"]["model"] <= 0:
+            if n >= 2 or not has_capacity(budget.summary()["remaining"]["model"]):
                 return False
             from .private_budget import DISCOVERY_IDENTIFIER
 
@@ -813,12 +813,14 @@ def launch(
 
     def supervise() -> None:
         task_action = "task-worker"
+        current_loop = False
         if automatic:
             with Database(database) as db:
                 row = db.connection.execute("SELECT request_json FROM planning_tasks WHERE task_id=?",(jid,)).fetchone()
-                from .agent_contract import CONSENT as AGENT_CONSENT
-                if row and json.loads(row[0]).get("consent") == AGENT_CONSENT:
+                from .agent_contract import CONSENTS as AGENT_CONSENTS, CURRENT_CONSENT
+                if row and json.loads(row[0]).get("consent") in AGENT_CONSENTS:
                     task_action = "agent-worker"
+                    current_loop = json.loads(row[0]).get("consent") == CURRENT_CONSENT
         command = [
             sys.executable,
             str(PROJECT_ROOT / "scripts/product_preview.py"),
@@ -864,7 +866,7 @@ def launch(
                 )
                 _finish_answer_grant(db, jid)
             return
-        end = monotonic() + (3300 if automatic else 2850 if research else 180)
+        end = monotonic() + (14400 if current_loop else 3300 if automatic else 2850 if research else 180)
         # Reuse a connection; each poll is a read, not a migration transaction.
         with Database(database) as db:
             while process.poll() is None:

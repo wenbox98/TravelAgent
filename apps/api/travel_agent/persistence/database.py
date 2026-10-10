@@ -18,7 +18,7 @@ def statements(sql):
 
 
 class Database:
-    LATEST_VERSION = 18
+    LATEST_VERSION = 19
 
     def __init__(self, path: Path, *, clock=None, target_version=LATEST_VERSION):
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -43,6 +43,19 @@ class Database:
         return self.clock().isoformat()
 
     def migrate(self, target):
+        # SQLite cannot rebuild a referenced parent table with foreign keys on.
+        # Disable enforcement only for this atomic migration; _migrate checks all
+        # references before commit, so an invalid copy rolls back in full.
+        rebuild_parent = self.version < 19 <= target
+        if rebuild_parent:
+            self.connection.execute("PRAGMA foreign_keys=OFF")
+        try:
+            self._migrate(target)
+        finally:
+            if rebuild_parent:
+                self.connection.execute("PRAGMA foreign_keys=ON")
+
+    def _migrate(self, target):
         current = self.version
         if target > self.LATEST_VERSION or current > target:
             raise ValueError("不支持未知版本或数据库降级")
@@ -79,6 +92,7 @@ class Database:
                     16: "contracts/migrations/016_knowledge.sql",
                     17: "contracts/migrations/017_automatic_planning.sql",
                     18: "contracts/migrations/018_goal_agent.sql",
+                    19: "contracts/migrations/019_agent_source_limit.sql",
                 }[version]
                 for statement in statements(path.read_text(encoding="utf-8")):
                     self.connection.execute(statement)

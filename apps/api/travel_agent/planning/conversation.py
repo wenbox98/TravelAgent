@@ -45,7 +45,7 @@ class ConversationAction(StrictModel):
             "PRIVATE_CACHED_QUESTION_V1",
             "PRIVATE_CONVERSATION_LOOP_V1",
             "PRIVATE_GOAL_AGENT_V3",
-            "PRIVATE_GOAL_AGENT_V4",
+            "PRIVATE_GOAL_AGENT_V4", "PRIVATE_GOAL_AGENT_V5",
         ]
         | None
     ) = None

@@ -5,7 +5,7 @@ from typing import Any
 from uuid import uuid4
 
 from travel_agent.persistence.database import Database
-from travel_agent.research.bounded import BoundedBudget
+from travel_agent.research.bounded import BoundedBudget, has_capacity
 from travel_agent.research.models import ResearchRequest
 from travel_agent.research.store import EvidenceStore
 from .models import Mode
@@ -60,7 +60,7 @@ class JobService:
             and (not any(j["status"] in ACTIVE for j in jobs) if ordinary else not jobs)
             and budget["remaining"]["search"] > 0
             and (budget["remaining"]["detail"] > 0 if ordinary else True)
-            and budget["remaining"]["model"] >= (3 if ordinary else 2),
+            and has_capacity(budget["remaining"]["model"], 3 if ordinary else 2),
             "configured": ready,
             "budget": budget,
             "jobs": jobs,
@@ -91,7 +91,7 @@ class JobService:
 
                 current = DailyBudget(self.db, self.continuation).check_trip(self.scope, session)
                 if (not ready or not current["gate"].get("cached_body_request")
-                    or self.budget.summary()["remaining"]["model"] < 4
+                    or not has_capacity(self.budget.summary()["remaining"]["model"], 4)
                     or con.execute("SELECT 1 FROM preview_jobs WHERE continuation_id=? AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
                                    (self.continuation,)).fetchone()):
                     raise ValueError("CACHE_BODY_TASK_BINDING_DENIED")
@@ -204,8 +204,8 @@ class JobService:
                     route_choices=route_choices,
                 )
             jid = "job-" + uuid4().hex
-            from travel_agent.planning.agent_contract import CONSENT as AGENT_CONSENT
-            research = ("research-step-" if self.budget.state()["gate"].get("consent") == AGENT_CONSENT else "research-") + uuid4().hex
+            from travel_agent.planning.agent_contract import CONSENTS as AGENT_CONSENTS
+            research = ("research-step-" if self.budget.state()["gate"].get("consent") in AGENT_CONSENTS else "research-") + uuid4().hex
             con.execute(
                 "INSERT INTO preview_jobs VALUES(?,?,?,?,?,?,?,?,?,?,0,NULL,?,NULL)",
                 (

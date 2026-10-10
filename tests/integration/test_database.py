@@ -65,6 +65,24 @@ def test_migration_restart_and_upgrade(tmp_path, clock, fixture_data):
         assert db.connection.execute("SELECT count(*) FROM schema_version").fetchone()[0] == Database.LATEST_VERSION
 
 
+def test_v19_source_limit_preserves_parent_children_and_restores_enforcement(tmp_path):
+    path = tmp_path / "source-limit.sqlite3"
+    with Database(path, target_version=18) as db:
+        db.connection.execute("INSERT INTO extraction_batches VALUES('old','synthetic',6)")
+        db.connection.execute("CREATE TABLE synthetic_batch_links(id TEXT REFERENCES extraction_batches(batch_id))")
+        db.connection.execute("INSERT INTO synthetic_batch_links VALUES('old')")
+    with Database(path) as db:
+        assert tuple(db.connection.execute("SELECT * FROM extraction_batches WHERE batch_id='old'").fetchone()) == ('old', 'synthetic', 6)
+        assert db.connection.execute("SELECT id FROM synthetic_batch_links").fetchone()[0] == 'old'
+        db.connection.execute("INSERT INTO extraction_batches VALUES('new','synthetic',20)")
+        with pytest.raises(sqlite3.IntegrityError):
+            db.connection.execute("INSERT INTO extraction_batches VALUES('overflow','synthetic',21)")
+        with pytest.raises(sqlite3.IntegrityError):
+            db.connection.execute("INSERT INTO synthetic_batch_links VALUES('absent')")
+        assert db.connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert not db.connection.execute("PRAGMA foreign_key_check").fetchall()
+
+
 def test_foreign_key_and_transaction_rollback(tmp_path, clock, fixture_data):
     with Database(tmp_path / "test.sqlite3", clock=clock) as db:
         with pytest.raises(sqlite3.IntegrityError), db.transaction():
