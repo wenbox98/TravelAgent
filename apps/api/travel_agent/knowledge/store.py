@@ -251,6 +251,25 @@ class Library:
                 except ValueError:
                     continue
 
+    def for_evidence(self, destination: str, claim_ids: set[str]) -> list[dict[str, Any]]:
+        """Exact attached evidence lookup; browsing's 60-card page is not a research pool."""
+        if not claim_ids:
+            return []
+        result = []
+        for row in self.db.connection.execute(
+            "SELECT * FROM knowledge_cards k WHERE account_scope=? AND status='ACTIVE' "
+            "AND destination=? AND kind='SOURCE_REFERENCE' AND test_input=0 "
+            "AND version=(SELECT max(version) FROM knowledge_cards WHERE card_id=k.card_id) "
+            "AND EXISTS (SELECT 1 FROM json_each(k.data_json,'$.evidence_links') e "
+            "JOIN json_each(?) i ON e.value=i.value) ORDER BY card_id",
+            (self.scope, destination, json.dumps(sorted(claim_ids))),
+        ).fetchall():
+            try:
+                result.append(self.get(binding(dict(row))))
+            except ValueError:
+                continue
+        return result
+
     def search(
         self,
         query: str = "",

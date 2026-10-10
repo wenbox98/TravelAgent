@@ -77,6 +77,31 @@ def test_roles_conditions_idempotence_versions_source_count(normal):
         lib.get(binding(cards[0]))
 
 
+def test_attached_evidence_lookup_is_not_catalog_page_and_revalidates_scope(normal):
+    s, old = normal
+    original = organize(s, old)[0]
+    lib = Library(s.db, s.scope)
+    metadata = {k: v for k, v in original.items() if k not in {
+        "card_id", "version", "card_hash", "raw_availability", "raw_retention", "validation_basis"}}
+    metadata["test_input"] = False
+    cards = []
+    for i in range(65):
+        value = deepcopy(metadata)
+        value.update(title=f"合成条目{i:03}")
+        cards.append(lib.save(f"authored-{i}", value))
+    assert len(lib.search(destination="合成青谷")["cards"]) == 60
+    wanted = set(original["evidence_links"])
+    found = lib.for_evidence("合成青谷", wanted)
+    expected = {original["card_id"], *(c["card_id"] for c in cards)}
+    assert {c["card_id"] for c in found} == expected
+    assert not lib.for_evidence("其他目的地", wanted)
+    assert not Library(s.db, "other-owner").for_evidence("合成青谷", wanted)
+    assert not lib.for_evidence("合成青谷", {"unattached"})
+    s.db.connection.execute("UPDATE knowledge_cards SET status='DELETED' WHERE card_id=?", (cards[-1]["card_id"],))
+    found = lib.for_evidence("合成青谷", wanted)
+    assert {c["card_id"] for c in found} == expected - {cards[-1]["card_id"]}
+
+
 def test_narrowed_combination_projects_background_sources_without_reviving_bindings(normal):
     from travel_agent.domain.source_policy import SourcePolicy
     from travel_agent.research.models import DetailMaterial, ResearchRequest

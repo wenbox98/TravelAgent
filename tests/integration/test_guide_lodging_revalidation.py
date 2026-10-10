@@ -22,6 +22,7 @@ normal = normal_fixture
     ("住宿：优先住合成青谷市区，搬行李较方便。", "合成青谷市区"),
     ("住宿：建议住在合成木鱼镇，按个人偏好选择。", "合成木鱼镇"),
     ("推荐住合成南溪村，环境取舍见正文。", "合成南溪村"),
+    ("住宿建议放合成南岗—沿江—市中心一带，夜间散步较方便。", "合成南岗—沿江—市中心一带"),
 ])
 def test_lodging_area_is_exact_location_without_advice_prefix(text, name):
     from travel_agent.planning.lodging import researched_areas
@@ -29,6 +30,26 @@ def test_lodging_area_is_exact_location_without_advice_prefix(text, name):
     areas = researched_areas([row])
     assert [a["name"] for a in areas] == [name]
     assert areas[0]["references"] == [row]
+
+
+def test_lodging_list_requires_reviewed_heading_and_exact_named_statement():
+    from travel_agent.planning.lodging import researched_areas
+
+    row = dict(claim_id="authored-list-area", topic="TRADEOFF", text="1️⃣合成江汉路步行街，",
+               conditions=["商业繁华", "✅两日游行程", "🏨住宿", "1️⃣合成江汉路步行街，"],
+               reference_kind="GUIDE_SUGGESTION", review_status="MODEL_CONTEXT_REVIEWED", source_id="synthetic:area")
+    other = dict(row, claim_id="authored-list-other", text="2️⃣合成黄鹤楼周边，", conditions=["距离景点近", "🏨住宿"])
+    areas = researched_areas([row, other])
+    assert [a["name"] for a in areas] == ["合成江汉路步行街", "合成黄鹤楼周边"]
+    assert areas[0]["references"][0]["conditions"] == row["conditions"]
+    preferred = researched_areas([dict(row, text="🌟首选合成江汉路，")])
+    assert [a["name"] for a in preferred] == ["合成江汉路"]
+    for invalid in [dict(row, conditions=["这里不建议住宿"]), dict(row, review_status="PENDING"),
+                    dict(row, topic="ROUTE"), dict(row, text="3️⃣车站附近，"),
+                    dict(row, text="如果合成黄鹤楼周边，"), dict(row, text="不要去合成黄鹤楼周边，"),
+                    dict(row, text="沿江散步，", conditions=["🏨住宿", "合成黄鹤楼周边"]),
+                    dict(row, text="不住宿建议放合成南岗—沿江—市中心一带。")]:
+        assert not researched_areas([invalid])
 
 
 def test_reviewed_area_advice_keeps_role_conditions_and_current_citation_boundary():

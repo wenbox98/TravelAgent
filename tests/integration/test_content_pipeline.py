@@ -56,6 +56,91 @@ def test_colon_subject_has_exact_name_and_content_binding():
     assert "📍" not in a.name and "：" not in a.name
 
 
+@pytest.mark.parametrize("text,name", [
+    ("✅合成青谷公园：林间步道与古树景观适合慢逛。", "合成青谷公园"),
+    ("3.合成南馆：镇馆之宝看铜鼓与古剑，感受历史文化。", "合成南馆"),
+    ("合成北街｜沿街洋房和咖啡馆，适合安静散步拍照。", "合成北街"),
+])
+def test_reviewed_numbered_and_bar_headings_create_content_candidates(text, name):
+    row = dict(rows()[1], text=text)
+    found = activities([row], "合成海城", limit=None)
+    assert [a.name for a in found] == [name]
+    assert content_references(found[0].model_dump(), [row]) == [row]
+
+
+def test_reviewed_heading_premise_links_play_only_to_exact_subject_not_substring():
+    row = dict(rows()[1], text="绿道适合骑行散步，", clause_context=["📍合成东湖风景区：城市湖泊，"],
+               conditions=["📍合成东湖风景区：城市湖泊，", "景点分散，挑精华片段即可。"])
+    route = dict(rows()[0], text="合成东湖→合成东湖风景区")
+    found = activities([route, row], "合成海城", limit=None)
+    exact = next(a for a in found if a.name == "合成东湖风景区")
+    assert content_references(exact.model_dump(), [route, row]) == [row]
+    short = next(a for a in found if a.name == "合成东湖")
+    assert not content_references(short.model_dump(), [route, row])
+    for context in [["Day1：合成东湖风景区→乙馆"], ["如果去合成东湖风景区：湖泊，"],
+                    ["不去合成东湖风景区：湖泊，"], ["玩法：沿湖散步，"]]:
+        assert not content_references(exact.model_dump(), [route, dict(row, clause_context=context)])
+
+
+def test_immutable_card_adds_reviewed_heading_without_changing_existing_binding():
+    from travel_agent.knowledge.planning import templates
+    from travel_agent.preview.projection import fingerprint
+    card = dict(card_id="card-" + "a" * 28, version=1, card_hash="a" * 64,
+                kind="SOURCE_REFERENCE", tags=["EXPERIENCE"], entities=[],
+                activities=[dict(name="合成旧园")], sources=[], evidence_links=["claim"],
+                scoped_references=[dict(rows()[1], claim_id="claim")],
+                text="✅合成北街：沿街洋房和手作展陈，适合安静散步拍照。",
+                conditions=["秋季"], review_scope="GUIDE_SUGGESTION",
+                review_method="MODEL_CONTEXT_REVIEWED", destination="合成海城", spatial_status="UNKNOWN")
+    before = deepcopy(card)
+    projected = templates(card)
+    assert [a.name for a in projected] == ["合成旧园", "合成北街"]
+    assert projected[0].activity_id == "knowledge-" + fingerprint([card["card_id"], 0])[:24]
+    assert projected[1].knowledge_refs[0].card_hash == card["card_hash"]
+    assert card == before
+    pending = dict(card, review_method="NEEDS_REVIEW")
+    assert [a.name for a in templates(pending)] == ["合成旧园"]
+
+
+def test_explicit_cache_refresh_uses_attached_reviews_keeps_locks_and_adoption(monkeypatch):
+    from travel_agent.planning.automatic import _refresh_scoped_knowledge
+    from travel_agent.knowledge.planning import templates
+    base = dict(card_id="card-" + "b" * 28, version=1, card_hash="a" * 64,
+                kind="SOURCE_REFERENCE", tags=["EXPERIENCE"], entities=[],
+                activities=[dict(name="合成旧园")], sources=[dict(source_id="authored", title="合成旅行")],
+                evidence_links=["old"], scoped_references=[],
+                text="✅合成新园：沿河观鸟与手作展陈，适合安静散步拍照。",
+                conditions=[], review_scope="GUIDE_SUGGESTION", review_method="MODEL_CONTEXT_REVIEWED",
+                destination="合成海城", spatial_status="UNKNOWN")
+    own = dict(base, card_id="card-" + "c" * 28, evidence_links=["attached"], activities=[],
+               text="合成南馆｜参观铜鼓与纸艺展陈，感受历史文化。")
+    unrelated = dict(own, card_id="card-" + "d" * 28, evidence_links=["unattached"],
+                     text="合成远街｜沿街洋房和手作展陈，适合安静散步拍照。")
+    cards = {c["card_id"]: c for c in [base, own, unrelated]}
+    class Library:
+        def __init__(self, *args):
+            pass
+        def search(self, **kw):
+            return dict(cards=list(cards.values()))
+        def for_evidence(self, destination, claim_ids):
+            return [c for c in cards.values() if set(c["evidence_links"]) & claim_ids]
+        def get(self, ref):
+            return cards[ref["card_id"]]
+    monkeypatch.setattr("travel_agent.knowledge.store.Library", Library)
+    monkeypatch.setattr("travel_agent.knowledge.planning.verify", lambda *a: [])
+    monkeypatch.setattr("travel_agent.planning.materials.references", lambda *a: [dict(claim_id="attached")])
+    locked = templates(base)[0].model_dump()
+    locked.update(locked=True, day=2, stay_min=45)
+    p = dict(automatic_material_source_limit=20, destination="合成海城",
+             draft=dict(activities=[locked]), adopted=dict(title="旧采用版"))
+    adopted = deepcopy(p["adopted"])
+    _refresh_scoped_knowledge(None, "owner", "sid", p)
+    assert p["draft"]["activities"][0] == locked
+    assert {a["name"] for a in p["draft"]["activities"]} == {"合成旧园", "合成新园", "合成南馆"}
+    assert p["adopted"] == adopted
+    assert p["automatic_previous_materials"] == [locked]
+
+
 @pytest.mark.parametrize(
     "change", ["version", "document", "pending", "other", "group", "arrow", "mixed"]
 )

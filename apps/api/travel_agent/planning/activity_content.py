@@ -5,21 +5,40 @@ from typing import Any
 
 from .scoped_context import REVIEWED, same_document
 
-PLAY = r"散步|观赏|欣赏|参观|徒步|品尝|看展|漫步|拍照|体验|观鸟|看花|重点看|追随|感受|老建筑|吊脚楼|文化"
+PLAY = r"散步|观赏|欣赏|参观|徒步|品尝|看展|漫步|拍照|体验|观鸟|看花|重点看|追随|感受|建筑|吊脚楼|文化|登高|远眺|登楼|俯瞰|骑行|吹.{0,3}风|看日出|看日落|江景|过早|闲逛|慢慢走|看海|老房子|洋房|手作|镇馆之宝"
+_PUBLIC_END = r"(?:公园|街区|景区|风景区|古镇|小镇|湿地|步道|广场|博物馆|纪念馆|大坝|画廊|洞|湖|寺|山|谷|街|路|桥|码头|大学|门|坊|林|坛|家|河|台|滩|园|馆)$"
+
+
+def heading_subject(text: str) -> str | None:
+    """Exact single public subject before a heading separator, without route inference."""
+    from .materials import place_name, activity_subject
+
+    text = re.sub(r"^[^\u4e00-\u9fffA-Za-z]*", "", text)
+    match = re.match(r"^([\u4e00-\u9fffA-Za-z·]{2,30})[：:｜|]", text)
+    name = place_name(match[1]) if match else None
+    return name if name and activity_subject(name) and re.search(_PUBLIC_END, name) and not re.search(
+        r"不|没|未|如果|假设|Day\s*\d|D\s*\d|第.{1,3}天", name, re.I
+    ) else None
 
 
 def reviewed_subject_names(row: dict[str, Any]) -> list[str]:
     """Exact nouns from audited preceding subject premises, never day headers."""
-    if row.get("review_status") not in REVIEWED or not re.search(PLAY, row["text"]):
+    if row.get("review_status") not in REVIEWED:
         return []
     from .materials import place_name, activity_subject
-    names = []
+    own = heading_subject(row["text"])
+    names = [own] if own and explicit_subject(own, row["text"]) else []
+    if not re.search(PLAY, row["text"]):
+        return names
     for clause in row.get("clause_context", []):
         if re.search(r"不|没|未|如果|假设|→|➡|->|Day\s*\d|D\s*\d|第.{1,3}天", clause, re.I):
             continue
+        header = heading_subject(clause)
+        if header:
+            names.append(header)
         match = re.search(r"(?:前往|打卡|到|去|在|沿)(?:免费的)?([\u4e00-\u9fffA-Za-z·]{2,24})[，。；\s]*$", clause)
         name = place_name(match[1]) if match else None
-        if name and activity_subject(name) and re.search(r"公园|街区|景区|风景区|古镇|小镇|湿地|步道|广场|博物馆|纪念馆|大坝|画廊|洞|湖|寺|山|谷", name):
+        if name and activity_subject(name) and re.search(_PUBLIC_END, name):
             names.append(name)
     return list(dict.fromkeys(names))
 
@@ -36,7 +55,7 @@ def explicit_subject(name: str, text: str) -> bool:
     if named - {name}:
         return False
     return bool(
-        named == {name} or short_action
+        named == {name} or short_action or heading_subject(text) == name
         or re.match(
             r"^(?:在|我(?:们)?(?:计划|想)?在)"
             + re.escape(name)
@@ -63,7 +82,7 @@ def reviewed_clause_subject(name: str, row: dict[str, Any]) -> bool:
         return False
     subject = re.compile(r"(?:前往|打卡|到|去|在|沿)(?:免费的)?" + re.escape(name)
         + r"(?:风景区|景区)?[，。；\s]*$")
-    return any(subject.search(c) and not re.search(r"不|没|未|如果|假设|→|➡|->", c)
+    return any((subject.search(c) or heading_subject(c) == name) and not re.search(r"不|没|未|如果|假设|→|➡|->", c)
                for c in row["clause_context"])
 
 
@@ -77,7 +96,8 @@ def content_references(
         return []
     by_id = {r["claim_id"]: r for r in refs}
     bound = [by_id[i] for i in ids(activity) if i in by_id]
-    other_subjects = {a.name for a in activities(refs, "", limit=None)} - {activity["name"]}
+    other_subjects = {a.name for a in activities(refs, "", limit=None)
+                      if a.name not in activity["name"]}
     return [
         r
         for r in refs
@@ -85,7 +105,7 @@ def content_references(
         and r.get("review_status") in REVIEWED
         and reviewed_clause_subject(activity["name"], r)
         and not any(name in "\n".join([r["text"], *r.get("clause_context", [])]) for name in other_subjects)
-        and any(same_document(b, r) for b in bound)
+        and any(b["claim_id"] == r["claim_id"] or same_document(b, r) for b in bound)
     ]
 
 

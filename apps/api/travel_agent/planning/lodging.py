@@ -3,6 +3,7 @@
 from typing import Any
 import re
 from travel_agent.preview.projection import fingerprint
+from travel_agent.research.advisory_coverage import REVIEWED
 from .flow_models import PlanDraft
 from .guide_models import BudgetLine, TripBudget
 
@@ -13,14 +14,32 @@ def researched_areas(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Exact named location phrases from reviewed lodging statements; no external lookup."""
     result: dict[str, dict[str, Any]] = {}
     for row in rows:
-        if not re.search(r"住宿|住在|入住|酒店|民宿|落脚|建议住|推荐住", row["text"]):
+        heading = row.get("review_status") in REVIEWED and any(
+            re.fullmatch(r"[^\u4e00-\u9fffA-Za-z]*(?:住宿|住宿建议|住宿推荐|住宿片区|住宿选择)[：:\s]*", condition)
+            for condition in row.get("conditions", [])
+        )
+        if not heading and not re.search(r"住宿|住在|入住|酒店|民宿|落脚|建议住|推荐住", row["text"]):
             continue
+        names = []
         for match in re.finditer(r"(?:住在|入住|建议住|推荐住|优先住|住宿选|住宿[：:]\s*(?:(?:优先|建议|推荐)(?:住在|住)?)?|落脚在)([\u4e00-\u9fffA-Za-z·]{2,20}?(?:片区|附近|周边|商圈|市中心|老城区|地铁站|火车站|市区|街区|路|区|镇|村))", row["text"]):
             prefix = re.split(r"[，。；！？]", row["text"][:match.start()])[-1]
             if re.search(r"不|没|未|避免", prefix[-8:]):
                 continue
-            name = match[1]
-            if name in {"市中心", "老城区", "火车站", "地铁站", "市区", "酒店附近", "景区附近"}:
+            names.append(match[1])
+        # Reviewed headings can explicitly bind a named list item to lodging.
+        # Do not scan arbitrary nearby conditions for a place or infer a hotel.
+        if heading and row.get("topic") == "TRADEOFF":
+            item = re.sub(r"^[^\u4e00-\u9fffA-Za-z]*", "", row["text"])
+            item = re.sub(r"^(?:首选|优先|建议|推荐)(?:住在|入住|住)?", "", item)
+            name = re.split(r"[，。；！？]", item)[0].strip()
+            if re.fullmatch(r"[\u4e00-\u9fffA-Za-z·]{2,30}(?:片区|附近|周边|商圈|街区|步行街|路|区|镇|村)", name):
+                names.append(name)
+        for match in re.finditer(r"住宿建议(?:放在|放|选在)([\u4e00-\u9fffA-Za-z·—\-]{2,30}一带)(?=[，。；！？]|$)", row["text"]):
+            prefix = re.split(r"[，。；！？]", row["text"][:match.start()])[-1]
+            if not re.search(r"不|没|未|避免", prefix[-8:]):
+                names.append(match[1])
+        for name in dict.fromkeys(names):
+            if name in {"市中心", "老城区", "火车站", "地铁站", "市区", "车站附近", "酒店附近", "景区附近"} or re.search(r"不|没|未|避免|假如|如果|假设", name):
                 continue
             identifier = "lodging-" + fingerprint(name)[:20]
             area = result.setdefault(identifier, dict(area_id=identifier, name=name, citation_ids=[], references=[]))

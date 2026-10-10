@@ -120,3 +120,13 @@ A普通页面点击一次正文兴趣，15秒后显示本机等待超时，未�
 修改preview.service.cached_view/_cache/_load_cache、planning.materials.references/_references、research.reporting.build_directions/_statement、quality.confidence_level、content_store.audit_grounding：同一请求复用已投影引用并返回独立副本；SQLite本连接total_changes或外连接data_version变化失效，另一个请求重做完整校验；报告只解码已验证DomainModel一次。逐条原文/审核/权限检查保留，但不再为每条已验证原始claim重新验证相同包外壳。无契约或数据库变化。
 
 实际验证：cached_overview、planning_conversation、research_depth、advisory_guide共71项通过20.82秒，含读取复用、返回值隔离、写入过期、外连接权限撤回、逐字引用与选择保存；Ruff通过，mypy112文件通过。直接基线包与当前包对同一A状态使用与HTTP相同只读快照，耗时6.899秒→2.766秒，revision35一致；原始对比留在.local/root-p11-review/read-performance-comparison.json。早期未使用快照的分析受B外连接写入影响导致缓存多次失效，23秒不作为可比基准。首个基线临时包因PROJECT_ROOT相对位置失败，显式绑定同一仓库后成功；没有业务网络调用。当前仍未部署；与351a471下载修改一起等待B空闲后部署。A和B完整内容验收仍未通过。
+
+### B完整研究后的内容链路失败与修复
+
+B普通页面一次提交正常结束PARTIAL：CONNECT1/SEARCH5/DETAIL20/MODEL34/MAP0，真实6轮包括2个侧面查询、3个正面查询、一次生成。第1轮正文独立审核无接纳，保留NEEDS_REVIEW；其余审核保留信息，没有HTTP失败重发或人工登录挑战。HTTP200生成接纳2份三天方案，但仅1项具体引用、住宿未形成片区，内容FAIL。原始诊断与完整保存结果位于忽略目录B-first-result.json，不提交正文。
+
+修改activity_content.heading_subject/reviewed_subject_names/reviewed_clause_subject/content_references、lodging.researched_areas、knowledge.planning.templates、Library.for_evidence、automatic._refresh_scoped_knowledge/card_context/merge_research。编号、勾号、竖线标题与已审同段前主体支持精确地点；标题负面/假设/路线及跨文档限制保留。知识卡自身已审内容可按完全相同citation绑定；其他条目仍要求同source/version/document。旧卡只追加精确主体模板，不改旧身份、哈希或已有索引。按本次证据精确查询卡，取消将知识库浏览前60条误作研究池；已有草稿只在显式V5继续意图重投影，锁和采用版保持。住宿支持已审标题下的明确片区列表和完整“一带”，不推断商家或当前运营。
+
+只读实际数据核对：B候选12项都有具体引用，住宿江汉路步行街/黄鹤楼周边/江汉路；A候选4项具体引用、宜昌住宿带与恩施市区。无新业务请求、DB写入或模型回答，不能算真实复验。初次回归发现合成card_id格式、来源标题遗漏与伪造claim_id不满足真实证明链，修正fixture；一次误指定不存在测试文件未执行。验收继续由普通页面零新增搜索/正文生成、预览取消采用下载与恢复完成，仍保留A/B内容FAIL。
+
+执行content_pipeline、guide_lodging_revalidation、scoped_context、knowledge_library、search_agent_loop、automatic_planning组合：146通过，1个新增测试错误地漏计原有合法卡而失败（76.54秒）；修正断言为完整集合后该项实际通过0.89秒。未降验证规则。Ruff通过、mypy112文件通过。改动8个实现/测试文件268行新增18行删除，另同步任务书和本报告；未改外部契约或SQLite结构。业务外部请求0，后续仅Git功能分支同步。

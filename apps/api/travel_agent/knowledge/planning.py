@@ -45,7 +45,18 @@ def card_references(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def templates(c: dict[str, Any]) -> list[Activity]:
-    entries = c.get("activities") or [dict(name=n) for n in c["entities"]]
+    entries = deepcopy(c.get("activities") or [dict(name=n) for n in c["entities"]])
+    if c["kind"] == "SOURCE_REFERENCE" and c["tags"][0] == "EXPERIENCE":
+        from travel_agent.planning.activity_content import reviewed_subject_names
+
+        # Older cards retain their immutable identity/hash. Append only exact
+        # subjects already bound to this independently reviewed evidence.
+        names = {a["name"] for a in entries}
+        for row in card_references([c]):
+            for name in reviewed_subject_names(row):
+                if name not in names:
+                    entries.append(dict(name=name))
+                    names.add(name)
     if not entries and c["kind"] == "SOURCE_REFERENCE" and c["tags"][0] == "ROUTE":
         from travel_agent.planning.materials import activities
 

@@ -89,7 +89,7 @@ def coverage(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]
     )
 
 
-def card_context(db: Any, scope: str, p: dict[str, Any]) -> None:
+def card_context(db: Any, scope: str, p: dict[str, Any], *, sid: str | None = None) -> None:
     """Related knowledge stays independently bound, never becomes place attributes."""
     from travel_agent.knowledge.planning import verify
     from travel_agent.knowledge.store import Library, binding
@@ -107,9 +107,18 @@ def card_context(db: Any, scope: str, p: dict[str, Any]) -> None:
         for s in sources
     }
     selected = []
-    for c in Library(db, scope).search(destination=p["destination"], kind="SOURCE_REFERENCE")[
-        "cards"
-    ]:
+    library = Library(db, scope)
+    catalog = library.search(destination=p["destination"], kind="SOURCE_REFERENCE")["cards"]
+    if sid and p.get("automatic_material_source_limit") == 20:
+        from .materials import references
+        attached = library.for_evidence(p["destination"], {r["claim_id"] for r in references(db, scope, sid)})
+        catalog = list({c["card_id"]: c for c in [*catalog, *attached]}.values())
+        # Prefer reviewed play and lodging over more route-only background in
+        # the unchanged per-source context cap. Never remove original premises.
+        from .lodging import researched_areas
+        from travel_agent.knowledge.planning import card_references
+        catalog.sort(key=lambda c: not (c["tags"][0] == "EXPERIENCE" or researched_areas(card_references([c]))))
+    for c in catalog:
         ids = {s["source_id"] for s in c["sources"]}
         n = len(c["text"]) + sum(map(len, c["conditions"]))
         if (
@@ -150,6 +159,10 @@ def merge_research(db: Any, scope: str, sid: str, state: dict[str, Any], rid: st
     }
     library = Library(db, scope)
     valid_cards = library.search(destination=p["destination"], kind="SOURCE_REFERENCE")["cards"]
+    if p.get("automatic_material_source_limit") == 20:
+        from .materials import references
+        attached = library.for_evidence(p["destination"], {r["claim_id"] for r in references(db, scope, sid)})
+        valid_cards = list({c["card_id"]: c for c in [*valid_cards, *attached]}.values())
     fresh_cards = [c for c in valid_cards
                    if c["spatial_status"] != "MISMATCH"
                    and {s["source_id"] for s in c["sources"]} <= read_sources]
@@ -236,7 +249,7 @@ def merge_research(db: Any, scope: str, sid: str, state: dict[str, Any], rid: st
             raise ValueError("PLANNING_LOCKED_CONSTRAINT")
     p["automatic_previous_materials"] = p["draft"]["activities"]
     p["draft"]["activities"] = selected
-    card_context(db, scope, p)
+    card_context(db, scope, p, sid=sid)
     cards = verify(db, scope, p)
     if update_grant:
         db.connection.execute(
@@ -330,13 +343,50 @@ def _recover(db: Any) -> None:
         interrupt_grant(db, row["continuation_id"], row["reason"])
 
 
+def _refresh_scoped_knowledge(db: Any, scope: str, sid: str, p: dict[str, Any]) -> None:
+    """Reproject reviewed attached material only during an explicit V5 intent."""
+    from .materials import references
+    from travel_agent.knowledge.store import Library
+    from travel_agent.knowledge.planning import templates, verify
+
+    if p.get("automatic_material_source_limit") != 20:
+        return
+    library = Library(db, scope)
+    # Validate existing bindings first. Refresh must not revive withdrawn/stale
+    # cards or silently replace a locked choice with a newer version.
+    verify(db, scope, p)
+    attached = {r["claim_id"] for r in references(db, scope, sid)}
+    previous = p["draft"]["activities"]
+    current = {a["activity_id"]: a for a in previous}
+    bound = {r["card_id"] for a in previous for r in a["knowledge_refs"]}
+    candidates = dict(current)
+    catalog = {c["card_id"]: c for c in library.for_evidence(p["destination"], attached)}
+    for a in previous:
+        for ref in a["knowledge_refs"]:
+            catalog.setdefault(ref["card_id"], library.get(ref))
+    for card in catalog.values():
+        if card["spatial_status"] == "MISMATCH" or not (
+            card["card_id"] in bound
+            or bool(card["evidence_links"]) and set(card["evidence_links"]) <= attached
+        ):
+            continue
+        for activity in templates(card):
+            candidates.setdefault(activity.activity_id, activity.model_dump())
+    selected = material_pool(list(candidates.values()), library, 20)
+    if selected != previous:
+        p["automatic_previous_materials"] = previous
+        p["draft"]["activities"] = selected
+        verify(db, scope, p)
+
+
 def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
     """Select currently valid minimal references, never copy historical preferences."""
     p = state["planning"]
     if p["draft"]["activities"]:
         if p.get("knowledge_mode"):
+            _refresh_scoped_knowledge(db, scope, sid, p)
             _selected_knowledge(db, scope, sid, p)
-            card_context(db, scope, p)
+            card_context(db, scope, p, sid=sid)
         from .guide_assessment import references as guide_references
 
         p["automatic_cache_sources"] = len(
