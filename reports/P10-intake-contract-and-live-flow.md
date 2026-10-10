@@ -206,3 +206,13 @@ Set-Location E:\workSpace\travel-agent-project\travel-agent
 交付仅包含通用代码、合成回归和文档，私有下载、原文、数据库、profile、诊断和凭据留在忽略目录。功能分支按明确文件清单扫描、提交、正常推送，完整SHA核对结果在最终回复提供；不合并master、不发布稳定版。整体结论仍为**内容验收FAIL/私人完整建议版NOT_READY/G1 NOT PASS**。流程恢复与离线通用修复通过，最终输出契约和选材效果尚无新的真实模型验收；不借余量继续请求、不宣布全部用户目标已经达成。
 
 收尾`git diff --cached --stat`摘要（写入本段前）：25 files changed，970 insertions(+)，62 deletions(-)。明确清单包括15个生产Python文件、1份架构契约、1份报告和8份合成测试；三份T03未跟踪文件不在清单内。工作副本25文件安全扫描已检查本机2个配置凭据，发现0；提交后还须扫描完整未推送提交范围再推送。
+
+## 修复后独立整体验证：本地准备
+
+POST_FIX_END_TO_END以8c469df为起点，关联武汉原已关闭的补查许可，单独记录新用途和增量；旧8/8及全部失败不变。此次上限为连接1、搜索2、正文2、模型8，地图/embedding/报价0，不自动重试。普通对话现有生产上限搜索1，更窄上限继续生效，不为消耗许可扩充预算。优先已有玩法资料和住宿片区缺口，不重读旧正文；失败或到限结束本操作，挑战/人工登录停止整轮。
+
+修复前新增页面回归失败：生成停止后没有当前采用版数量及本地查看/调整入口。修复前实际wire回归失败：诊断没有response_format与schema/prompt哈希。AutomaticPlanning新增本地浏览当前采用版/草稿、聚焦原消息框和明确新请求指引，不替用户填入文字或自动派发；停止机器码移入折叠记录。AgentProgress使用中文结果状态，原停止记录保留。
+
+LLMDiagnostic契约新增四个可选字段：response_format、schema_sha256、system_prompt_sha256、citation_requirement_count。OpenAICompatibleProvider从实际组装的wire取格式和system提示、从同一schema取哈希，在唯一HTTP开始前交给既有诊断observer；不保存原提示、正文或鉴权头。旧记录无需迁移，OpenAPI及数据库列无变化。哈希证明程序组装和派发契约，不证明供应商执行了严格schema；DeepSeek仍为json_object、本地继续独立语义审核。
+
+执行相关Python与契约回归111 PASS（6.25秒），网页10组回归PASS，vue-tsc与独立静态构建PASS。首次受限沙箱测试因Windows临时目录权限失败，普通宿主离线重跑已复现预期失败后修复通过；没有因此产生真实模型请求。本阶段尚未进行新的真实内容复验，原内容FAIL/G1 NOT PASS不变。

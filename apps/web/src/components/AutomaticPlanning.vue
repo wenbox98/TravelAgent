@@ -6,6 +6,8 @@ import {readMessage,storeMessage,submitShortcut} from '../intake'
 const props=defineProps<{plan:PlanView;busy:boolean;blockedReason?:string;submitting?:boolean;feedback?:string;failure?:string;unconfirmed?:boolean;resumable?:boolean;acknowledgment?:{session_id:string;text:string;sequence:number}|null}>()
 const emit=defineEmits<{browse:[];run:[action:string,text?:string];talk:[action:string,optionId?:string,text?:string,activityId?:string];preview:[index:number];adopt:[index:number];exportReference:[];recover:[];resume:[]}>()
 const text=ref(readMessage(props.plan.session_id)),log=ref<HTMLElement|null>(null),attempted=ref(''),composing=ref(false)
+const composer=ref<HTMLTextAreaElement|null>(null)
+function editIdea(){composer.value?.focus()}
 watch(text,value=>storeMessage(props.plan.session_id,value),{flush:'sync'})
 watch(()=>props.plan.session_id,(sid,previous)=>{storeMessage(previous,text.value);text.value=readMessage(sid);attempted.value=''},{flush:'sync'})
 const conversation=computed(()=>props.plan.conversation)
@@ -49,7 +51,7 @@ const problem=computed(()=>{
  if(r==='WORKER_EXITED'||r==='WORKER_MONITOR_FAILED')return '后台任务意外停止，未自动重试。已读取资料、合格引用和用量均保留，原采用版没有改变。可以先选择已有内容，再明确发起一次新的有限更新；这不会重放原失败任务。'
  if(r.includes('SERVER_STOPPED'))return '服务已重启，本次任务没有自动重放；已保存的结果可继续查看。'
  if(r.includes('CONDITIONS_CHANGED')||r.includes('STALE'))return '条件已变化，旧任务停止，不能覆盖当前结果。'
- if(r.startsWith('PLANNING_'))return '资料已保存，但建议未通过生成或约束检查；原采用版保留。可查看依据并补充条件。'
+ if(r.startsWith('PLANNING_'))return '本轮新建议没有完成，已取得的资料和原采用版均保留。这是生成或约束检查未通过，不代表你必须补齐旅行条件。'
  if(r.includes('CONTEXT_REVIEW'))return '本次内容审核未完成，未审核的条目不能当作可用事实。已合格的参考仍保留在下方；旧失败不会自动重试。'
  if(props.plan.references?.length)return `已保留${props.plan.references.length}条合格参考，本次因后续读取或审核问题停止，未继续生成攻略。可以先查看和选择已有内容；旧失败不会自动重试。`
  return '本次没有取得足够合格材料，未编造攻略。可查看失败阶段和已保存来源，再补充具体的区域或玩法。'
@@ -62,7 +64,7 @@ const problem=computed(()=>{
   <p class="muted">本次对话记录 · 历史消息保留；当前生效条件见上方，尚未发送的消息不生效。</p><div class="conversation-log" ref="log" aria-label="旅行对话" role="log"><article v-for="m in conversation?.messages||[]" :key="m.message_id" :class="['bubble',m.role==='USER'?'user':'assistant']"><small>{{m.role==='USER'?'你':m.origin==='AI_CACHED_ADVICE'?'AI缓存问答 · 建议与解释，非事实核实':m.origin==='LOCAL_REFERENCE_OVERVIEW'?'路线资料整理 · 本地':m.origin==='LOCAL_REFERENCE_EXPLANATION'?'依据现有资料回答 · 本地':'旅行助手'}}</small><p>{{m.text}}</p><p v-for="g in m.gaps||[]" :key="g">仍需确认：{{g}}</p><details v-if="m.citations?.length"><summary>回答依据</summary><blockquote v-for="r in m.citations" :key="r.citation_id">{{r.text}}<small>{{r.source_title}} · {{r.role}} · {{r.review}}</small><p>{{r.conditions.join('；')}}</p></blockquote></details><small v-if="m.options?.length">历史方案版本保留；当前可选方案见下方，不自动重新采用。</small></article></div>
   <p>已识别：{{plan.destination}} · {{plan.draft.days?`${plan.draft.days} 天`:'天数未定'}}。人数、预算和日期可以以后再补。</p>
   <form class="composer" v-if="conversation&&task?.status!=='WAITING_CONFIGURATION'" @submit.prevent="send" :aria-busy="submitting||false">
-   <label for="modify-idea">继续聊聊这次旅行</label><textarea id="modify-idea" v-model="text" maxlength="500" rows="2" placeholder="例如：只有5天、不想自驾，更新方案；或问问推荐依据" aria-describedby="message-hint message-feedback" @keydown="keyboard" @compositionstart="composing=true" @compositionend="composing=false" />
+   <label for="modify-idea">继续聊聊这次旅行</label><textarea id="modify-idea" ref="composer" v-model="text" maxlength="500" rows="2" placeholder="例如：只有5天、不想自驾，更新方案；或问问推荐依据" aria-describedby="message-hint message-feedback" @keydown="keyboard" @compositionstart="composing=true" @compositionend="composing=false" />
    <p id="message-hint" class="muted">{{!blocked?'Ctrl / ⌘ + Enter 发送，Enter 换行。':'当前暂不能发送；输入会保留。'}}</p>
    <p v-if="failure" role="alert" class="warning">{{failure}}</p>
    <div v-if="failure||unconfirmed"><button type="button" class="quiet" :disabled="busy" @click="emit('recover')">读取已保存状态</button><button v-if="resumable" type="button" :disabled="busy||Boolean(blockedReason)" @click="emit('resume')">继续确认原提交</button></div>
@@ -76,7 +78,16 @@ const problem=computed(()=>{
   <template v-if="!task"><p>这次会先复用适用的本机资料；不足时查询小红书并阅读少量公开笔记，将过滤后的必要文字交给已配置的 DeepSeek 整理。</p><p>点击即启动本次有限任务；每来源最多6000字，不发送凭据、私址或地图返回。新建议不会覆盖采用版。</p><button :disabled="busy" @click="emit('run','continue')">查资料并生成旅行建议</button></template>
   <template v-else-if="task.status==='WAITING_CONFIGURATION'"><p>在本机用户环境变量配置 LLM_BASE_URL、LLM_MODEL 和 LLM_API_KEY，再正常重启工作台。密钥只在服务端读取，不填入本页面或聊天；无需额外测连接。</p><p>配置完成后仅需继续这一次任务，未产生任何外部调用。</p><button :disabled="busy" @click="emit('run','continue')">配置完成，继续本次任务</button></template>
   <template v-else-if="active"><p role="status">{{stage}}。页面可以刷新，任务不会重复派发。</p><p v-if="['LOGIN','LOGIN_REQUIRED'].includes(task.stage)">如果官方登录页面需要扫码，请在打开的小红书官方页面完成正常登录；完成后会继续同一个任务。</p><button class="quiet" :disabled="busy" @click="emit('run','cancel')">停止本次任务</button></template>
-  <p v-else-if="!ready" class="warning" role="status">{{problem}} <small>停止阶段：{{task.stage}}；原因：{{task.reason||task.status}}。</small></p>
+  <div v-else-if="!ready" class="warning" role="status">
+   <p>{{problem}}</p>
+   <p v-if="plan.adopted?.activities.length">当前采用版：{{plan.adopted.days?`${plan.adopted.days}天`:'天数未定'}}、{{plan.adopted.activities.length}}个项目。不是本轮失败后新生成的结果。</p>
+   <button v-if="plan.adopted?.activities.length||plan.draft.activities.length" type="button" class="quiet" :disabled="busy" @click="emit('browse')">{{plan.adopted?.activities.length?'查看当前采用版（本地）':'查看已有草稿（本地）'}}</button>
+   <template v-if="conversation&&!/VERIFICATION|DENIED|RATE_LIMIT|LOGIN/.test(task.reason||'')">
+    <button type="button" class="quiet" :disabled="busy||answering" @click="editIdea">调整这次想法</button>
+    <p>查看和修改输入不会发起外部请求。可以在上方说明想保留的项目、想补的内容，确认后再发送一次新请求；不会重放本轮失败，也不会恢复旧用量。</p>
+   </template>
+   <details><summary>查看本轮停止记录</summary><p>停止阶段：{{task.stage}}；原因：{{task.reason||task.status}}。</p></details>
+  </div>
   <section v-if="overview?.available||overview?.current" aria-label="本地路线参考">
    <h3>已有资料能支持的路线参考</h3><p>先看来源怎么安排，再选想讨论的方向。路线参考与具体活动分开，资料不足仍可先比较。</p>
    <button v-if="overview.available&&!overview.valid" class="quiet" :disabled="busy||active||answering" @click="emit('talk','derive_overview')">整理已有路线参考（本地）</button>

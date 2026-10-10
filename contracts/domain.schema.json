@@ -3110,6 +3110,22 @@
             "null"
           ],
           "minimum": 0
+        },
+        "response_format": {
+          "enum": ["json_object", "json_schema", null]
+        },
+        "schema_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "system_prompt_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "citation_requirement_count": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 1000
         }
       }
     },

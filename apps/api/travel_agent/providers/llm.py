@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from hashlib import sha256
 import json
 import os
 import re
@@ -280,6 +281,16 @@ class OpenAICompatibleProvider:
                 ],
                 "response_format": output_format,
             }, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            # Hash the assembled wire contract, not raw content or a planned prompt.
+            # Observer persists this before the one HTTP attempt, including failures.
+            assembled = json.loads(body)
+            diagnostic.response_format = assembled["response_format"]["type"]
+            diagnostic.system_prompt_sha256 = sha256(assembled["messages"][0]["content"].encode()).hexdigest()
+            diagnostic.schema_sha256 = sha256(json.dumps(
+                schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode()).hexdigest()
+            if task == "planning_advisory_v4":
+                diagnostic.citation_requirement_count = len(wire_payload["citation_requirements"])
             request = Request(self.base_url.rstrip("/") + "/chat/completions", body, {
                 "Content-Type": "application/json",
                 "Authorization": "Bearer " + self.api_key.get_secret_value(),

@@ -88,6 +88,14 @@ def test_policy_does_not_count_http(monkeypatch):
     assert d["stage"] == "POLICY" and d["http_attempts"] == 0 and calls == []
 
 
+def test_contract_diagnostic_never_retains_untrusted_strings():
+    from travel_agent.providers.diagnostics import Diagnostic
+    d = Diagnostic(response_format=SECRET, schema_sha256=SECRET,
+                   system_prompt_sha256=SECRET, citation_requirement_count=True).safe_dict()
+    assert all(d[k] is None for k in ("response_format", "schema_sha256", "system_prompt_sha256", "citation_requirement_count"))
+    assert SECRET not in json.dumps(d)
+
+
 def test_deepseek_default_format_matches_documented_json_object_without_changing_model():
     env = {"LLM_BASE_URL": "https://api.deepseek.com", "LLM_MODEL": "deepseek-v4-flash", "LLM_API_KEY": SECRET}
     provider = OpenAICompatibleProvider.from_env(env)

@@ -98,9 +98,20 @@ def test_json_object_wire_sends_bound_schema_and_preserves_valid_sibling(normal,
 
     monkeypatch.setattr("travel_agent.providers.llm.build_opener", lambda *_: Opener())
     provider = OpenAICompatibleProvider("https://api.deepseek.com", "authored", SecretStr("fixture"), 120, "json_object")
+    checkpoints = []
+    provider.diagnostic_observer = checkpoints.append
     result = provider.structured("planning_advisory_v4", data, advisory.response_schema(data))
     assert len(sent) == 1 and sent[0]["response_format"] == {"type": "json_object"}
     prompt = sent[0]["messages"][0]["content"]
+    from hashlib import sha256
+    diagnostic = provider.last_diagnostic.safe_dict()
+    assert diagnostic["response_format"] == "json_object"
+    assert diagnostic["system_prompt_sha256"] == sha256(prompt.encode()).hexdigest()
+    canonical_schema = json.dumps(advisory.response_schema(data), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert diagnostic["schema_sha256"] == sha256(canonical_schema.encode()).hexdigest()
+    assert diagnostic["citation_requirement_count"] == len(data["activities"])
+    assert checkpoints[0]["transport_phase"] == "OPENING"
+    assert checkpoints[0]["system_prompt_sha256"] == diagnostic["system_prompt_sha256"]
     assert "ALL required_citation_ids" in prompt
     assert '"enum": ["authored-a", "authored-b"]' in prompt
     checked = advisory.validate(result, data)

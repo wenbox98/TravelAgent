@@ -77,6 +77,10 @@ class Diagnostic:
     timeout_seconds: float | None = None
     headers_elapsed_seconds: float | None = None
     body_complete_elapsed_seconds: float | None = None
+    response_format: str | None = None
+    schema_sha256: str | None = None
+    system_prompt_sha256: str | None = None
+    citation_requirement_count: int | None = None
 
     def safe_dict(self) -> dict[str, Any]:
         result = asdict(self)
@@ -87,4 +91,10 @@ class Diagnostic:
         result["request_id"] = safe_request_id(self.request_id)
         result["finish_reason"] = self.finish_reason if self.finish_reason in FINISH_REASONS else None
         result["transport_phase"] = self.transport_phase if self.transport_phase in TRANSPORT_PHASES else "NOT_STARTED"
+        result["response_format"] = self.response_format if self.response_format in {"json_object", "json_schema"} else None
+        for name in ("schema_sha256", "system_prompt_sha256"):
+            value = getattr(self, name)
+            result[name] = value if isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) else None
+        count = self.citation_requirement_count
+        result["citation_requirement_count"] = count if type(count) is int and 0 <= count <= 1000 else None
         return result
