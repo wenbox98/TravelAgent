@@ -5,6 +5,8 @@ Only a versioned explicit page intent creates a grant. Adoption remains separate
 """
 
 import json
+from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 import re
 from time import monotonic, sleep
@@ -79,7 +81,7 @@ def card_context(db: Any, scope: str, p: dict[str, Any]) -> None:
     p["automatic_context_cards"] = selected
 
 
-def merge_research(db: Any, scope: str, sid: str, state: dict[str, Any], rid: str) -> None:
+def merge_research(db: Any, scope: str, sid: str, state: dict[str, Any], rid: str, *, update_grant: bool = True) -> None:
     p = state["planning"]
     for name in ("research_ids", "own_research_ids"):
         p[name] = sorted(set(p.get(name, []) + [rid]))
@@ -99,22 +101,72 @@ def merge_research(db: Any, scope: str, sid: str, state: dict[str, Any], rid: st
             (rid, scope),
         )
     }
-    items = list(p["draft"]["activities"])
-    seen = {a["activity_id"] for a in items}
-    for c in Library(db, scope).search(destination=p["destination"], kind="SOURCE_REFERENCE")[
-        "cards"
-    ]:
-        if (
-            c["spatial_status"] == "MISMATCH"
-            or not {s["source_id"] for s in c["sources"]} <= read_sources
-        ):
+    library = Library(db, scope)
+    valid_cards = library.search(destination=p["destination"], kind="SOURCE_REFERENCE")["cards"]
+    fresh_cards = [c for c in valid_cards
+                   if c["spatial_status"] != "MISMATCH"
+                   and {s["source_id"] for s in c["sources"]} <= read_sources]
+    fresh = {c["card_id"]: c for c in fresh_cards}
+    # Organizing a research run also reprojects its reused evidence. A delimiter
+    # migration may only change entities/activities on an old cached card. Permit
+    # that exact compatibility case after validating the latest card and original
+    # binding/hash; changed facts/conditions/rights never qualify this way.
+    for c in valid_cards:
+        if c["spatial_status"] == "MISMATCH":
             continue
+        refs = [r for a in p["draft"]["activities"] for r in a["knowledge_refs"] if r["card_id"] == c["card_id"]]
+        if not refs:
+            continue
+        compatible = True
+        for ref in refs:
+            old = db.connection.execute(
+                "SELECT data_json,card_hash,status FROM knowledge_cards WHERE card_id=? AND version=? AND account_scope=?",
+                (ref["card_id"], ref["version"], scope),
+            ).fetchone()
+            original = json.loads(old[0]) if old else {}
+            current = {k: v for k, v in c.items() if k in original}
+            compatible = compatible and bool(old and old[2] == "ACTIVE" and old[1] == ref["card_hash"]
+                and fingerprint(original) == ref["card_hash"]
+                and {k: v for k, v in original.items() if k not in {"entities", "activities"}}
+                == {k: v for k, v in current.items() if k not in {"entities", "activities"}})
+        if compatible:
+            fresh[c["card_id"]] = c
+    items = []
+    refreshed = []
+    for a in p["draft"]["activities"]:
+        try:
+            for ref in a["knowledge_refs"]:
+                library.get(ref)
+            items.append(a)
+        except ValueError as exc:
+            # Current researched sources or identical-fact projection migrations
+            # may replace an unlocked binding. Withdrawals/other stale sources
+            # remain failures; adopted versions and locked choices never change.
+            refs = a["knowledge_refs"]
+            if str(exc) != "KNOWLEDGE_STALE_OR_DELETED" or not refs or any(
+                r["card_id"] not in fresh or fresh[r["card_id"]]["version"] < r["version"]
+                for r in refs
+            ):
+                raise
+            if a.get("locked") or a.get("locked_start"):
+                raise ValueError("PLANNING_LOCKED_CONSTRAINT") from exc
+            replacements = [v for r in refs for v in templates(fresh[r["card_id"]]) if v.name == a["name"]]
+            if replacements:
+                replacement = replacements[0].model_dump()
+                for field in ("day", "period", "stay_min", "stay_max", "rest_minutes", "timing_origin"):
+                    replacement[field] = a[field]
+                items.append(replacement)
+            refreshed.append(a["activity_id"])
+    if refreshed:
+        p.setdefault("automatic_material_refreshes", []).append(dict(
+            research_id=rid, activity_ids=refreshed, reason="CURRENT_RESEARCH_CARD_VERSION_UPDATED",
+        ))
+    seen = {a["activity_id"] for a in items}
+    for c in fresh_cards:
         for a in templates(c):
             if a.activity_id not in seen:
                 items.append(a.model_dump())
                 seen.add(a.activity_id)
-    library = Library(db, scope)
-
     def item_sources(a: Any) -> set[str]:
         return {s["source_id"] for r in a["knowledge_refs"] for s in library.get(r)["sources"]}
 
@@ -137,10 +189,11 @@ def merge_research(db: Any, scope: str, sid: str, state: dict[str, Any], rid: st
     p["draft"]["activities"] = selected
     card_context(db, scope, p)
     cards = verify(db, scope, p)
-    db.connection.execute(
-        "UPDATE research_continuations SET gate_json=json_set(gate_json,'$.knowledge_bindings',json(?)) WHERE continuation_id=?",
-        (json.dumps([binding(c) for c in cards]), p["operation_grant"]),
-    )
+    if update_grant:
+        db.connection.execute(
+            "UPDATE research_continuations SET gate_json=json_set(gate_json,'$.knowledge_bindings',json(?)) WHERE continuation_id=?",
+            (json.dumps([binding(c) for c in cards]), p["operation_grant"]),
+        )
 
 
 def save(db: Any, sid: str, state: dict[str, Any], *, bump: bool = True) -> int:
@@ -448,6 +501,7 @@ class AutomaticService:
         map_consent: bool = False,
         destination_field: str = "",
         agent_consent: str = "PRIVATE_GOAL_AGENT_V3",
+        recovery: dict[str, Any] | None = None,
     ) -> None:
         _, state = self.plans.load(sid)
         p = state["planning"]
@@ -509,6 +563,14 @@ class AutomaticService:
                 raise ValueError("CACHE_BODY_INSUFFICIENT_MODEL_PERMISSION")
         if agent and map_consent and not cached_reprocess:
             limits.update(map_place=2, map_route=1)
+        if recovery:
+            # An explicit repair continues the original finite source scope.
+            # Historical grants/operations stay closed and immutable.
+            for kind in ("search", "detail", "model", "map_place", "map_route"):
+                remaining = recovery["remaining"][kind]
+                if remaining is not None:
+                    limits[kind] = remaining if limits[kind] is None else min(limits[kind], remaining)
+            limits["connect"] = int(bool(limits["search"] and limits["detail"]))
         p["automatic_coverage"] = coverage(self.db, self.scope, sid, p)
         if followup:
             p["conversation_iteration_decision"] = dict(
@@ -540,8 +602,12 @@ class AutomaticService:
             p["agent_input"] = text
             p["agent_destination_field"] = destination_field
             p["agent_followup"] = followup
-            p["agent_rounds"] = []
+            p["agent_rounds"] = deepcopy(recovery["rounds"]) if recovery else []
             p["agent_research_job_ids"] = []
+            if recovery:
+                p["agent_merge_recovery"] = {k: v for k, v in recovery.items() if k != "rounds"}
+            else:
+                p.pop("agent_merge_recovery", None)
             p.pop("agent_browser_metrics", None)
             p.pop("agent_stop_stage", None)
             p.pop("proposed_conversation_conditions", None)
@@ -569,6 +635,11 @@ class AutomaticService:
                 "UPDATE research_continuations SET gate_json=json_set(gate_json,'$.automatic_task_id',?,'$.automatic_generation',?,'$.consent',?) WHERE continuation_id=?",
                 (tid, p["automatic_generation"], consent_version, grant),
             )
+            if recovery:
+                self.db.connection.execute(
+                    "UPDATE research_continuations SET gate_json=json_set(gate_json,'$.expires_at',?,'$.merge_recovery',json(?)) WHERE continuation_id=?",
+                    (recovery["expires_at"], json.dumps(p["agent_merge_recovery"]), grant),
+                )
             if cached_request:
                 self.db.connection.execute(
                     "UPDATE research_continuations SET gate_json=json_set(gate_json,'$.cached_body_request',json(?)) WHERE continuation_id=?",
@@ -670,6 +741,14 @@ class AutomaticService:
                 p["request"] = body.text
                 save(self.db, sid, state, bump=False)
             elif body.action == "research_more":
+                recovery = self._merge_recovery(sid, state, str(body.consent))
+                if recovery:
+                    save(self.db, sid, state, bump=False)
+                    self._create(sid, payload, key, body.text or "继续按当前旅行条件完成攻略，先复用已读正文并补充剩余缺口。",
+                                 followup=True, agent=True, map_consent=bool(
+                                     recovery["remaining"]["map_place"] or recovery["remaining"]["map_route"]),
+                                 agent_consent=str(body.consent), recovery=recovery)
+                    return self.plans.get(sid)
                 if p.get("automatic_coverage", {}).get("sufficient"):
                     raise ValueError("AUTOMATIC_CLARIFY_CHANGE")
             agent_text = body.text or (
@@ -691,6 +770,48 @@ class AutomaticService:
                 agent_consent=str(body.consent),
             )
             return self.plans.get(sid)
+
+    def _merge_recovery(self, sid: str, state: dict[str, Any], consent: str) -> dict[str, Any] | None:
+        """Local repair only after explicit intent; never replay a failed network request."""
+        from .agent_contract import CURRENT_CONSENT
+
+        p = state["planning"]
+        prior = self.db.connection.execute(
+            "SELECT * FROM planning_tasks WHERE task_id=? AND session_id=? AND account_scope=?",
+            (p.get("automatic_task_id"), sid, self.scope),
+        ).fetchone()
+        if not prior or consent != CURRENT_CONSENT or prior["status"] != "BLOCKED" or json.loads(
+            prior["summary_json"] or "{}"
+        ).get("reason") != "KNOWLEDGE_STALE_OR_DELETED":
+            return None
+        budget = DailyBudget(self.db, prior["grant_id"])
+        original = budget.state()
+        if original["gate"].get("consent") != CURRENT_CONSENT or not original["finished_at"]:
+            raise ValueError("AUTOMATIC_NO_RETRY")
+        if datetime.fromisoformat(original["gate"]["expires_at"]) <= self.db.clock():
+            raise ValueError("OPERATION_EXPIRED")
+        child = self.db.connection.execute(
+            "SELECT * FROM preview_jobs WHERE job_id=? AND session_id=? AND account_scope=? AND continuation_id=?",
+            (prior["research_job_id"], sid, self.scope, prior["grant_id"]),
+        ).fetchone()
+        info = json.loads(child["summary_json"] or "{}") if child else {}
+        if not child or child["status"] not in {"COMPLETED", "PARTIAL"} or not info.get("new_evidence_count") or info.get(
+            "research_stop"
+        ) in {"ERROR", "NEED_LOGIN", "VERIFICATION_REQUIRED", "SOURCE_UNAVAILABLE"}:
+            raise ValueError("AUTOMATIC_NO_RETRY")
+        rounds = deepcopy(p.get("agent_rounds", []))
+        if not rounds or rounds[-1]["tool"] != "RESEARCH_GAP":
+            raise ValueError("AUTOMATIC_NO_RETRY")
+        merge_research(self.db, self.scope, sid, state, child["research_id"], update_grant=False)
+        report = info.get("research_report") or info.get("report") or {}
+        rounds[-1].update(status="COMPLETE", decision_origin="LOCAL_MERGE_RECOVERY", result=dict(
+            status=child["status"], accepted=info["new_evidence_count"],
+            search_count=report.get("query_count", 0), body_count=report.get("operations", {}).get("detail", 0),
+            recovered_from_task=prior["task_id"], recovered_job_id=child["job_id"],
+        ))
+        return dict(predecessor_task=prior["task_id"], predecessor_grant=prior["grant_id"],
+                    merged_job=child["job_id"], remaining=budget.summary()["remaining"],
+                    expires_at=original["gate"]["expires_at"], rounds=rounds)
 
 
 def revise(before: PlanDraft, text: str) -> PlanDraft:

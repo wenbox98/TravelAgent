@@ -591,7 +591,13 @@ def run(
                 p.pop("agent_research_blocked", None)
                 message(p, "ASSISTANT", value.summary, origin="LLM_INTAKE")
                 checkpoint(state, "DECIDING")
-            seen: set[str] = set()
+            from travel_agent.research.planning import QueryPlanner
+
+            seen: set[str] = {
+                fingerprint(["RESEARCH_GAP", QueryPlanner.normalize(r["query"])])
+                for r in p.get("agent_rounds", [])
+                if r["tool"] == "RESEARCH_GAP" and r.get("query") and r.get("result", {}).get("search_count", 0)
+            }
             if p.get("agent_cached_body_reprocess"):
                 from travel_agent.research.cached_reprocess import gap_keys
 
@@ -643,7 +649,7 @@ def run(
                 if child_row["status"] in {"FAILED", "CANCELED"} or info.get("analysis_stopped"):
                     finish(info.get("reason") or "CACHE_BODY_ANALYSIS_STOPPED")
                     return
-            number = 0
+            number = len(p.get("agent_rounds", []))
             stagnant = 0
             force_generation = False
             current_loop = budget.state()["gate"].get("consent") == CURRENT_CONSENT

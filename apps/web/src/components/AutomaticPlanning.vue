@@ -14,6 +14,7 @@ const conversation=computed(()=>props.plan.conversation)
 watch(()=>conversation.value?.version,async()=>{await nextTick();if(log.value)log.value.scrollTop=log.value.scrollHeight})
 watch(()=>props.acknowledgment,ack=>{if(ack?.session_id===props.plan.session_id&&ack.text===text.value)text.value=''},{immediate:true})
 const task=computed(()=>props.plan.automatic_task)
+const mergeRepair=computed(()=>task.value?.reason==='KNOWLEDGE_STALE_OR_DELETED')
 const startupFailure=computed(()=>!task.value?.research_attempted&&!task.value?.search_count&&/JOB_STOPPED_BEFORE_COMPLETION|XHS_PROFILE_UNAVAILABLE|CONFIGURED_|BOUNDED_|WORKER_START_FAILED|WORKER_NOT_STARTED/.test(task.value?.reason||''))
 const hasMaterial=computed(()=>Boolean(props.plan.draft.activities.length||props.plan.job?.proposals.length||props.plan.references?.length||overview.value?.available))
 const ready=computed(()=>['COMPLETED','PARTIAL'].includes(task.value?.status||'')&&task.value?.generated)
@@ -46,6 +47,7 @@ const problem=computed(()=>{
  if(startupFailure.value)return '研究在开始查找前异常停止，尚未得到材料。这是系统故障，不是资料已足够或需要你补填条件。原失败已保留；修复后由你显式发起新任务，不会自动重试。'
  if(r==='ROUTE_REFERENCE_ONLY')return '资料支持下面的路线参考，暂不支持具体玩法安排；交通与当前可行性仍有缺口。'
  if(r.startsWith('CACHE_BODY_'))return '缓存正文重新分析已停止：正文、权限、版本、任务或当前缺口未通过检查。旧结果与用量保留，不重新访问来源兜底。'
+ if(r==='KNOWLEDGE_STALE_OR_DELETED')return '资料卡版本在研究整理后发生变化，合并未完成。这是程序的版本衔接问题，不是你改了旅行条件；已读正文、合格引用和用量保留，旧采用版没有改变。'
  if(r.includes('VERIFICATION')||r.includes('DENIED')||r.includes('RATE_LIMIT'))return '网站需要验证或限制了访问，已停止。请查看官方页面；不会尝试规避，也不会自动重试。'
  if(r.includes('LOGIN'))return '尚未完成正常登录，未继续查找。已有资料和结果保留。'
  if(r==='TASK_DEADLINE')return '本次任务超过总等待时限，已停止；已有资料、原采用版和用量保留，不会自动重试。'
@@ -116,7 +118,8 @@ const problem=computed(()=>{
   <div v-if="task?.coverage"><p>{{task.coverage.meaning}} 已有玩法 {{task.coverage.activity_count}} 个，独立作者仍未核实。</p><p v-if="task.coverage.gaps.length" class="warning">当前仍缺：{{task.coverage.gaps.map(g=>g.label).join('；')}}。局部建议不能视为完整攻略。</p><p v-if="!active&&task.coverage.gaps.length">点击将按缺口建立新的有限任务：必要时检查登录、查找和读取公开笔记，过滤后的必要文字交给已配置的 DeepSeek；每来源最多6000字。本次仍按下方默认上限，旧用量和失败保留，不自动重试。</p></div>
   </details>
   <p v-if="ready&&task?.coverage?.gaps.length" class="warning">资料有限，仍缺{{task.coverage.gaps.slice(0,2).map(g=>g.label).join('、')}}等；可先比较局部玩法。</p>
-  <button v-if="!active&&task?.coverage?.gaps.length" class="quiet" :disabled="busy" @click="emit('run','research_more')">继续补充研究</button>
+  <p v-if="mergeRepair">可继续合并已完成研究，不重读已用正文；后续搜索、正文与地图只使用原范围的剩余额度，旧任务和用量保留。若仍无有效资料，会明确停止。</p>
+  <button v-if="!active&&task?.coverage?.gaps.length" class="quiet" :disabled="busy" @click="emit('run','research_more')">{{mergeRepair?'合并已读资料并继续':'继续补充研究'}}</button>
   <p v-if="task?.changes.length">本次补充已落实到：{{task.changes.join('、')}}。原采用版保留，新结果尚未覆盖。</p>
   <p v-if="conversation?.selected" class="notice">已记住暂定方向：{{conversation.selected.title}}。{{conversation.selected_current?'仍可改选或撤回；尚未采用。':'来自上一轮，下一轮会作为偏好参考；旧方案不能直接覆盖新版本。'}}<button class="quiet" :disabled="busy" @click="emit('talk','clear',conversation.selected.option_id)">清除暂定方向</button></p>
   <p v-if="conversation?.excluded.length">本轮不选：<span v-for="o in conversation.excluded" :key="o.option_id">{{o.title}}<button class="quiet" :disabled="busy" @click="emit('talk','clear',o.option_id)">恢复这个备选</button></span>；不等于所有地点都排除。</p>
