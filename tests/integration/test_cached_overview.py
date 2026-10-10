@@ -156,6 +156,39 @@ def test_latest_policy_denial_and_expiry_do_not_delete_cache(tmp_path, clock):
         assert not service(db).researches()
 
 
+def test_read_scoped_cache_isolated_and_invalidates_writes_and_external_withdrawal(tmp_path, clock, monkeypatch):
+    from travel_agent.preview.service import PreviewService, view_cache
+    path = tmp_path / "read-cache.sqlite3"
+    with Database(path, clock=clock) as db:
+        seed(db, clock)
+        calls = []
+        load = PreviewService._load_cache
+        def counted(self, rid):
+            calls.append(rid)
+            return load(self, rid)
+        monkeypatch.setattr(PreviewService, "_load_cache", counted)
+        with view_cache():
+            q, evidence = service(db)._cache("partial")
+            assert evidence
+            q["current_revision"] = -99
+            assert service(db)._cache("partial")[0]["current_revision"] != -99
+            assert calls == ["partial"]
+            db.connection.execute("UPDATE source_contents SET expires_at='2020-01-01T00:00:00+00:00'")
+            assert not service(db)._cache("partial")[1]
+            db.connection.execute("UPDATE source_contents SET expires_at=NULL")
+            assert service(db)._cache("partial")[1]
+            with Database(path, clock=clock) as other:
+                row = other.connection.execute("SELECT * FROM source_policies").fetchone()
+                policy = json.loads(row["policy_json"])
+                policy.update(version=2, allow_read=False)
+                other.connection.execute("INSERT INTO source_policies VALUES(?,?,?,?,?)", (
+                    policy["policy_id"], 2, json.dumps(policy), policy["reviewed_at"], None))
+            assert not service(db)._cache("partial")[1]
+            assert len(calls) == 4
+        assert not service(db)._cache("partial")[1]
+        assert len(calls) == 5  # Another read cannot reuse a former request's projection.
+
+
 def test_projection_deduplicates_opinions_and_keeps_source_lineage(tmp_path, clock):
     from travel_agent.domain.models import EvidenceBundle
     from travel_agent.preview.projection import project

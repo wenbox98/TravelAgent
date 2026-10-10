@@ -200,7 +200,7 @@ onMounted(async () => {
       polling = true
       const ticket = generation, sid = data.value?.session_id, baseline=JSON.stringify(data.value?.draft)
       try {
-        if(sid){const next=await request<PlanView>('/api/v1/preview/planning/'+sid,undefined,undefined,{timeoutMs:5000});if(ticket===generation&&sid===data.value?.session_id&&!busy.value)apply(next,baseline)}
+        if(sid){const next=await request<PlanView>('/api/v1/preview/planning/'+sid,undefined,undefined,{timeoutMs:15000});if(ticket===generation&&sid===data.value?.session_id&&!busy.value)apply(next,baseline)}
         else await request('/health',undefined,undefined,{timeoutMs:5000})
         if(ticket===generation){if(connectionLost.value)error.value='';connectionLost.value=false}
       } catch(e) { if(ticket===generation){connectionFailure(e);error.value=e instanceof Error?e.message:'暂时未读到任务状态；输入已保留。'} }

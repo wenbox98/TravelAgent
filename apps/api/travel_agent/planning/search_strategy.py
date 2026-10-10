@@ -26,17 +26,26 @@ def context(p: dict[str, Any], gaps: list[dict[str, Any]], remaining: dict[str, 
     wanted = missing[0] if missing else None
     ordered = sorted(gaps, key=lambda g: (g["key"] != "PLAY_DETAIL", g["key"] != "LODGING"))
     matches = [g for g in ordered if wanted is None or angle(g["key"]) == wanted]
-    gap = matches[0]["key"] if matches else "DIRECT_REVIEW" if wanted == "DIRECT" else "CROSS_CHECK"
-    terms = TERMS.get(gap, "玩法 交通 住宿取舍")
-    if gap == "TRANSPORT" and p["draft"]["driving"] == "NO":
-        terms = "不自驾 公交 步行 区域接驳"
-    query = f"{p['destination']} {terms}"
-    missing_play = p.get("agent_missing_play_names", [])[:2]
-    if gap == "PLAY_DETAIL" and missing_play:
-        query = f"{p['destination']} {' '.join(missing_play)} 具体玩法"
+    from travel_agent.research.planning import QueryPlanner
+    from .materials import activity_subject
+
+    seen = {QueryPlanner.normalize(r.get("query", "")) for r in history}
+    keys = [g["key"] for g in matches] or ["DIRECT_REVIEW" if wanted == "DIRECT" else "CROSS_CHECK"]
+    candidates: list[tuple[str, str]] = []
+    missing_play = [n for n in p.get("agent_missing_play_names", []) if activity_subject(n)]
+    for gap in keys:
+        terms = TERMS.get(gap, "玩法 交通 住宿取舍")
+        if gap == "TRANSPORT" and p["draft"]["driving"] == "NO":
+            terms = "不自驾 公交 步行 区域接驳"
+        if gap == "PLAY_DETAIL":
+            candidates.extend((gap, f"{p['destination']} {' '.join(missing_play[i:i+2])} 具体玩法")
+                              for i in range(0, len(missing_play), 2))
+        candidates.append((gap, f"{p['destination']} {terms}"))
+    gap, query = next(((g, q) for g, q in candidates if QueryPlanner.normalize(q) not in seen), (keys[0], ""))
     return dict(
         completed_angles=sorted(done), missing_angles=missing,
         recommended=dict(search_angle=angle(gap), gap_key=gap, query=query),
+        has_new_query=bool(query),
         remaining_search=remaining["search"], remaining_bodies=remaining["detail"],
         meaning="正面研究行程与具体玩法；侧面按缺口研究住宿、交通、季节替代和取舍。每步根据实际结果重排，不重复失败请求。",
     )
@@ -46,3 +55,20 @@ def progress(p: dict[str, Any], coverage: dict[str, Any]) -> str:
     """Counts or genuine content/state changes, never another decision's timestamp."""
     return fingerprint([p["draft"], p.get("reference_model_choices"), p.get("selected_reference_overview"),
                         coverage["unique_fact_count"], coverage["source_count"], coverage["gaps"]])
+
+
+def proposal_gaps(proposals: list[dict[str, Any]], draft: dict[str, Any]) -> list[dict[str, Any]]:
+    """At least one useful proposal must cover days, concrete play and overnight area advice."""
+    choices = []
+    for proposal in proposals:
+        assessment = proposal.get("assessment", {})
+        missing = []
+        if assessment.get("coverage", {}).get("missing_days"):
+            missing.append(("DURATION", "生成建议仍有未安排的旅行天数"))
+        if assessment.get("content_limited", True):
+            missing.append(("PLAY_DETAIL", "生成建议仍有只有名称、没有具体玩法支持的项目"))
+        if (draft.get("days") or 0) > 1 and draft.get("trip_budget", {}).get("lodging_scope") != "EXCLUDE" and draft.get("trip_budget", {}).get("nights") != 0 and not proposal.get("lodging", {}).get("area_ids"):
+            missing.append(("LODGING", "生成建议仍缺少有来源支持的住宿片区取舍"))
+        choices.append(missing)
+    best = min(choices, key=len) if choices else [("PLAY_DETAIL", "尚无可用攻略")]
+    return [dict(key=k, label=label, status="GAP", citation_ids=[]) for k, label in best]

@@ -18,6 +18,20 @@ from uuid import uuid4
 normal = normal_fixture
 
 
+def test_reviewed_area_advice_keeps_role_conditions_and_current_citation_boundary():
+    from travel_agent.planning.lodging import researched_areas
+    row = dict(claim_id="authored-lodging", text="去年住在合成青谷老城片区，前往展馆较方便。", conditions=["去年秋季自驾"], reference_kind="AUTHOR_RECORDED_TRIP", source_id="synthetic:area")
+    areas = researched_areas([row, dict(row, claim_id="authored-negative", text="不建议住在合成北园附近。"), dict(row, text="建议住在市中心。")])
+    assert len(areas) == 1 and areas[0]["name"] == "合成青谷老城片区"
+    assert areas[0]["references"] == [row]
+    d = PlanDraft(days=3)
+    d.guide.lodging.area_ids = [areas[0]["area_id"]]
+    p = dict(draft=d.model_dump(), lodging_areas=areas)
+    assert project(p, [row])["lodging"]["areas"] == ["合成青谷老城片区"]
+    assert project(p, [row])["lodging"]["scope"]["state"] == "UNDECIDED"
+    assert not project(p, [])["lodging"]["areas"]  # Withdrawn citations cannot survive as live advice.
+
+
 @pytest.mark.parametrize(
     "days,nights,scope,want",
     [

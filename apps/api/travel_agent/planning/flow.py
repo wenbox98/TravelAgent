@@ -344,6 +344,12 @@ class PlanningService:
             return self.get(sid)
 
     def get(self, sid: str) -> dict[str, Any]:
+        from travel_agent.preview.service import view_cache
+
+        with view_cache():
+            return self._get(sid)
+
+    def _get(self, sid: str) -> dict[str, Any]:
         row, state = self.load(sid)
         p = state["planning"]
         draft = PlanDraft.model_validate(p["draft"])

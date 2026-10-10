@@ -91,6 +91,7 @@ async function download(){error.value='';try{const v=await request<{filename:str
       <p v-for="(d,i) in plan.local_guide_review.summary.decisions.filter(d=>d.status==='REJECTED')" :key="i">仍未通过：{{d.reason}}</p>
     </article>
     <h3>用餐与住宿怎么选</h3><p v-for="m in guide.dining" :key="m.day+m.window">第 {{m.day}} 天{{m.window}}：{{m.text}}</p><p>{{guide.lodging.text}}</p><p v-if="guide.lodging.areas.length">片区备选：{{guide.lodging.areas.join('、')}}（没有核实酒店或交通便利性）</p>
+    <p v-for="r in guide.lodging.area_references || []" :key="r.claim_id">住宿参考：{{r.text}}；原文角色：{{r.reference_kind}}。适用条件：{{(r.conditions || []).join('；') || '未提供'}}。引用：{{r.claim_id}}</p>
     <details><summary>修改住宿策略与人数口径</summary><fieldset :disabled="busy"><div class="grid">
       <label>人数<input :value="form.trip_budget.people??''" type="number" min="1" @change="form.trip_budget.people=number($event);save()" /></label>
       <label>房间数<input :value="form.trip_budget.rooms??''" type="number" min="1" @change="form.trip_budget.rooms=number($event);save()" /></label>

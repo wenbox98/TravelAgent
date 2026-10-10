@@ -1,7 +1,10 @@
 """Cache-only projections and transactional user choices. No research service/provider."""
 from copy import deepcopy
+from contextlib import contextmanager
+from contextvars import ContextVar
+from collections.abc import Iterator
 import json
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from travel_agent.domain.models import EvidenceBundle, SourcePolicy
@@ -14,11 +17,35 @@ from .models import Mode, PreviewCreate, PreviewMutation
 from .projection import EMPTY, fingerprint, gaps, parse_preferences, project, questions, safe_text
 
 
+_view_cache: ContextVar[dict[tuple[Any, ...], Any] | None] = ContextVar("preview_view_cache", default=None)
+
+
+@contextmanager
+def view_cache() -> Iterator[None]:
+    """Reuse checked projections only within one read; writes invalidate by SQLite versions."""
+    token = _view_cache.set({})
+    try:
+        yield
+    finally:
+        _view_cache.reset(token)
+
+
 class PreviewService:
     def __init__(self, db: Database, scope: str, mode: Mode):
         self.db, self.scope, self.mode = db, scope, mode
 
     def _cache(self, research_id: str) -> tuple[dict[str, Any], tuple[EvidenceBundle, ...]]:
+        cache = _view_cache.get()
+        if cache is None:
+            return self._load_cache(research_id)
+        con = self.db.connection
+        key = (id(con), self.scope, self.mode, research_id, con.total_changes,
+               con.execute("PRAGMA data_version").fetchone()[0])
+        if key not in cache:
+            cache[key] = self._load_cache(research_id)
+        return cast(tuple[dict[str, Any], tuple[EvidenceBundle, ...]], deepcopy(cache[key]))
+
+    def _load_cache(self, research_id: str) -> tuple[dict[str, Any], tuple[EvidenceBundle, ...]]:
         q = self.db.connection.execute("SELECT * FROM research_questions WHERE research_id=? AND account_scope=?",
                                        (research_id, self.scope)).fetchone()
         if q is None:

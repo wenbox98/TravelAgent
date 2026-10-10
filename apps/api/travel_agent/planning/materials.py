@@ -16,6 +16,11 @@ _BAD_NAME = re.compile(
 )
 
 
+def activity_subject(name: str) -> bool:
+    """Generic transfer/arrival steps remain route context, not sightseeing choices."""
+    return name.strip() not in {"游客中心", "景交车", "索道上山", "索道下山", "抵达市区", "机场", "酒店", "民宿", "市区", "返程", "还车", "出发"}
+
+
 def natural_names(text: str) -> list[str]:
     """Exact public noun phrases next to explicit actions; no outside entity lookup."""
     names = [name for raw in re.findall(r"📍([^\n，。；：:]{2,30})[：:]", text)

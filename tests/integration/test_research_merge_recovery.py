@@ -131,3 +131,46 @@ def test_explicit_merge_repair_reuses_saved_child_and_only_remaining_scope(servi
     assert state["planning"]["agent_research_job_ids"] == []
     assert service.action(first["session_id"], body, key)["automatic_task"]["task_id"] == new_task["task_id"]
     assert len(wire.sent) == sent
+
+
+def test_partial_guide_continuation_retains_remaining_scope_and_rejects_challenge(service, monkeypatch):
+    oracle = MultiModel()
+    def respond(task, data):
+        if task == "travel_intake_v1":
+            return intake(data["user_text"], [("destination", "合成青谷", "合成青谷")])
+        if task == "travel_supervisor_v1":
+            n = len(data["previous_results"])
+            if n == 0:
+                return choose("RESEARCH_GAP", query="合成青谷 具体玩法", gap_key="PLAY")
+            return choose("CACHE" if n == 1 else "DECOMPOSE")
+        return oracle.structured(task, data, {})
+    wire = Wire(monkeypatch, respond)
+    first = service.start(AutomaticStart(request="合成青谷7天", consent=CURRENT_CONSENT), str(uuid4()))
+    extract, review = dispatches(config())
+    run(service.db.path, first["automatic_task"]["task_id"], provider=config(), reader=MultiReader(),
+        extract_dispatch=extract, review_dispatch=review)
+    v = service.plans.get(first["session_id"])
+    assert v["automatic_task"]["status"] == "PARTIAL" and v["automatic_task"]["generated"], wire.errors
+    assert v["automatic_task"]["reason"] == "PARTIAL"
+    gid = service.db.connection.execute("SELECT grant_id FROM planning_tasks WHERE task_id=?", (v["automatic_task"]["task_id"],)).fetchone()[0]
+    remaining = DailyBudget(service.db, gid).summary()["remaining"]
+    assert remaining["search"] > 0 and remaining["detail"] > 0
+    before = [tuple(r) for r in service.db.connection.execute("SELECT * FROM research_continuations")]
+    ops = [tuple(r) for r in service.db.connection.execute("SELECT * FROM continuation_operations")]
+    _, state = service.plans.load(first["session_id"])
+    blocked = deepcopy(state)
+    blocked["planning"]["agent_research_blocked"] = True
+    with pytest.raises(ValueError, match="AUTOMATIC_NO_RETRY"):
+        service._partial_recovery(first["session_id"], blocked, CURRENT_CONSENT)
+    repair = service._partial_recovery(first["session_id"], state, CURRENT_CONSENT)
+    assert repair["remaining"] == remaining
+    sent = len(wire.sent)
+    renewed = service.action(first["session_id"], AutomaticAction(action="research_more", consent=CURRENT_CONSENT,
+        expected_revision=v["revision"]), str(uuid4()))
+    newgid = service.db.connection.execute("SELECT grant_id FROM planning_tasks WHERE task_id=?", (renewed["automatic_task"]["task_id"],)).fetchone()[0]
+    budget = DailyBudget(service.db, newgid)
+    assert budget.summary()["remaining"] == dict(remaining, connect=1)
+    assert budget.state()["predecessor"] == gid and budget.state()["gate"]["expires_at"] == repair["expires_at"]
+    assert [tuple(r) for r in service.db.connection.execute("SELECT * FROM research_continuations WHERE continuation_id!=?", (newgid,))] == before
+    assert [tuple(r) for r in service.db.connection.execute("SELECT * FROM continuation_operations")] == ops
+    assert len(wire.sent) == sent  # Explicit intent queues the worker; presentation never dispatches.

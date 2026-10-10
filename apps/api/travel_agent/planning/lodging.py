@@ -1,10 +1,32 @@
 """Lodging scope is independent of an unknown monetary amount."""
 
 from typing import Any
+import re
+from travel_agent.preview.projection import fingerprint
 from .flow_models import PlanDraft
 from .guide_models import BudgetLine, TripBudget
 
 VERSION = "lodging-scope-1"
+
+
+def researched_areas(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Exact named location phrases from reviewed lodging statements; no external lookup."""
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not re.search(r"住宿|住在|入住|酒店|民宿|落脚|建议住|推荐住", row["text"]):
+            continue
+        for match in re.finditer(r"(?:住在|入住|建议住|推荐住|住宿选|住宿[：:]|落脚在)([\u4e00-\u9fffA-Za-z·]{2,20}?(?:片区|附近|周边|商圈|市中心|老城区|地铁站|火车站|市区|街区|路|区))", row["text"]):
+            prefix = re.split(r"[，。；！？]", row["text"][:match.start()])[-1]
+            if re.search(r"不|没|未|避免", prefix[-8:]):
+                continue
+            name = match[1]
+            if name in {"市中心", "老城区", "火车站", "地铁站", "市区", "酒店附近", "景区附近"}:
+                continue
+            identifier = "lodging-" + fingerprint(name)[:20]
+            area = result.setdefault(identifier, dict(area_id=identifier, name=name, citation_ids=[], references=[]))
+            area["citation_ids"].append(row["claim_id"])
+            area["references"].append({k: row.get(k) for k in ("claim_id", "text", "conditions", "reference_kind", "source_id")})
+    return list(result.values())[:12]
 
 
 def context(draft: PlanDraft) -> dict[str, Any]:

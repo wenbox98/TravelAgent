@@ -24,6 +24,37 @@ from .workbench import authorize, DailyBudget
 ACTIVE = {"QUEUED", "RUNNING", "WAITING_CONFIGURATION"}
 
 
+def material_pool(items: list[dict[str, Any]], library: Any, source_limit: int) -> list[dict[str, Any]]:
+    """Keep locked choices, then distinct named activities across supporting sources."""
+    from .materials import activity_subject
+
+    selected: list[dict[str, Any]] = []
+    names: set[str] = set()
+    sources: set[str] = set()
+    pending = list(items)
+    while pending:
+        represented: set[str] = set()
+        rest = []
+        for a in pending:
+            locked = a.get("locked") or a.get("locked_start")
+            ids = {s["source_id"] for r in a["knowledge_refs"] for s in library.get(r)["sources"]}
+            if not locked and (not activity_subject(a["name"]) or a["name"] in names):
+                continue
+            if not locked and ids & represented:
+                rest.append(a)
+                continue
+            if len(sources | ids) > source_limit or len(selected) >= 12:
+                if locked:
+                    raise ValueError("PLANNING_LOCKED_CONSTRAINT")
+                continue
+            selected.append(a)
+            names.add(a["name"])
+            sources |= ids
+            represented |= ids
+        pending = rest
+    return selected
+
+
 def request_for(p: dict[str, Any]) -> Any:
     from travel_agent.research.models import ResearchRequest
 
@@ -79,6 +110,10 @@ def card_context(db: Any, scope: str, p: dict[str, Any]) -> None:
         for s in ids:
             lengths[s] += n
     p["automatic_context_cards"] = selected
+    if p.get("automatic_material_source_limit") == 20:
+        from .lodging import researched_areas
+        from travel_agent.knowledge.planning import card_references
+        p["lodging_areas"] = researched_areas(card_references(verify(db, scope, p)))
 
 
 def merge_research(db: Any, scope: str, sid: str, state: dict[str, Any], rid: str, *, update_grant: bool = True) -> None:
@@ -176,6 +211,8 @@ def merge_research(db: Any, scope: str, sid: str, state: dict[str, Any], rid: st
             not bool(item_sources(a) & read_sources),
         )
     )
+    if p.get("automatic_material_source_limit") == 20:
+        items = material_pool(items, library, 20)
     selected: list[dict[str, Any]] = []
     sources: set[str] = set()
     for a in items:
@@ -299,9 +336,16 @@ def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
 
     sources: set[str] = set()
     selected: list[Any] = []
-    for c in Library(db, scope).search(destination=p["destination"], kind="SOURCE_REFERENCE")[
+    library = Library(db, scope)
+    catalog = library.search(destination=p["destination"], kind="SOURCE_REFERENCE")[
         "cards"
-    ]:
+    ]
+    if p.get("automatic_material_source_limit") == 20:
+        from .flow_models import Activity
+        selected = [Activity.model_validate(a) for a in material_pool(
+            [a.model_dump() for c in catalog if c["spatial_status"] != "MISMATCH" for a in templates(c)], library, 20)]
+        sources = {s["source_id"] for a in selected for r in a.knowledge_refs for s in library.get(r.model_dump())["sources"]}
+    for c in catalog if p.get("automatic_material_source_limit") != 20 else []:
         ids = {s["source_id"] for s in c["sources"]}
         items = templates(c)
         if (
@@ -741,7 +785,7 @@ class AutomaticService:
                 p["request"] = body.text
                 save(self.db, sid, state, bump=False)
             elif body.action == "research_more":
-                recovery = self._merge_recovery(sid, state, str(body.consent))
+                recovery = self._merge_recovery(sid, state, str(body.consent)) or self._partial_recovery(sid, state, str(body.consent))
                 if recovery:
                     save(self.db, sid, state, bump=False)
                     self._create(sid, payload, key, body.text or "继续按当前旅行条件完成攻略，先复用已读正文并补充剩余缺口。",
@@ -770,6 +814,31 @@ class AutomaticService:
                 agent_consent=str(body.consent),
             )
             return self.plans.get(sid)
+
+    def _partial_recovery(self, sid: str, state: dict[str, Any], consent: str) -> dict[str, Any] | None:
+        """Explicit continuation of an incomplete guide retains its original remaining scope."""
+        from .agent_contract import CURRENT_CONSENT
+
+        p = state["planning"]
+        prior = self.db.connection.execute(
+            "SELECT * FROM planning_tasks WHERE task_id=? AND session_id=? AND account_scope=?",
+            (p.get("automatic_task_id"), sid, self.scope),
+        ).fetchone()
+        if not prior or consent != CURRENT_CONSENT or prior["status"] != "PARTIAL" or json.loads(
+            prior["summary_json"] or "{}"
+        ).get("reason") != "PARTIAL" or not p.get("agent_generated"):
+            return None
+        budget = DailyBudget(self.db, prior["grant_id"])
+        original, remaining = budget.state(), budget.summary()["remaining"]
+        if original["gate"].get("consent") != CURRENT_CONSENT or not original["finished_at"] or p.get("agent_research_blocked"):
+            raise ValueError("AUTOMATIC_NO_RETRY")
+        if datetime.fromisoformat(original["gate"]["expires_at"]) <= self.db.clock():
+            raise ValueError("OPERATION_EXPIRED")
+        if not remaining["search"] or not remaining["detail"] or not coverage(self.db, self.scope, sid, p)["gaps"]:
+            raise ValueError("AUTOMATIC_NO_RETRY")
+        return dict(predecessor_task=prior["task_id"], predecessor_grant=prior["grant_id"],
+                    merged_job=None, remaining=remaining, expires_at=original["gate"]["expires_at"],
+                    rounds=deepcopy(p.get("agent_rounds", [])), repair_reason="PARTIAL_GUIDE_INCOMPLETE")
 
     def _merge_recovery(self, sid: str, state: dict[str, Any], consent: str) -> dict[str, Any] | None:
         """Local repair only after explicit intent; never replay a failed network request."""

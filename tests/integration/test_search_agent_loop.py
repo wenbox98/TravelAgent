@@ -202,3 +202,67 @@ def test_v5_verification_stops_entire_loop_before_other_requests(service, monkey
     assert "VERIFICATION_REQUIRED" in final["automatic_task"]["reason"]
     assert reader.calls == ["CONNECT", "SEARCH"]
     assert [v["task"] for v in wire.sent] == ["travel_intake_v1", "travel_supervisor_v1"]
+
+
+def test_remaining_gaps_override_premature_generation_with_distinct_queries(service, monkeypatch):
+    from travel_agent.planning.agent_contract import CURRENT_CONSENT
+    from travel_agent.research.models import DetailMaterial
+
+    class NewSources(MultiReader):
+        count = 0
+        def search(self, query):
+            self.count += 1
+            self.prefix = f"{self.count:010x}"
+            return super().search(query)
+        def detail(self, candidate, number):
+            value = super().detail(candidate, number)
+            return DetailMaterial(value.source_id, value.title,
+                value.body.replace("合成镜湖", "合成" + "甲乙丙丁戊"[self.count-1] + "湖"),
+                value.completeness, value.fetched_at)
+
+    oracle = MultiModel()
+    def respond(task, data):
+        if task == "travel_intake_v1":
+            return intake(data["user_text"], [("destination", "合成青谷", "合成青谷")])
+        if task == "travel_supervisor_v1":
+            # A model tries to end after every source: the program must check actual gaps.
+            return choose("GENERATE")
+        return oracle.structured(task, data, {})
+    wire = Wire(monkeypatch, respond)
+    first = service.start(AutomaticStart(request="合成青谷7天", consent=CURRENT_CONSENT), str(uuid4()))
+    extract, review = dispatches(config())
+    reader = NewSources()
+    run(service.db.path, first["automatic_task"]["task_id"], provider=config(), reader=reader,
+        extract_dispatch=extract, review_dispatch=review)
+    final = service.plans.get(first["session_id"])
+    assert final["automatic_task"]["generated"], (final["automatic_task"]["reason"], wire.errors)
+    researched = [r for r in final["automatic_task"]["agent_rounds"] if r["tool"] == "RESEARCH_GAP"]
+    assert len(researched) >= 3 and len({r["query"] for r in researched}) == len(researched)
+    assert all(r["decision_origin"] == "MODEL_WITH_GOAL_GUARD" for r in researched)
+    assert {r["search_angle"] for r in researched} == {"DIRECT", "LATERAL"}
+    assert any(r["gap_key"] == "PLAY_DETAIL" and "湖" in r["query"] for r in researched)
+
+
+def test_material_pool_keeps_named_play_diversity_and_locked_steps():
+    from travel_agent.planning.automatic import material_pool
+    class Cards:
+        def get(self, ref):
+            return dict(sources=[dict(source_id=ref["source"])])
+    def activity(name, source="one", locked=False):
+        return dict(name=name, activity_id=name, knowledge_refs=[dict(source=source)], locked=locked)
+    items = [activity("机场", locked=True), activity("游客中心"), activity("景交车"),
+             *[activity(f"合成第{i}园") for i in range(14)], activity("合成北馆", "two")]
+    selected = material_pool(items, Cards(), 20)
+    assert selected[0]["name"] == "机场" and any(a["name"] == "合成北馆" for a in selected)
+    assert not {"游客中心", "景交车"} & {a["name"] for a in selected}
+    assert len(selected) == 12
+
+
+def test_generated_day_play_and_lodging_gaps_are_goal_feedback():
+    from travel_agent.planning.search_strategy import proposal_gaps
+    draft = dict(days=7, trip_budget=dict(lodging_scope="AUTO", nights=None))
+    partial = dict(assessment=dict(coverage=dict(missing_days=[5,6]), content_limited=True), lodging=dict(area_ids=[]))
+    assert {g["key"] for g in proposal_gaps([partial], draft)} == {"DURATION", "PLAY_DETAIL", "LODGING"}
+    complete = dict(assessment=dict(coverage=dict(missing_days=[]), content_limited=False), lodging=dict(area_ids=["authored-area"]))
+    assert not proposal_gaps([partial, complete], draft)
+    assert "LODGING" not in {g["key"] for g in proposal_gaps([partial], dict(draft, trip_budget=dict(nights=0)))}

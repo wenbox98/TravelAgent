@@ -84,7 +84,8 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
     )
     if lodging == "NOT_APPLICABLE" and lodging_decision["state"] != "OUT_OF_SCOPE":
         lodging = "UNDECIDED"
-    areas = {a["area_id"]: a["name"] for a in p.get("lodging_areas", [])}
+    available_areas = [a for a in p.get("lodging_areas", []) if set(a.get("citation_ids", [])) <= {r["claim_id"] for r in refs or []}]
+    areas = {a["area_id"]: a["name"] for a in available_areas}
     walk = walking(d, p.get("request", ""))
     activity_rows = [a.model_dump() for a in d.activities]
     content = {a.activity_id: presentation(a.model_dump(), refs or []) for a in d.activities}
@@ -162,6 +163,7 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
             text=lodging_decision["reason"] if lodging == "NOT_APPLICABLE" else LODGING[lodging],
             scope=lodging_decision,
             areas=[areas[i] for i in d.guide.lodging.area_ids if i in areas],
+            area_references=[r for area in available_areas if area["area_id"] in d.guide.lodging.area_ids for r in area.get("references", [])],
             nights=b.nights,
             rooms=b.rooms,
         ),
@@ -324,6 +326,10 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
         if guide["lodging"]["areas"]
         else "具体片区未定。",
     ]
+    for ref in guide["lodging"]["area_references"]:
+        lines += ["- 住宿来源参考：" + escaped(ref["text"]),
+                  "  - 原文角色：" + escaped(ref.get("reference_kind") or "UNKNOWN") + "；引用：" + escaped(ref["claim_id"])]
+        lines += ["  - 适用条件：" + escaped(c) for c in ref.get("conditions") or []]
     lines += [
         "",
         "## 参考预算",
