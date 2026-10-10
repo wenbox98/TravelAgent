@@ -6,7 +6,7 @@ from typing import Any
 from travel_agent.research.canonical import body_blocks
 from travel_agent.research.model_input import outbound_blocks
 from .flow_models import PlanDraft
-from .materials import activities, candidate_from_name, references, scope_gaps
+from .materials import activities, candidate_from_name, references, same_conditions, scope_gaps
 from .private_budget import PrivatePlanningBudget
 
 
@@ -139,9 +139,10 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         if (
             supported.activity_id,
             supported.region,
-            supported.conditions,
             supported.reference_kinds,
-        ) != (a.activity_id, a.region, a.conditions, a.reference_kinds):
+        ) != (a.activity_id, a.region, a.reference_kinds) or not same_conditions(
+            supported.conditions, a.conditions
+        ):
             raise ValueError("PLANNING_REFERENCE_UNAVAILABLE")
         if (
             p.get("protocol_version") == 2

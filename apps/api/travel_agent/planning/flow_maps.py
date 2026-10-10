@@ -289,7 +289,7 @@ class PrivateFlowMapService(FlowMapService):
     ) -> dict[str, Any]:
         from travel_agent.persistence.database import Database
         from .private_budget import PrivatePlanningBudget
-        from .materials import references, candidate_from_name
+        from .critical_map import public_support
 
         if isinstance(self.adapter, SyntheticMapAdapter) or action.action not in {
             "resolve",
@@ -332,7 +332,7 @@ class PrivateFlowMapService(FlowMapService):
                         )
                     ):
                         raise ValueError("KEY_LEG_STALE_OR_CLOSED")
-            from .discovery import checked, verify_activity
+            from .discovery import checked
 
             leads = checked(db, self.scope, action.session_id, p)
             target_lead = leads.get(action.place_id or "")
@@ -356,7 +356,7 @@ class PrivateFlowMapService(FlowMapService):
                     raise ValueError("DISCOVERY_IDENTITY_MISMATCH")
             if draft.inputs.origin or draft.inputs.destination or draft.inputs.endpoints_private:
                 raise ValueError("PRIVATE_ENDPOINT_NOT_AUTHORIZED")
-            refs = {e["claim_id"]: e for e in references(db, self.scope, action.session_id)}
+            supported_activities = public_support(db, self.scope, action.session_id, p)
             for a in draft.activities:
                 if (
                     daily(p)
@@ -367,17 +367,9 @@ class PrivateFlowMapService(FlowMapService):
                     continue
                 if action.action != "route" and a.activity_id != action.place_id:
                     continue
-                if a.provenance == "SOURCE_MENTION":
-                    verify_activity(a, leads)
-                    continue
-                if a.provenance != "SOURCE_REFERENCE" or not set(a.evidence_ids) <= refs.keys():
+                supported = supported_activities.get(a.activity_id)
+                if supported is None:
                     raise ValueError("ACTIVITY_SUPPORT_REQUIRED")
-                supported = candidate_from_name(
-                    a.name,
-                    [refs[i] for i in a.evidence_ids],
-                    p["destination"],
-                    draft.spatial.intent,
-                )
                 if (
                     action.action == "route"
                     and p.get("protocol_version") == 2

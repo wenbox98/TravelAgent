@@ -45,6 +45,8 @@ def retain(db: Any, row: Any, raw: Any, result: dict[str, Any]) -> dict[str, Any
         expires_at=(db.clock() + timedelta(days=7)).isoformat(),
         replayable=replayable,
         proposals=raw if replayable else None,
+        **(dict(shape_summary=advisory.shape_diagnostic(raw, request["payload"]))
+           if rules is advisory else {}),
     )
     path = _path(db, row["job_id"])
     path.parent.mkdir(exist_ok=True)
@@ -57,6 +59,7 @@ def retain(db: Any, row: Any, raw: Any, result: dict[str, Any]) -> dict[str, Any
         reason="STRUCTURE_RETAINED" if replayable else "UNSAFE_OR_UNAVAILABLE_STRUCTURE",
         adopted_affected=False,
         record_hash=fingerprint(record),
+        **(dict(shape_summary=record["shape_summary"]) if "shape_summary" in record else {}),
     )
 
 

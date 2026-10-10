@@ -390,6 +390,78 @@ def test_budget_gate_denies_tools_without_reset_and_stop_is_not_success(service,
     assert final["automatic_task"]["agent_rounds"][0]["result"]["executed"] is False
 
 
+def test_explicit_cache_only_request_reserves_zero_site_budget(service, monkeypatch):
+    text = "去合成青谷5天。本次只用已缓存资料，不搜索、不读取新正文。"
+    wire = Wire(monkeypatch, lambda task, data: (
+        intake(text, [("destination", "合成青谷", "合成青谷"), ("days", 5, "5天")])
+        if task == "travel_intake_v1"
+        else choose("RESEARCH_GAP", query="合成青谷 玩法", gap_key="PLAY")
+    ))
+    reader = Reader()
+    v = service.start(AutomaticStart(request=text, consent=CONSENT), str(uuid4()))
+    assert {k: v["automatic_task"]["limits"][k] for k in ("connect", "search", "detail")} == {
+        "connect": 0, "search": 0, "detail": 0
+    }
+    run(service.db.path, v["automatic_task"]["task_id"], provider=config(), reader=reader)
+    final = service.plans.get(v["session_id"])
+    assert reader.calls == [] and len(wire.sent) == 2
+    assert final["automatic_task"]["status"] == "BLOCKED"
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("改成5天。本次只用已缓存资料，不搜索。", True),
+    ("这次仅使用现有资料，生成建议。", True),
+    ("本轮只用缓存", True),
+    ("先用缓存，不足再查资料", False),
+    ("如果本次只用缓存会怎样？", False),
+    ("我不想本次只用缓存", False),
+    ('来源说“本次只用缓存”', False),
+])
+def test_cache_only_restriction_requires_an_asserted_current_instruction(text, expected):
+    from travel_agent.planning.agent_contract import cache_only_requested
+
+    assert cache_only_requested(text) is expected
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("如果只有3天呢？。本次最多3次模型请求。", 3),
+    ("本轮最多1次模型请求", 1),
+    ("本次最多20次模型请求", 20),
+    ("如果本次最多3次模型请求", None),
+    ('来源说“本次最多3次模型请求”', None),
+    ("不要本次最多3次模型请求", None),
+])
+def test_explicit_model_cap_only_recognizes_current_operator_limit(text, expected):
+    from travel_agent.planning.agent_contract import requested_model_cap
+
+    assert requested_model_cap(text) == expected
+
+
+def test_followup_smaller_model_cap_does_not_reset_previous_grant(service, monkeypatch):
+    text = "去合成青谷。本次只用已缓存资料。"
+    Wire(monkeypatch, lambda task, data: (
+        intake(text, [("destination", "合成青谷", "合成青谷")])
+        if task == "travel_intake_v1" else choose("FINISH", stop="PARTIAL")
+    ))
+    v = service.start(AutomaticStart(request=text, consent=CONSENT), str(uuid4()))
+    run(service.db.path, v["automatic_task"]["task_id"], provider=config(), reader=Reader())
+    v = service.plans.get(v["session_id"])
+    previous = dict(service.db.connection.execute(
+        "SELECT * FROM research_continuations ORDER BY rowid DESC LIMIT 1"
+    ).fetchone())
+    # An explicit new message gets a smaller immutable grant; historical rows stay byte-identical.
+    from travel_agent.planning.automatic_models import AutomaticAction
+    v = service.action(v["session_id"], AutomaticAction(
+        action="refine", expected_revision=v["revision"], text="如果只有3天呢？。本次最多3次模型请求。",
+        consent=CONSENT,
+    ), str(uuid4()), followup=True)
+    row = service.db.connection.execute("SELECT * FROM research_continuations ORDER BY rowid DESC LIMIT 1").fetchone()
+    assert json.loads(row["limits_json"])["MODEL"] == 3
+    assert row["predecessor"] == previous["continuation_id"]
+    assert dict(service.db.connection.execute("SELECT * FROM research_continuations WHERE continuation_id=?",
+                                             (previous["continuation_id"],)).fetchone()) == previous
+
+
 def test_late_model_result_cannot_apply_after_cancel(service, monkeypatch):
     from travel_agent.planning.automatic import invalidate
 

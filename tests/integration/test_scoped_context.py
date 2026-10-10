@@ -78,6 +78,33 @@ def context(s, v):
     return p, payload_for(p, s.db, s.scope, v["session_id"])
 
 
+@pytest.mark.parametrize("text,names", [
+    ("🔸Day1｜甲木公园➠乙桥街", ["甲木公园", "乙桥街"]),
+    ("Day2|丙山馆➠丁江公园➠戊桥", ["丙山馆", "丁江公园", "戊桥"]),
+])
+def test_reviewed_arrow_members_keep_object_binding(text, names):
+    from travel_agent.planning.materials import activities
+    from travel_agent.planning.scoped_context import derive
+
+    base = dict(source_id="authored-source", source_version="authored-v1",
+                reference_kind="GUIDE_SUGGESTION", review_status="MODEL_CONTEXT_REVIEWED",
+                conditions=["仅作秋季建议"],
+                route_association=dict(source_id="authored-source", object_locator="authored-v1:chars:0-20",
+                                       object_quote=text, scope="SEGMENT"))
+    route = dict(base, claim_id="authored-route", topic="ROUTE", text=text,
+                 locator="authored-v1:chars:0-20")
+    experience = dict(base, claim_id="authored-experience", topic="EXPERIENCE",
+                      text="这组路线适合秋季慢逛，雨天尚未核实。", locator="authored-v1:chars:21-45")
+    acts = [a.model_dump() for a in activities([route], "自编另一城")]
+    assert [a["name"] for a in acts] == names
+    result = derive(acts, [route, experience])["backgrounds"]
+    assert len(result) == 1 and result[0]["scope"] == "GROUP_BACKGROUND"
+    assert result[0]["activity_names"] == sorted(names, key=lambda n: next(a["activity_id"] for a in acts if a["name"] == n))
+    changed = deepcopy(experience)
+    changed["source_version"] = "different-version"
+    assert derive(acts, [route, changed])["backgrounds"] == []
+
+
 def test_reviewed_object_survives_projection(scoped):
     s, v = scoped
     refs = references(s.db, s.scope, v["session_id"])
@@ -549,6 +576,8 @@ def test_repeated_background_text_cannot_bypass_source_limit():
         ("不必每一站停留，可减少项目", False),
         ("不把整段背景当成每站特色", False),
         ("不把整段背景当成每站特色，但各站都有独特氛围", True),
+        ("背景不证明各站特色、归属、开放或步行可行性。", False),
+        ("背景不证明各站特色、归属、开放或步行可行性，但各站都有独特氛围。", True),
     ],
 )
 def test_context_scope_distinguishes_disclaimer_from_assertion(text, blocked):

@@ -77,6 +77,60 @@ def test_roles_conditions_idempotence_versions_source_count(normal):
         lib.get(binding(cards[0]))
 
 
+def test_narrowed_combination_projects_background_sources_without_reviving_bindings(normal):
+    from travel_agent.domain.source_policy import SourcePolicy
+    from travel_agent.research.models import DetailMaterial, ResearchRequest
+    from travel_agent.research.store import EvidenceStore
+    from travel_agent.research.extractor import EvidenceExtractor
+    from travel_agent.research.recovery import ExtractionRecovery
+    from travel_agent.research.candidate_review import review_candidates
+    from test_candidate_grounding import Provider, candidate, accept
+    from travel_agent.knowledge.planning import templates, verify
+    from travel_agent.planning.advisory import pool, verify_current
+
+    s, old = normal
+    first = organize(s, old)[0]
+    store = EvidenceStore(s.db)
+    policy = SourcePolicy(json.loads(s.db.connection.execute(
+        "SELECT policy_json FROM source_policies ORDER BY version DESC LIMIT 1"
+    ).fetchone()[0]))
+    run = store.begin("partial", 0, ResearchRequest(destination="合成青谷").to_dict(), s.scope)
+    store.register_policy(run, 0, policy)
+    source = "xhs:authored-second-context"
+    store.reserve_operation(run, 0, "DETAIL", source, 1)
+    body = "第二份历史草案。\n纸舟公园→木桥街。"
+    content = store.save_source(
+        run, 0, DetailMaterial(source, "第二份自编来源", body, "PARTIAL_TEXT", s.db.stamp()),
+        policy, "合成青谷",
+    )
+    claim = candidate(body.splitlines()[1], 1, conditions=[dict(
+        text=body.splitlines()[0], quote=body.splitlines()[0], source_block_id=0
+    )])
+    claim["source_block_ids"].append(0)
+    runner = ExtractionRecovery(store, EvidenceExtractor(Provider([claim]), clock=s.db.clock, protocol_version=2))
+    result = runner.execute(run_id=run, revision=0, content_id=content, account_scope=s.scope,
+                            policy=policy, batch_id="authored-second-context", max_attempts=1)
+    review_candidates(store, attempt_id=result["attempt_id"], account_scope=s.scope,
+                      decisions={0: accept(reference_scope="GUIDE_SUGGESTION")})
+    second = next(c for c in organize(s, old) if c["sources"][0]["source_id"] == source)
+    v = new(s, [first, second])
+    _, state = s.load(v["session_id"])
+    p = deepcopy(state["planning"])
+    p["draft"]["planning_mode"] = "ADVISORY"
+    assert not second["test_input"]  # Authored source ID, not a production-source claim.
+    p["automatic_context_cards"] = [binding(second)]
+    p["draft"]["activities"] = [a.model_dump() for a in templates(first)]
+    with no_raw(s.db):
+        assert {c["card_id"] for c in verify(s.db, s.scope, p)} == {first["card_id"]}
+        assert pool(s.db, s.scope, v["session_id"], p)
+        verify_current(s.db, s.scope, v["session_id"], p)
+    # The available background binding stays intact for cancellation/reselection.
+    assert p["automatic_context_cards"] == [binding(second)]
+    Library(s.db, s.scope).remove([binding(second)])
+    with pytest.raises(ValueError, match="STALE_OR_DELETED"):
+        verify(s.db, s.scope, p)
+
+
 @pytest.mark.parametrize(
     "query,expected",
     [
@@ -551,3 +605,100 @@ def test_cleanup_account_scope_and_raw_expiry_keep_attestation(normal):
     )
     assert SourceContentStore(s.db).purge_expired(s.scope) == 0
     assert Library(s.db, s.scope).get(ref)["validation_basis"] == "HISTORICAL_ATTESTATION"
+
+
+def test_verified_source_card_can_offer_map_pair_but_revoked_card_cannot(normal):
+    from travel_agent.planning.critical_map import view
+    from travel_agent.planning.flow_models import PlanDraft
+
+    s, old = normal
+    cards = [
+        c for c in organize(s, old) if c["kind"] == "SOURCE_REFERENCE" and c["tags"][0] == "ROUTE"
+    ]
+    v = new(s, cards[:1])
+    draft = PlanDraft.model_validate(v["draft"])
+    draft.transport = "PUBLIC_TRANSIT"
+    draft.inputs.mode = "TRANSIT"
+    for a in draft.activities:
+        a.day = 1
+    v = act(s, v, "save", draft=draft)
+    _, state = s.load(v["session_id"])
+    p = state["planning"]
+    assert view(s.db, s.scope, v["session_id"], p)["pairs"]
+    Library(s.db, s.scope).remove([binding(cards[0])])
+    assert not view(s.db, s.scope, v["session_id"], p)["pairs"]
+
+
+@pytest.fixture
+def knowledge_map(normal, monkeypatch):
+    from test_critical_map import MapTransport
+    from travel_agent.planning.flow_maps import PrivateFlowMapService
+    from travel_agent.planning.flow_models import PlanDraft
+
+    s, old = normal
+    cards = [
+        c for c in organize(s, old) if c["kind"] == "SOURCE_REFERENCE" and c["tags"][0] == "ROUTE"
+    ]
+    v = new(s, cards[:1])
+    draft = PlanDraft.model_validate(v["draft"])
+    draft.transport, draft.driving, draft.rental = "SELF_DRIVE", "YES", "YES"
+    draft.inputs.mode = "DRIVING"
+    for a in draft.activities:
+        a.day = 1
+    v = act(s, v, "save", draft=draft)
+    adapter = MapTransport()
+    monkeypatch.setattr("travel_agent.providers.amap.AmapAdapter.from_env", lambda: adapter)
+    maps = PrivateFlowMapService(s.db.path, s.scope, "CACHED_PRIVATE_PREVIEW", adapter)
+    assert all(a["knowledge_refs"] and not a["evidence_ids"] for a in v["draft"]["activities"])
+    return s, s.get(v["session_id"]), maps, adapter, cards[0]
+
+
+def send_knowledge_map(service, *args, **kwargs):
+    from types import SimpleNamespace
+    from test_critical_map import send
+
+    return send(SimpleNamespace(plans=service), *args, **kwargs)
+
+
+def test_knowledge_public_leg_full_production_chain_and_restart(knowledge_map):
+    from travel_agent.planning.critical_map import CONSENT
+    from travel_agent.planning.flow_maps import PrivateFlowMapService
+
+    s, v, maps, adapter, _ = knowledge_map
+    sid = v["session_id"]
+    pair = v["critical_map"]["pairs"][0]
+    v = send_knowledge_map(s, maps, sid, "start", leg_id=pair["leg_id"], consent=CONSENT)
+    assert len(adapter.calls) == 2
+    for place in [p for p in maps.get(sid)["places"] if p["place_id"] in pair["place_ids"]]:
+        assert place["confirmed"] is None
+        v = send_knowledge_map(s, maps, sid, "confirm", place_id=place["place_id"],
+                 candidate_id=place["candidates"][0]["candidate_id"], relation="SAME_OBJECT")
+    v = send_knowledge_map(s, maps, sid, "route")
+    assert len(adapter.calls) == 3 and adapter.calls[-1] == ("ROUTE", "DRIVING", None)
+    assert v["operation"]["cumulative_used"]["map_place"] == 2
+    assert v["operation"]["cumulative_used"]["map_route"] == 1
+    assert not v["adopted"]
+    restored = PrivateFlowMapService(s.db.path, s.scope, "CACHED_PRIVATE_PREVIEW", adapter)
+    assert restored.get(sid)["map_result_state"] == "EXPIRED_OR_NOT_QUERIED"
+    assert len(adapter.calls) == 3
+
+
+@pytest.mark.parametrize("stage", ["resolve", "confirm", "route"])
+def test_knowledge_revocation_stops_each_map_mutation(knowledge_map, stage):
+    from travel_agent.planning.critical_map import CONSENT
+
+    s, v, maps, adapter, card = knowledge_map
+    sid = v["session_id"]
+    pair = v["critical_map"]["pairs"][0]
+    send_knowledge_map(s, maps, sid, "start", leg_id=pair["leg_id"], consent=CONSENT)
+    places = [p for p in maps.get(sid)["places"] if p["place_id"] in pair["place_ids"]]
+    if stage == "route":
+        for p in places:
+            send_knowledge_map(s, maps, sid, "confirm", place_id=p["place_id"],
+                 candidate_id=p["candidates"][0]["candidate_id"], relation="SAME_OBJECT")
+    Library(s.db, s.scope).remove([binding(card)])
+    extra = dict(place_id=places[0]["place_id"],
+                 candidate_id=places[0]["candidates"][0]["candidate_id"], relation="SAME_OBJECT")
+    with pytest.raises(ValueError):
+        send_knowledge_map(s, maps, sid, stage, **(extra if stage == "confirm" else {}))
+    assert len(adapter.calls) == 2

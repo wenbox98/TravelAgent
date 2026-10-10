@@ -107,7 +107,9 @@ def proposal(data):
     )
 
 
-@pytest.mark.parametrize("text", ["不代表价格已核实", "并非已核实", "不是已核实"])
+@pytest.mark.parametrize("text", [
+    "不代表价格已核实", "并非已核实", "不是已核实", "不作当前季节保证", "不作整趟可行性保证"
+])
 def test_narrow_unverified_disclaimer_is_not_a_fact_assertion(normal, text):
     s, _ = normal
     v = synthetic(s)
@@ -118,6 +120,26 @@ def test_narrow_unverified_disclaimer_is_not_a_fact_assertion(normal, text):
     assert validate(raw, data)["accepted_count"] == 1
     raw["proposals"][0]["assumptions"].append("价格已核实，公交20分钟即可到达。")
     assert validate(raw, data)["accepted_count"] == 0
+
+
+@pytest.mark.parametrize("text", [
+    "来源中的自驾环线只作历史参考，本方案不假设自驾或租车。",
+    "把来源的7天自驾环线当作历史参考，重排为5天不自驾的对照方案。",
+    "来源中的自驾条件只作历史参考，非自驾衔接方式与价格未知。",
+])
+def test_attributed_transport_reference_does_not_override_no_driving(normal, text):
+    s, _ = normal
+    v = synthetic(s)
+    _, state = s.load(v["session_id"])
+    data = payload(s.db, s.scope, v["session_id"], state["planning"])
+    data.update(driving="NO", transport="UNKNOWN")
+    raw = proposal(data)
+    raw["proposals"][0]["assumptions"] = [text]
+    assert validate(raw, data)["accepted_count"] == 1
+    for assertion in ("本方案仍推荐自驾。", "然后租车前往。", "本次包车往返。"):
+        data["charter"] = "NO"
+        raw["proposals"][0]["assumptions"] = [text + assertion]
+        assert validate(raw, data)["decisions"][0]["reason"] == "PLANNING_LOCKED_TRANSPORT"
 
 
 def test_new_default_unknown_clock_movement_rest_still_useful(normal):

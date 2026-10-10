@@ -620,7 +620,7 @@ def run_worker(database: Path, jid: str, provider: Any = None) -> None:
                 if modern
                 else "planning_suggestion",
                 data["payload"],
-                guide_response_schema()
+                guide_response_schema(data["payload"])
                 if advisory_mode
                 else RevisionResponse.model_json_schema()
                 if revision_mode

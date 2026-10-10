@@ -320,7 +320,8 @@ def _activities(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
     previous = {a["activity_id"]: a for a in p["draft"]["activities"]}
     allowed_sources: set[str] = set()
     chosen: list[dict[str, Any]] = []
-    candidates = activities(refs, p["destination"], draft.spatial.intent)
+    # Apply the existing source/item caps after locks and material priority.
+    candidates = activities(refs, p["destination"], draft.spatial.intent, limit=None)
     candidates.sort(
         key=lambda a: (
             not (
@@ -457,6 +458,13 @@ class AutomaticService:
             limits = agent_limits(
                 p["draft"].get("days"), p["travel_kind"] == "REGIONAL", followup=followup
             )
+        if agent:
+            from .agent_contract import cache_only_requested, requested_model_cap
+
+            if cache_only_requested(text):
+                limits.update(connect=0, search=0, detail=0)
+            if (cap := requested_model_cap(text)) is not None:
+                limits["model"] = min(limits["model"], cap)
         if agent and map_consent:
             limits.update(map_place=2, map_route=1)
         p["automatic_coverage"] = coverage(self.db, self.scope, sid, p)

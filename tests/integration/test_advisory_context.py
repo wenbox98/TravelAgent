@@ -81,6 +81,8 @@ def test_saved_page_dto_reaches_worker_and_adopted_export(normal, monkeypatch, v
         action("use_proposal")
         action("adopt")
         assert v["guide_view"]["walking"]["state"] == expected
+        if value is True and v["guide_view"].get("walking_suggestion"):
+            assert "尚未" not in v["guide_view"]["walking_suggestion"].replace("路线尚未核实", "")
         assert v["adopted"]["walking_allowed"] is value
         assert v["guide_view"]["budget_context"] == data["budget_context"]
         assert v["guide_view"]["budget"]["known_total"]["min_fen"] == 94000
@@ -152,3 +154,22 @@ def test_optional_walking_and_independent_context_failures(normal):
 
 
 normal = normal_fixture
+
+
+@pytest.mark.parametrize("allowed,fragment", [
+    (True, "已确认允许步行"), (None, "尚未核实路线或取得同意"),
+    (False, "本次明确不接受步行"),
+])
+def test_optional_walk_display_separates_preference_from_route_verification(normal, allowed, fragment):
+    from travel_agent.planning.guide_view import project
+
+    s, _ = normal
+    v = synthetic(s)
+    _, state = s.load(v["session_id"])
+    p = deepcopy(state["planning"])
+    p["draft"].update(walking_allowed=allowed, walking_origin="USER_EXPLICIT")
+    p["draft"]["guide"]["walking_requirement"] = "OPTIONAL"
+    view = project(p)
+    assert fragment in view["walking_suggestion"]
+    if allowed is True:
+        assert "取得同意" not in view["walking_suggestion"]

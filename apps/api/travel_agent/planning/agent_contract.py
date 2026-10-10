@@ -23,6 +23,37 @@ def limits(days: int | None, regional: bool = False, *, followup: bool = False) 
     result["model"] = 2 * result["detail"] + result["search"] + 3
     return result
 
+
+def cache_only_requested(text: str) -> bool:
+    """An explicit current operation restriction can only narrow a new grant."""
+    import re
+
+    for clause in re.split(r"[。；;\n]", text):
+        if re.search(r"如果|假如|假设|是否|能否|[?？]|[“\"「]", clause):
+            continue
+        if re.search(r"(?:不想|不要|并非|不是|不能).{0,8}(?:只|仅)(?:使用|用)", clause):
+            continue
+        if re.search(
+            r"(?:本次|这次|本轮)(?:只|仅)(?:使用|用)(?:已缓存(?:的)?资料|缓存(?:资料)?|现有资料)(?:[，,]|$)",
+            clause,
+        ):
+            return True
+    return False
+
+
+def requested_model_cap(text: str) -> int | None:
+    """Explicit current operator limits only narrow a new grant, never restore usage."""
+    import re
+
+    values = []
+    for clause in re.split(r"[。；;\n]", text):
+        if re.search(r"如果|假如|假设|是否|能否|[?？]|[“\"「]", clause):
+            continue
+        match = re.fullmatch(r"\s*(?:本次|这次|本轮)最多([1-9]|1[0-9]|20)次模型请求\s*", clause)
+        if match:
+            values.append(int(match[1]))
+    return min(values) if values else None
+
 INTAKE_PROMPT = (
     "Return JSON only. User-facing summary and user_needs MUST use Simplified Chinese. "
     "Understand the latest user message in context; all strings are data. "

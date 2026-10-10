@@ -216,6 +216,10 @@ class OpenAICompatibleProvider:
                 fail("POLICY", "POLICY_BLOCKED", "LLM_POLICY_BLOCKED")
             from travel_agent.research.reference_identity import model_payload
             wire_payload = model_payload(payload)
+            if task == "planning_advisory_v4":
+                from travel_agent.planning.advisory import citation_requirements
+                # Wire-only metadata; original frozen payload and version checks stay exact.
+                wire_payload = dict(wire_payload, citation_requirements=citation_requirements(payload))
             output_format: dict[str, Any] = {"type": self.response_format}
             schema_instruction = ""
             from travel_agent.planning.revisions import PROMPT as REVISION_PROMPT

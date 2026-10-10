@@ -128,9 +128,14 @@ def verify(
         if (
             c["destination"] != p["destination"]
             or c["test_input"]
-            or not {s["source_id"] for s in c["sources"]} <= sources
         ):
             raise ValueError("KNOWLEDGE_SCOPE_MISMATCH")
+        # These are available background bindings from the original combination.
+        # A narrowed proposal need not use every original source. Still validate
+        # every binding above, then project only sources supporting this selection.
+        # Do not mutate the pool: cancel/reselection must retain its provenance.
+        if not {s["source_id"] for s in c["sources"]} <= sources:
+            continue
         cards[c["card_id"]] = c
     return list(cards.values())
 

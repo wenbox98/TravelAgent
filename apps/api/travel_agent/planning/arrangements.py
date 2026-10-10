@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from travel_agent.preview.projection import fingerprint, safe_text
 from .flow_models import Arrangement, GroundedActivity
 
-VERSION = "locked-arrangement-2.2"
+VERSION = "locked-arrangement-2.3"
 
 
 def envelope_schema() -> dict[str, Any]:
@@ -45,6 +45,15 @@ class Rejected(ValueError):
         self.reason, self.field, self.expected, self.actual = reason, field, expected, actual
 
 
+def required_citation_ids(activity: dict[str, Any]) -> list[str]:
+    """The same exact binding requirement is used by the prompt and receiver."""
+    return sorted(set(
+        activity.get("evidence_ids", [])
+        + activity.get("discovery_ids", [])
+        + activity.get("knowledge_citation_ids", [])
+    ))
+
+
 def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
     allowed = {a["activity_id"]: a for a in data["activities"]}
     ids = [a["activity_id"] for a in p["activities"]]
@@ -63,11 +72,7 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
     needed = {
         e
         for i in ids
-        for e in [
-            *allowed[i].get("evidence_ids", []),
-            *allowed[i].get("discovery_ids", []),
-            *allowed[i].get("knowledge_citation_ids", []),
-        ]
+        for e in required_citation_ids(allowed[i])
     }
     if not needed <= set(p["citation_ids"]):
         raise Rejected("PLANNING_UNKNOWN_REFERENCE", "citation_ids")
@@ -149,6 +154,12 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
                 ):
                     raise Rejected("PLANNING_UNSUPPORTED_FACT", "text")
         factual = re.sub(r"(?:不|无法|不能|并非|不作).{0,2}保证", "", value)
+        factual = re.sub(
+            r"(?:不作|不做|不构成|不是|不提供)(?:当前|未来|本次|本季|整趟|实际)?"
+            r"(?:季节|假期|可行性|开放|价格|交通|安全|体验)(?:的)?保证",
+            "",
+            factual,
+        )
         # Strip only this narrow negative predicate. Positive facts in the
         # same sentence, amounts and journey times still reach the checks.
         factual = re.sub(
@@ -164,10 +175,20 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
             raise Rejected("PLANNING_UNSUPPORTED_FACT", "text")
         # Negative constraints are allowed; affirmative driving/service instructions are not.
         for clause in re.split(r"[，。；;]", value):
-            stripped = re.sub(
-                r"(?:不建议|不安排|不采用|不需要|不应|不|无需|禁止|避免|拒绝).{0,3}(?:自驾|驾车|租车|开车|包车)",
+            mode_word = r"(?:自驾|驾车|租车|开车|包车)"
+            # Only explicitly attributed historical/reference phrases are removed.
+            # A separate recommendation in the same clause still reaches the guard.
+            attributed = re.sub(
+                rf"(?:把)?(?:来源|原文)(?:中)?(?:的)?(?:\d+天)?{mode_word}"
+                r"(?:环线|路线|行程|条件)?(?:仅|只)?(?:作|当作)(?:历史)?参考",
                 "",
                 clause,
+            )
+            stripped = re.sub(
+                rf"(?:不建议|不安排|不采用|不需要|不应|不假设|不|非|无需|禁止|避免|拒绝).{{0,3}}{mode_word}"
+                rf"(?:\s*(?:或|和|与|、){mode_word})*",
+                "",
+                attributed,
             )
             driving = bool(
                 re.search(r"自驾|驾车|租车|开车|drive|driving|rental car", stripped, re.I)

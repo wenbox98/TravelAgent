@@ -5,7 +5,7 @@ from typing import Any
 from travel_agent.preview.projection import fingerprint, safe_text
 
 VERSION = "scoped-context-1"
-USE_RULE = "scoped-use-1.3"
+USE_RULE = "scoped-use-1.4"
 REVIEWED = {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED", "LOCAL_REVALIDATION"}
 LIMIT = "仅为来源整体背景与组合线索，不证明每站特色、行政归属、亲历或当前人流/开放/可行性。"
 
@@ -65,7 +65,7 @@ def derive(activities: list[dict[str, Any]], refs: list[dict[str, Any]]) -> dict
         for route in routes:
             if obj is None or anchor(route) != obj:
                 continue
-            members = {a.name for a in route_activities([route], "")}
+            members = {a.name for a in route_activities([route], "", limit=None)}
             for a in activities:
                 bound = [by_id[i] for i in ids(a) if i in by_id]
                 if a["name"] in members and any(same_document(r, route) for r in bound):
@@ -197,8 +197,9 @@ def scope_assertion(text: str) -> bool:
         ):
             continue
         if re.fullmatch(
+            r"(?:(?:该段|该|此|这段|整段)?背景)?"
             r"(?:不|不能|不可|不得|无法|尚不能|不应)(?:据此)?(?:推断|证明|确认|保证|认定|声称)"
-            r"(?:(?:每(?:一)?(?:站|处)|各(?:站|处)|具体地点|行政归属|实际人流|当前人流|人少|特色|氛围|关系|开放|可行性)(?:的)?|或|和|与|及)+",
+            r"(?:(?:每(?:一)?(?:站|处)|各(?:站|处)|具体地点|行政归属|归属|实际人流|当前人流|人少|特色|氛围|关系|开放|步行|可行性)(?:的)?|或|和|与|及|、|/)+",
             clause,
         ):
             continue

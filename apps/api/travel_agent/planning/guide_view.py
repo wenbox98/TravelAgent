@@ -84,6 +84,7 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
     if lodging == "NOT_APPLICABLE" and lodging_decision["state"] != "OUT_OF_SCOPE":
         lodging = "UNDECIDED"
     areas = {a["area_id"]: a["name"] for a in p.get("lodging_areas", [])}
+    walk = walking(d, p.get("request", ""))
     return dict(
         context=context_background,
         assessment=assessment,
@@ -94,8 +95,14 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
         local_revalidation=bool(
             p.get("local_guide_preview") or p.get("last_guide_revalidation_adoption")
         ),
-        walking=walking(d, p.get("request", "")),
-        walking_suggestion="步行仅为待选择的建议，尚未核实路线或取得同意。"
+        walking=walk,
+        walking_suggestion=(
+            "已确认允许步行；具体步行路线尚未核实。"
+            if walk["state"] == "ALLOWED"
+            else "本次明确不接受步行；旧步行建议需要重新评估。"
+            if walk["state"] == "DECLINED"
+            else "步行仅为待选择的建议，尚未核实路线或取得同意。"
+        )
         if d.guide.walking_requirement == "OPTIONAL"
         else None,
         budget_context=context,

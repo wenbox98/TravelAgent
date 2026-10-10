@@ -27,39 +27,67 @@ def binding(p: dict[str, Any]) -> str:
     return fingerprint([p["destination"], p["draft"]])
 
 
-def view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
+def public_support(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
+    """The same current source/card checks guard display and every map mutation."""
     from .discovery import checked, verify_activity
     from .materials import references, candidate_from_name
-    from .workbench import DailyBudget, daily
-    from travel_agent.providers.amap import AmapAdapter
 
     draft = PlanDraft.model_validate(p["draft"])
     refs = {r["claim_id"]: r for r in references(db, scope, sid)}
+    knowledge_ids: dict[str, list[str]] = {}
+    if p.get("knowledge_mode"):
+        from travel_agent.knowledge.planning import verify, card_references
+
+        try:
+            cards = verify(db, scope, p)
+            refs.update({r["claim_id"]: r for r in card_references(cards)})
+            qualified = {c["card_id"] for c in cards if c["kind"] == "SOURCE_REFERENCE"}
+            knowledge_ids = {
+                a.activity_id: [r.card_id for r in a.knowledge_refs if r.card_id in qualified]
+                for a in draft.activities
+            }
+        except ValueError:
+            pass
     leads = checked(db, scope, sid, p)
-    supported = set()
+    supported = {}
     for a in draft.activities:
         try:
             if a.provenance == "SOURCE_MENTION":
                 verify_activity(a, leads)
+                candidate = a
             elif (
                 a.provenance == "SOURCE_REFERENCE"
-                and a.evidence_ids
-                and set(a.evidence_ids) <= refs.keys()
+                and (
+                    knowledge_ids.get(a.activity_id)
+                    if a.knowledge_refs
+                    else a.evidence_ids and set(a.evidence_ids) <= refs.keys()
+                )
             ):
+                ids = knowledge_ids[a.activity_id] if a.knowledge_refs else a.evidence_ids
                 candidate = candidate_from_name(
                     a.name,
-                    [refs[i] for i in a.evidence_ids],
+                    [refs[i] for i in ids],
                     p["destination"],
                     draft.spatial.intent,
                 )
-                if draft.spatial.intent == "CITY_CORE" and candidate.spatial_status != "MATCH":
-                    continue
             else:
                 continue
             if a.region == p["destination"]:
-                supported.add(a.activity_id)
+                supported[a.activity_id] = candidate
         except ValueError:
             continue
+    return supported
+
+
+def view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
+    from .workbench import DailyBudget, daily
+    from travel_agent.providers.amap import AmapAdapter
+
+    draft = PlanDraft.model_validate(p["draft"])
+    supported = {
+        aid for aid, a in public_support(db, scope, sid, p).items()
+        if draft.spatial.intent != "CITY_CORE" or a.spatial_status == "MATCH"
+    }
     pairs = [
         dict(
             leg_id=a.activity_id.lower() + "--" + b.activity_id.lower(),
@@ -87,9 +115,13 @@ def view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     if not mode_valid:
         if allowed:
             label = {"DRIVING": "自驾", "TRANSIT": "公共交通", "WALKING": "步行"}[allowed]
-            gaps.append(f"已确认{label}意向；仅在核实具体路段前选择与之相符的参考模式，不必重复回答交通偏好。")
+            gaps.append(
+                f"已确认{label}意向；仅在核实具体路段前选择与之相符的参考模式，不必重复回答交通偏好。"
+            )
         else:
-            gaps.append("交通意向可以暂未定，不阻止查资料或生成建议；核实具体路段前才需要选择适用方式，不会把驾车时间当公共交通。")
+            gaps.append(
+                "交通意向可以暂未定，不阻止查资料或生成建议；核实具体路段前才需要选择适用方式，不会把驾车时间当公共交通。"
+            )
     if draft.inputs.origin or draft.inputs.destination or draft.inputs.endpoints_private:
         gaps.append("此入口只发送所选公共项目，不发送家庭或往返私址。")
     configured = AmapAdapter.from_env().configured

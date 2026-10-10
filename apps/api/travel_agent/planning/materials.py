@@ -7,9 +7,9 @@ from travel_agent.preview.projection import fingerprint
 from travel_agent.preview.service import PreviewService
 from .flow_models import Activity
 
-_SEQUENCE = re.compile(r"\s*(?:→|->|➡|➜|➝|➞|➔|—>|👉)\s*")
+_SEQUENCE = re.compile(r"\s*(?:→|->|➡|➜|➝|➞|➔|➠|—>|👉)\s*")
 _DAY = re.compile(
-    r"^\s*(?:Day\s*\d+|D\s*\d+|第[一二三四五六七八九十\d]+天|路线|行程)\s*[：:]?\s*", re.I
+    r"^\s*[🔸🔹]?\s*(?:Day\s*\d+|D\s*\d+|第[一二三四五六七八九十\d]+天|路线|行程)\s*[：:|｜]?\s*", re.I
 )
 _BAD_NAME = re.compile(
     r"[。！？?！：:；;\n]|\d+(?:点|小时|分钟)|路线|环线|游线|行程|攻略|建议|可以|不去|不要|不推荐|上午|下午|晚上|车程|入住"
@@ -127,6 +127,11 @@ def references(db: Any, scope: str, sid: str) -> list[dict[str, Any]]:
     return sorted(result.values(), key=lambda e: (e["source_id"], e["claim_id"]))
 
 
+def same_conditions(left: list[str], right: list[str]) -> bool:
+    """Preserve every exact condition and its multiplicity, independent of row order."""
+    return sorted(left) == sorted(right)
+
+
 def candidate_from_name(
     name: str, rows: list[dict[str, Any]], region: str, intent: str = "UNDECIDED"
 ) -> Activity:
@@ -155,7 +160,7 @@ def candidate_from_name(
 
 
 def activities(
-    rows: list[dict[str, Any]], region: str, intent: str = "UNDECIDED"
+    rows: list[dict[str, Any]], region: str, intent: str = "UNDECIDED", *, limit: int | None = 12
 ) -> list[Activity]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for e in rows:
@@ -181,4 +186,10 @@ def activities(
             output.append(candidate_from_name(name, support, region, intent))
         except ValueError:
             continue
-    return output[:12]
+    # A long route's names must not consume the whole catalog before a later
+    # reviewed, explicitly named action can be considered. This is selection
+    # priority only, never a new content/identity/evidence classification.
+    action_names = {name for e in rows if e["topic"] == "EXPERIENCE"
+                    for name in natural_names(e["text"])}
+    output.sort(key=lambda a: a.name not in action_names)
+    return output if limit is None else output[:limit]

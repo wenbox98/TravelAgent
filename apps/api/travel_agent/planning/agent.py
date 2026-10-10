@@ -573,7 +573,11 @@ def run(
                     (p["destination"], task["grant_id"]),
                 )
                 save(db, sid, state, bump=False)
-                _cached(db, scope, sid, state)
+                # A question may discuss different days without selecting more
+                # activities. Cache preparation can expand a selected route into
+                # its sibling stops, so only an actual planning update may do it.
+                if value.intent not in {"QUESTION", "HYPOTHETICAL"}:
+                    _cached(db, scope, sid, state)
                 p["automatic_coverage"] = coverage(db, scope, sid, p)
                 p["agent_generated"] = False
                 p.pop("agent_research_blocked", None)
