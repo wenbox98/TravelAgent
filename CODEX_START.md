@@ -1,5 +1,9 @@
 # v1.1 第一次发给 Codex 的指令
 
+## 当前任务入口（2026-10-10）
+
+先读 `docs/mission-search-agent-loop.md` 的用户需求、missionList、checkList，再读 `.local/goal-agent/CONTINUE.json` 与相关契约。当前核心是搜索 agent loop，修复结构提取失败导致整轮中断；新任务默认搜索 5 次、正文 20 篇、LLM 无调用次数上限；至少两轮真实普通页面完整攻略交付。每阶段更新任务书与续做记录，不能压缩后退回只启动服务。下方 T00/T01 停止、3/6 配额等是历史启动示例，不是本轮要求。用户已停用定时任务，不得恢复。
+
 ## 当前持续协作规则（优先于下方历史启动示例）
 
 后续每轮 TravelAgent 开发必须 commit + push 实际工作分支，并核对本地 HEAD 与远端该分支完整 SHA，返回 GitHub commit/compare 链接。开始先确认仓库、分支、remote、upstream 和全部未推送提交；扫描密钥、认证材料、profile、真实 SQLite、原文、图片和调试响应，安全后先推送已有提交，再继续开发。只按明确文件清单暂存，保留原有三份未跟踪 T03 报告和未知改动。不得 force push、自动合并 master、直接在 master 开发或盲目 pull/reset/rebase。失败报告与安全修复也要提交推送；网络/权限/冲突阻塞则如实记录 PUSH_BLOCKED。下方初始分支名是历史示例，不要写死为所有后续任务的目标。

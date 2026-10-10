@@ -1,5 +1,8 @@
 # Codex / coding-agent instructions
 
+## Current mission (2026-10-10)
+Read `docs/mission-search-agent-loop.md` first and keep its missionList/checkList and `.local/goal-agent/CONTINUE.json` current after each stage. The user explicitly requests a goal-driven search agent loop, schema-failure recovery, new-task defaults of 5 searches / 20 article bodies / no LLM call-count ceiling, and at least two real complete ordinary-page guide flows. Historical PoC 3/6 budgets and initial T00/T01 stop examples below do not govern this mission. Preserve legacy grants and used ledgers; implement genuine unbounded LLM counts with auditing and progress/cancellation/failure exits, not a large numeric substitute or hidden six-round gate. Do not claim delivery on offline tests or partial point lists. The recurring monitor remains paused at the user's request.
+
 ## Context
 This repository currently builds a private, local travel research tool for its current owner. Public release and multi-user product work are deferred. Read `README.md`, the current task file and its referenced contracts before editing. User-facing text and implementation reports are in Simplified Chinese; code identifiers are English.
 
@@ -15,7 +18,7 @@ This repository currently builds a private, local travel research tool for its c
 
 ## Work mode
 - Inspect first; do not overwrite existing code blindly. Paths in task sheets are intended target paths, not claims that code already exists.
-- Implement one task at a time. T00 and T01 may be completed in the first run; stop afterward with evidence.
+- Implement the current mission in reviewable stages. The original T00/T01-first-run stopping example is historical; follow the current mission through its acceptance checks.
 - Dependency APIs evolve: pin real versions after checking compatibility; never invent a version, checksum or upstream release asset.
 - `contracts/domain.schema.json`, `contracts/openapi.yaml`, and `contracts/database.sql` are initial contracts. If they conflict, report the conflict and change the contracts, docs and tests together in an explicit contract-change commit; do not silently pick an interpretation.
 - Feature permissions and budget reservation occur before any upstream invocation. Tools with network side effects are never called from replayable presentation nodes.
@@ -34,7 +37,7 @@ See `docs/15-release-acceptance.md`. Offline development may continue when live 
 ## v1.1 Xiaohongshu PoC focus
 - Before real-site work, read `docs/architecture/xhs-poc-analysis.md` and `docs/architecture/xhs-poc-design.md`.
 - Prefer evidence-gap reduction, cache reuse, candidate deduplication and early stopping over adding more searches.
-- `max_search_operations=3` and `max_feed_details=6` are PoC application budgets, never anti-ban or platform quota claims.
+- Historical PoC defaults were `max_search_operations=3` and `max_feed_details=6`; the current mission supersedes new-task defaults with 5/20 and no LLM call-count ceiling. These are application budgets, never anti-ban or platform quota claims. Do not alter old grants or consumption.
 - A second request such as “只有5天，而且不想自驾” must reuse existing evidence first and only research the missing condition.
 - Live work pauses on `NEED_LOGIN`, verification/challenge, explicit rate limit or access denial. Never bypass them.
 - The PoC may start as CLI. Do not block data-path validation on Electron/UI work.
