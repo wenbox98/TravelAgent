@@ -34,6 +34,7 @@ def main():
     parser.add_argument("kind")
     parser.add_argument("--job", required=True)
     parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--research-gaps", nargs="*", default=[])
     args = parser.parse_args()
     database = args.workspace / "preview.sqlite3"
     from automatic_fakes import Model, GoalModel, Reader, config
@@ -114,7 +115,13 @@ def main():
             run_worker(database, args.job)
         else:
             with Database(database) as db:
-                (worker.extract_worker if args.kind == "extract-worker" else run_review)(EvidenceStore(db), config(), args.job)
+                if args.kind == "extract-worker":
+                    worker.extract_worker(
+                        EvidenceStore(db), config(), args.job,
+                        research_gaps=tuple(args.research_gaps),
+                    )
+                else:
+                    run_review(EvidenceStore(db), config(), args.job)
     finally:
         (args.workspace / (args.kind + "-" + args.job + ".metrics.json")).write_text(json.dumps(dict(blocked=blocked)), encoding="utf8")
 
