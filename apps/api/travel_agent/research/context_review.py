@@ -24,7 +24,7 @@ from .store import EvidenceStore
 
 TASK = "review_evidence_context_v2"
 REVIEW_VERSION = 2
-RULE_VERSION = 3
+RULE_VERSION = 4
 REASONS = sorted(
     (CONTEXT_REASONS - {"WORK_CONTEXT_VERIFIED", "DEPENDENCY_INDEPENDENT"})
     | {
@@ -102,6 +102,10 @@ def transport_schema(version: int) -> dict[str, Any]:
 
 # Guardrails target categories, never source IDs, locations or sample ordinals.
 PLAN = re.compile(r"计划|打算|准备|还没出发|尚未出发|还未出发|想.*(?:去|走|自驾)|求建议")
+READER_PLAN = re.compile(
+    r"(?:计划|打算|准备|想)[^\n。！？!?；;]{0,24}(?:去|来|玩|游|旅行|出行|自驾)"
+    r"[^\n。！？!?；;]{0,16}的(?:姐妹|朋友|同学|宝子|游客|读者)"
+)
 PAST = re.compile(r"去年|前年|上次|曾经|曾到|去过|走过|游过|已经.*(?:走|去)|实际.*(?:用|走)")
 QUESTION = re.compile(r"[？?]|是否|会不会|求问|请问|不知道|不确定|听说|据说")
 DAY = re.compile(r"(?i)Day\s*\d|D\s*\d|第[一二三四五六七八九十\d]+天")
@@ -112,12 +116,37 @@ IMPORTANT = re.compile(
 )
 
 
+def author_plan(text: str) -> bool:
+    """Ignore only explicit reader-addressed invitations, never an owner's plan.
+
+    This changes role attribution only. The invitation remains a supplied
+    condition and all span, dependency and important-fact checks still apply.
+    """
+    markers = re.compile(
+        r"计划|打算|准备|还没出发|尚未出发|还未出发|想(?=[^\n。！？!?；;]*(?:去|走|自驾))|求建议"
+    )
+    for match in markers.finditer(text):
+        audience = READER_PLAN.match(text, match.start())
+        prefix = re.split(r"[\n。！？!?；;]", text[: match.start()])[-1]
+        explicit_owner = re.search(
+            r"(?:我|我们|本人)\s*(?:也|还|正|现在|这次|本次|明年|目前)?\s*$", prefix
+        ) or (audience and re.search(r"我|我们|本人", audience.group()))
+        if not audience or explicit_owner:
+            return True
+    return False
+
+
 def _digest(value: Any) -> str:
     return sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
 def build_input(
-    store: EvidenceStore, attempt_id: str, scope: str, target: dict[str, Any], *, version: int = REVIEW_VERSION,
+    store: EvidenceStore,
+    attempt_id: str,
+    scope: str,
+    target: dict[str, Any],
+    *,
+    version: int = REVIEW_VERSION,
     local_read: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Reconstruct from immutable extraction snapshot, ignoring ALL historic review fields."""
@@ -157,8 +186,15 @@ def build_input(
         raise ValueError("REVIEW_SNAPSHOT_MISMATCH")
     policy = store._latest_policy(content["policy_id"])
     from travel_agent.domain.source_policy import scope_allowed
-    if policy is None or not scope_allowed(policy, scope) or not (
-        store.repository.permitted(policy) if local_read else policy_allows_model(policy, external=True, now=store.db.clock())
+
+    if (
+        policy is None
+        or not scope_allowed(policy, scope)
+        or not (
+            store.repository.permitted(policy)
+            if local_read
+            else policy_allows_model(policy, external=True, now=store.db.clock())
+        )
     ):
         raise ValueError("REVIEW_POLICY_DENIED")
     view = canonicalize(
@@ -224,7 +260,9 @@ def check_decision(
     p: dict[str, Any], data: dict[str, Any], context: dict[str, Any]
 ) -> dict[str, Any]:
     """No model label can manufacture exact anchors, dependencies or current facts."""
-    validate_structured({"reviews": [p]}, REVIEW_SCHEMA_V1 if data["review_version"] == 1 else REVIEW_SCHEMA)
+    validate_structured(
+        {"reviews": [p]}, REVIEW_SCHEMA_V1 if data["review_version"] == 1 else REVIEW_SCHEMA
+    )
     i = p["candidate_index"]
     if i not in context["raw"]:
         raise ValueError("INVALID_REFERENCE")
@@ -292,12 +330,12 @@ def check_decision(
         raise ValueError("CONTEXT_TRANSPORT_MISMATCH")
     if p["reference_scope"] == "AUTHOR_RECORDED_TRIP" and (
         not PAST.search(text + "\n" + selected)
-        or PLAN.search(text + "\n" + selected)
+        or author_plan(text + "\n" + selected)
         or re.search(r"没(?:有)?(?:去|走|到)|未亲历", text + "\n" + selected)
     ):
         raise ValueError("ROLE_MISMATCH")
     if p["reference_scope"] == "AUTHOR_PROPOSED_PLAN" and (
-        not PLAN.search(selected + "\n" + text) or PAST.search(text)
+        not author_plan(selected + "\n" + text) or PAST.search(text)
     ):
         raise ValueError("ROLE_MISMATCH")
     # An article preamble's explicit plan cannot be relabelled as completed travel.
@@ -305,16 +343,18 @@ def check_decision(
         next((s["text"] for s in data["spans"] if DAY.search(s["text"])), "\0")
     )[0]
     if (
-        PLAN.search(preamble)
+        author_plan(preamble)
         and raw["topic"] in {"ROUTE", "DURATION", "TRANSPORT"}
         and not PAST.search(text)
     ):
-        if p["reference_scope"] != "AUTHOR_PROPOSED_PLAN" or not PLAN.search(
+        if p["reference_scope"] != "AUTHOR_PROPOSED_PLAN" or not author_plan(
             selected + "\n" + text
         ):
             raise ValueError("ROLE_MISMATCH")
     if raw["topic"] == "DURATION":
-        if data["review_version"] != 1 and not re.search(r"[\d一二三四五六七八九十两半]+\s*(?:天|小时|分钟|晚)", DAY.sub("", text)):
+        if data["review_version"] != 1 and not re.search(
+            r"[\d一二三四五六七八九十两半]+\s*(?:天|小时|分钟|晚)", DAY.sub("", text)
+        ):
             raise ValueError("DURATION_SCOPE_MISMATCH")
         if p["duration_scope"] == "NONE" or (
             DAY.search(text) and p["duration_scope"] == "WHOLE_TRIP"
@@ -380,7 +420,7 @@ def reserve_review(
         budget.reserve("MODEL", "review:" + ctx["content"]["source_id"])
         rid = "review-" + uuid4().hex
         con.execute(
-            "INSERT INTO context_review_runs VALUES(?,?,?,?,?,?,?,?,?,NULL,NULL,?,NULL,2,3)",
+            "INSERT INTO context_review_runs VALUES(?,?,?,?,?,?,?,?,?,NULL,NULL,?,NULL,?,?)",
             (
                 rid,
                 budget.identifier,
@@ -392,6 +432,8 @@ def reserve_review(
                 json.dumps(target),
                 "PENDING",
                 store.db.stamp(),
+                REVIEW_VERSION,
+                RULE_VERSION,
             ),
         )
     return rid

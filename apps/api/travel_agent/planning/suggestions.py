@@ -756,6 +756,40 @@ def _finish_answer_grant(db: Any, jid: str) -> None:
     )
 
 
+def _worker_finished(db: Database, jid: str, *, automatic: bool, reason: str,
+                     exit_code: int | None = None) -> None:
+    """Settle only this dispatch; retain completed children, materials and usage."""
+    with db.transaction():
+        if automatic:
+            task = db.connection.execute(
+                "SELECT grant_id,stage,summary_json FROM planning_tasks WHERE task_id=? AND status IN ('QUEUED','RUNNING')",
+                (jid,),
+            ).fetchone()
+            if task:
+                summary = json.loads(task["summary_json"] or "{}")
+                summary.update(reason=reason, failure=dict(
+                    reason=reason, phase=task["stage"], category="PROCESS", exit_code=exit_code,
+                ))
+                db.connection.execute(
+                    "UPDATE planning_tasks SET status='INTERRUPTED',summary_json=?,finished_at=? WHERE task_id=? AND status IN ('QUEUED','RUNNING')",
+                    (json.dumps(summary), db.stamp(), jid),
+                )
+                db.connection.execute(
+                    "UPDATE preview_jobs SET status='INTERRUPTED',cancel_requested=1,summary_json=json_set(coalesce(summary_json,'{}'),'$.reason',?) WHERE continuation_id=? AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
+                    (reason, task["grant_id"]),
+                )
+                db.connection.execute(
+                    "UPDATE research_continuations SET finished_at=coalesce(finished_at,?) WHERE continuation_id=?",
+                    (db.stamp(), task["grant_id"]),
+                )
+        else:
+            db.connection.execute(
+                "UPDATE preview_jobs SET status='FAILED',summary_json=?,finished_at=? WHERE job_id=? AND status IN ('QUEUED','RUNNING')",
+                (json.dumps(dict(reason=reason, exit_code=exit_code)), db.stamp(), jid),
+            )
+        _finish_answer_grant(db, jid)
+
+
 def launch(
     database: Path,
     jid: str,
@@ -826,8 +860,9 @@ def launch(
                 _finish_answer_grant(db, jid)
             return
         end = monotonic() + (3300 if automatic else 2850 if research else 180)
-        while process.poll() is None:
-            with Database(database) as db:
+        # Reuse a connection; each poll is a read, not a migration transaction.
+        with Database(database) as db:
+            while process.poll() is None:
                 row = db.connection.execute(
                     "SELECT CASE WHEN status IN ('CANCELED','INTERRUPTED','BLOCKED') THEN 1 ELSE 0 END,status FROM planning_tasks WHERE task_id=?"
                     if automatic
@@ -864,20 +899,26 @@ def launch(
                     else:
                         _stop_process(process)
                     return
-            sleep(0.25)
-        with Database(database) as db:
-            if automatic:
-                db.connection.execute(
-                    "UPDATE planning_tasks SET status='INTERRUPTED',summary_json=?,finished_at=? WHERE task_id=? AND status IN ('QUEUED','RUNNING')",
-                    ('{"reason":"WORKER_EXITED"}', db.stamp(), jid),
-                )
-            db.connection.execute(
-                "UPDATE preview_jobs SET status='FAILED',summary_json=? WHERE job_id=? AND status IN ('QUEUED','RUNNING')",
-                ('{"reason":"WORKER_EXITED"}', jid),
-            )
-            _finish_answer_grant(db, jid)
+                sleep(0.25)
+            _worker_finished(db, jid, automatic=automatic, reason="WORKER_EXITED",
+                             exit_code=process.returncode)
 
-    threading.Thread(target=supervise, daemon=True).start()
+    def guarded() -> None:
+        try:
+            supervise()
+        except Exception:
+            # A monitor failure must not silently abandon RUNNING. Invalidate
+            # before waiting for the flow to close its own browser resources.
+            with Database(database) as db:
+                _worker_finished(db, jid, automatic=automatic, reason="WORKER_MONITOR_FAILED")
+            process = _workers.get(identity)
+            if process is not None and process.poll() is None:
+                try:
+                    process.wait(timeout=200 if automatic or research else 5)
+                except subprocess.TimeoutExpired:
+                    _stop_process(process)
+
+    threading.Thread(target=guarded, daemon=True).start()
 
 
 def _stop_process(process: subprocess.Popen[Any]) -> None:

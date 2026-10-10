@@ -132,6 +132,95 @@ def test_evaluation_never_publishes(tmp_path, clock):
         assert frozen(db) == before
 
 
+def saved_v2(db, clock, rule=3):
+    body = (
+        "下面整理了一篇三天游玩攻略。\n打算去玩的朋友先比较。\n"
+        "Day1：合成松海→合成青湾。\n景区大巴每天八点发车。\n"
+        "湖边也许适合散步。\n另一处只是备选。"
+    )
+    store, _, out = execute(
+        db,
+        clock,
+        lambda s: [
+            choice(s, 2, (0, 1)),
+            choice(s, 3, (0, 1), "TRANSPORT"),
+            choice(s, 4, (0, 1), "EXPERIENCE"),
+            choice(s, 5, (0, 1), "EXPERIENCE"),
+        ],
+        body,
+    )
+    data, _ = build_input(store, out["attempt_id"], "owner", {})
+    rows = []
+    for i in range(4):
+        p = proposal(data, i)
+        p["reference_scope"] = "GUIDE_SUGGESTION"
+        if i >= 2:
+            p.update(
+                decision="NEEDS_REVIEW" if i == 2 else "REJECT", reason_code="CONTEXT_UNCERTAIN"
+            )
+        rows.append(
+            dict(
+                candidate_index=i,
+                proposal=p,
+                program=dict(
+                    action="REJECT" if i == 3 else "NEEDS_REVIEW",
+                    reason_code="ROLE_MISMATCH"
+                    if i == 0
+                    else "UNVERIFIED_IMPORTANT_FACT"
+                    if i == 1
+                    else "CONTEXT_UNCERTAIN",
+                ),
+            )
+        )
+    db.connection.execute(
+        "INSERT INTO research_continuations VALUES('fixture-closed','owner','fixture','{}',?,NULL,?,'{}','{}')",
+        (db.stamp(), db.stamp()),
+    )
+    db.connection.execute(
+        "INSERT INTO context_review_runs VALUES('review-cccccccccccccccccccccccccccccccc','fixture-closed',?,'owner','RUNTIME',0,?,'{}','COMPLETED',NULL,?,?,?,2,?)",
+        (out["attempt_id"], _digest(data), json.dumps(rows), db.stamp(), db.stamp(), rule),
+    )
+    return store
+
+
+def test_v2_old_rule_replay_keeps_model_decisions_and_history(tmp_path, clock):
+    path = tmp_path / "v2.sqlite3"
+    with Database(path, clock=clock) as db:
+        store = saved_v2(db, clock)
+        before = frozen(db)
+        dry = replay(store, "review-cccccccccccccccccccccccccccccccc", "owner", SHA)
+        assert dry["accepted"] == 1 and dry["added"] == 1 and dry["converted"] == 0
+        assert dry["results"][1]["program"]["reason_code"] == "UNVERIFIED_IMPORTANT_FACT"
+        assert dry["results"][2]["program"]["action"] == "NEEDS_REVIEW"
+        assert dry["results"][3]["program"]["action"] == "REJECT"
+        assert frozen(db) == before
+        assert db.connection.execute("SELECT count(*) FROM claims").fetchone()[0] == 0
+        result = replay(
+            store, "review-cccccccccccccccccccccccccccccccc", "owner", SHA, dry_run=False
+        )
+        assert result["added"] == 1 and frozen(db) == before
+        assert (
+            replay(store, "review-cccccccccccccccccccccccccccccccc", "owner", SHA, dry_run=False)[
+                "revalidation_id"
+            ]
+            == result["revalidation_id"]
+        )
+    with Database(path, clock=clock) as db:
+        assert frozen(db) == before
+        assert db.connection.execute("SELECT count(*) FROM claims").fetchone()[0] == 1
+        assert db.connection.execute("SELECT count(*) FROM revalidation_claims").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("rule", [4, 5])
+def test_v2_current_or_future_rule_cannot_be_replayed_as_upgrade(tmp_path, clock, rule):
+    with Database(tmp_path / "current.sqlite3", clock=clock) as db:
+        store = saved_v2(db, clock, rule)
+        before = frozen(db)
+        with pytest.raises(ValueError, match="REPLAY_UNAVAILABLE"):
+            replay(store, "review-cccccccccccccccccccccccccccccccc", "owner", SHA, dry_run=False)
+        assert frozen(db) == before
+
+
 @pytest.mark.parametrize("defect", ["scope", "revision", "hash", "snapshot", "policy", "missing"])
 def test_replay_rejects_stale_revoked_missing(tmp_path, clock, defect):
     with Database(tmp_path / "stale.sqlite3", clock=clock) as db:
@@ -367,7 +456,7 @@ def test_explanations_whitelist_readonly_and_adoption(tmp_path, clock):
     ) as c:
         assert c.get("/api/v1/preview/reviews").status_code == 401
         c.get("/bootstrap?ticket=test-ticket")
-        assert 'ta_preview_8877' in c.cookies and 'ta_preview' not in c.cookies
+        assert "ta_preview_8877" in c.cookies and "ta_preview" not in c.cookies
         index = c.get("/api/v1/preview").json()
         before = index["session"]
         for _ in range(2):

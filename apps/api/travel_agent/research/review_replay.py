@@ -155,7 +155,9 @@ def replay(
     try:
         with store.db.transaction() as con:
             r, data, ctx, bound = binding(store, review_id, scope)
-            if r["review_version"] != 1:
+            if r["review_version"] != 1 and not (
+                r["review_version"] == 2 and r["rule_version"] < RULE_VERSION
+            ):
                 raise ValueError("REPLAY_UNAVAILABLE")
             old = con.execute(
                 "SELECT revalidation_id FROM review_revalidations WHERE review_id=? AND rule_version=? AND input_hash=?",
@@ -187,7 +189,12 @@ def replay(
                     }
                 else:
                     try:
-                        normalized, conversion = convert_legacy(p, data, ctx)
+                        if r["review_version"] == 1:
+                            normalized, conversion = convert_legacy(p, data, ctx)
+                        else:
+                            # Same V2 contract: re-run current guards over the saved proposal.
+                            # No field conversion, model call or change to its original decision.
+                            normalized, conversion = deepcopy(p), None
                         result["conversion"] = conversion
                         result["program"] = check_decision(
                             normalized, data | {"review_version": 2}, ctx

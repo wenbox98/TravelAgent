@@ -36,6 +36,8 @@ def main():
     path = ROOT / "contracts/domain.schema.json"
     domain = json.loads(path.read_text(encoding="utf-8"))
     domain["$defs"].update(definitions())
+    # The old unreferenced field/value cross-product must not remain a current contract.
+    domain["$defs"].pop("Update", None)
     from travel_agent.research.context_review import REVIEW_SCHEMA, REVIEW_SCHEMA_V1, transport_schema
     from travel_agent.research.grounding import CONTEXT_REASONS, REASONS
     domain['$defs']['ModelContextReviewResponse'] = REVIEW_SCHEMA

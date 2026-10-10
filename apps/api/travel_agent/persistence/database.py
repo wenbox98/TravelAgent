@@ -43,7 +43,17 @@ class Database:
         return self.clock().isoformat()
 
     def migrate(self, target):
+        current = self.version
+        if target > self.LATEST_VERSION or current > target:
+            raise ValueError("不支持未知版本或数据库降级")
+        if current > 0 and current == target:
+            # Status/worker connections must not acquire a writer lock merely
+            # to reopen a current schema. Keep the existing integrity check.
+            if self.connection.execute("PRAGMA foreign_key_check").fetchall():
+                raise ValueError("数据库外键校验失败")
+            return
         with self.transaction():
+            # Another process may have migrated after the initial read.
             current = self.version
             if target > self.LATEST_VERSION or current > target:
                 raise ValueError("不支持未知版本或数据库降级")

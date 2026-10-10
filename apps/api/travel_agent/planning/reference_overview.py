@@ -149,7 +149,7 @@ def project(rows: list[dict[str, Any]], p: dict[str, Any]) -> dict[str, Any]:
         "EXPERIENCE": "玩法与看点",
         "DURATION": "时间参考",
         "TRANSPORT": "交通条件",
-        "TRADEOFF": "取舍与住宿线索",
+        "TRADEOFF": "选择与取舍",
         "SEASON": "时令条件",
     }
     eligible = [

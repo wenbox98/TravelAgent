@@ -9292,77 +9292,6 @@
         }
       }
     },
-    "Update": {
-      "additionalProperties": false,
-      "properties": {
-        "field": {
-          "enum": [
-            "destination",
-            "days",
-            "arrival_transport",
-            "transport",
-            "driving",
-            "rental",
-            "pace",
-            "walking_allowed",
-            "spatial",
-            "people",
-            "target_fen",
-            "activity_start",
-            "return_deadline",
-            "depart_at",
-            "return_by"
-          ],
-          "title": "Field",
-          "type": "string"
-        },
-        "value": {
-          "anyOf": [
-            {
-              "maxLength": 160,
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Value"
-        },
-        "start": {
-          "maximum": 500,
-          "minimum": 0,
-          "title": "Start",
-          "type": "integer"
-        },
-        "end": {
-          "maximum": 500,
-          "minimum": 1,
-          "title": "End",
-          "type": "integer"
-        },
-        "quote": {
-          "maxLength": 500,
-          "minLength": 1,
-          "title": "Quote",
-          "type": "string"
-        }
-      },
-      "required": [
-        "field",
-        "value",
-        "start",
-        "end",
-        "quote"
-      ],
-      "title": "Update",
-      "type": "object"
-    },
     "Understanding": {
       "additionalProperties": false,
       "properties": {
@@ -9384,7 +9313,67 @@
         },
         "updates": {
           "items": {
-            "$ref": "#/$defs/Update"
+            "discriminator": {
+              "mapping": {
+                "activity_start": "#/$defs/ClockUpdate",
+                "arrival_transport": "#/$defs/ArrivalUpdate",
+                "days": "#/$defs/DaysUpdate",
+                "depart_at": "#/$defs/DateUpdate",
+                "destination": "#/$defs/DestinationUpdate",
+                "driving": "#/$defs/DrivingUpdate",
+                "pace": "#/$defs/PaceUpdate",
+                "people": "#/$defs/PeopleUpdate",
+                "rental": "#/$defs/RentalUpdate",
+                "return_by": "#/$defs/DateUpdate",
+                "return_deadline": "#/$defs/ClockUpdate",
+                "spatial": "#/$defs/SpatialUpdate",
+                "target_fen": "#/$defs/BudgetUpdate",
+                "transport": "#/$defs/TransportUpdate",
+                "walking_allowed": "#/$defs/WalkingUpdate"
+              },
+              "propertyName": "field"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/DestinationUpdate"
+              },
+              {
+                "$ref": "#/$defs/DaysUpdate"
+              },
+              {
+                "$ref": "#/$defs/PeopleUpdate"
+              },
+              {
+                "$ref": "#/$defs/BudgetUpdate"
+              },
+              {
+                "$ref": "#/$defs/ArrivalUpdate"
+              },
+              {
+                "$ref": "#/$defs/TransportUpdate"
+              },
+              {
+                "$ref": "#/$defs/DrivingUpdate"
+              },
+              {
+                "$ref": "#/$defs/RentalUpdate"
+              },
+              {
+                "$ref": "#/$defs/PaceUpdate"
+              },
+              {
+                "$ref": "#/$defs/WalkingUpdate"
+              },
+              {
+                "$ref": "#/$defs/SpatialUpdate"
+              },
+              {
+                "$ref": "#/$defs/ClockUpdate"
+              },
+              {
+                "$ref": "#/$defs/DateUpdate"
+              }
+            ]
           },
           "maxItems": 16,
           "title": "Updates",
@@ -9573,6 +9562,638 @@
         "needs_confirmation"
       ],
       "title": "AgentMapResult",
+      "type": "object"
+    },
+    "ArrivalUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "const": "arrival_transport",
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "enum": [
+            "UNKNOWN",
+            "AIR",
+            "RAIL",
+            "ROAD"
+          ],
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "ArrivalUpdate",
+      "type": "object"
+    },
+    "BudgetUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "const": "target_fen",
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maximum": 100000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "BudgetUpdate",
+      "type": "object"
+    },
+    "ClockUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "enum": [
+            "activity_start",
+            "return_deadline"
+          ],
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "ClockUpdate",
+      "type": "object"
+    },
+    "DateUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "enum": [
+            "depart_at",
+            "return_by"
+          ],
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,6})?)?(?:Z|[+-]\\d{2}:\\d{2})?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "DateUpdate",
+      "type": "object"
+    },
+    "DaysUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "const": "days",
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "DaysUpdate",
+      "type": "object"
+    },
+    "DestinationUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "const": "destination",
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "DestinationUpdate",
+      "type": "object"
+    },
+    "DrivingUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "const": "driving",
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "enum": [
+                "UNKNOWN",
+                "YES",
+                "NO"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "DrivingUpdate",
+      "type": "object"
+    },
+    "PaceUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "const": "pace",
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "enum": [
+            "UNKNOWN",
+            "RELAXED"
+          ],
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "PaceUpdate",
+      "type": "object"
+    },
+    "PeopleUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "const": "people",
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "PeopleUpdate",
+      "type": "object"
+    },
+    "RentalUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "const": "rental",
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "enum": [
+            "UNKNOWN",
+            "YES",
+            "NO"
+          ],
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "RentalUpdate",
+      "type": "object"
+    },
+    "SpatialUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "const": "spatial",
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "enum": [
+            "UNDECIDED",
+            "CITY_CORE",
+            "CITY_AND_SURROUNDINGS",
+            "REGIONAL"
+          ],
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "SpatialUpdate",
+      "type": "object"
+    },
+    "TransportUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "const": "transport",
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "enum": [
+            "UNKNOWN",
+            "PUBLIC_TRANSIT",
+            "SELF_DRIVE",
+            "LOCAL_SERVICE",
+            "WALKING"
+          ],
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "TransportUpdate",
+      "type": "object"
+    },
+    "WalkingUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "field": {
+          "const": "walking_allowed",
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "quote",
+        "field",
+        "value"
+      ],
+      "title": "WalkingUpdate",
       "type": "object"
     }
   }

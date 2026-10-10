@@ -90,6 +90,45 @@ def test_unknown_output_operations_rejected():
 
 
 @pytest.mark.parametrize(
+    "invitation",
+    [
+        "打算去玩的姐妹赶紧收藏。",
+        "给准备来玩的朋友整理参考。",
+        "想自驾去的游客可以先比较。",
+        "我整理了攻略，给打算去玩的朋友参考。",
+    ],
+)
+def test_reader_invitation_is_not_authors_own_future_plan(tmp_path, clock, invitation):
+    body = "下面整理了一篇三天游玩攻略。\n" + invitation + "\nDay1：合成松海→合成青湾。"
+    with Database(tmp_path / "reader.sqlite3", clock=clock) as db:
+        store, _, out = execute(db, clock, lambda s: [choice(s, 2, (0, 1))], body)
+        data, ctx = build_input(store, out["attempt_id"], "owner", {})
+        p = proposal(data)
+        p.update(reference_scope="GUIDE_SUGGESTION", explanation="作者整理建议，未声称亲历。")
+        assert check_decision(p, data, ctx)["action"] == "ACCEPT"
+
+
+@pytest.mark.parametrize(
+    "preamble",
+    [
+        "我打算秋季出发，还没出发。",
+        "我计划去玩，给想去玩的朋友参考。",
+        "计划明年出发。",
+        "想去玩的朋友收藏，我计划明年再去。",
+    ],
+)
+def test_reader_words_cannot_erase_a_real_or_uncertain_author_plan(tmp_path, clock, preamble):
+    body = preamble + "\n行程草案。\nDay1：合成松海→合成青湾。"
+    with Database(tmp_path / "author.sqlite3", clock=clock) as db:
+        store, _, out = execute(db, clock, lambda s: [choice(s, 2, (0, 1))], body)
+        data, ctx = build_input(store, out["attempt_id"], "owner", {})
+        p = proposal(data)
+        p["reference_scope"] = "GUIDE_SUGGESTION"
+        with pytest.raises(ValueError, match="ROLE_MISMATCH"):
+            check_decision(p, data, ctx)
+
+
+@pytest.mark.parametrize(
     "text,kind,topic,duration,allowed",
     [
         ("我计划明年走合成青谷环线。", "AUTHOR_PROPOSED_PLAN", "ROUTE", "NONE", True),

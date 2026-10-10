@@ -683,6 +683,7 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
                         reference_kind=e.get("reference_kind"),
                     )
                 )
+    from .intake_values import understanding_view
     return dict(
         intent_key=p.get("automatic_last_intent_key", row["idempotency_key"]),
         task_id=row["task_id"],
@@ -710,7 +711,7 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
         research_stop=research_summary.get("research_stop"),
         created_at=row["created_at"],
         finished_at=row["finished_at"],
-        understanding=p.get("agent_understanding"),
+        understanding=understanding_view(db, scope, sid, row, p, summary),
         agent_rounds=p.get("agent_rounds", []),
         browser_metrics=p.get("agent_browser_metrics", {"measured": False}),
         protocol=json.loads(row["request_json"]).get("consent"),

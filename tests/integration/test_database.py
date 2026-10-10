@@ -86,6 +86,16 @@ def test_unknown_database_and_downgrade_rejected(tmp_path, clock):
         Database(path, clock=clock, target_version=1)
 
 
+def test_current_schema_reader_does_not_compete_with_active_writer(tmp_path):
+    path = tmp_path / "concurrent.sqlite3"
+    with Database(path) as writer, writer.transaction():
+        # The status monitor must be able to open and read while a worker owns
+        # a write transaction. Opening an already migrated DB is not a write.
+        with Database(path) as monitor:
+            assert monitor.version == Database.LATEST_VERSION
+            assert not monitor.connection.in_transaction
+
+
 def test_expired_policy_prevents_reuse(tmp_path, clock, fixture_data):
     from datetime import timedelta
     path = tmp_path / "expired.sqlite3"

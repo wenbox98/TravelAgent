@@ -75,6 +75,8 @@ def run(database: Path, jid: str, provider: Any = None) -> None:
                 return
         request = json.loads(row["request_json"])
         budget = DailyBudget(db, row["continuation_id"])
+        response_received = False
+        normalizations: list[dict[str, Any]] = []
 
         def current() -> None:
             budget.check_trip(row["account_scope"], row["session_id"])
@@ -109,12 +111,15 @@ def run(database: Path, jid: str, provider: Any = None) -> None:
                 cached_travel_question_v1=Answer.model_json_schema(),
             )
             raw = provider.structured(purpose, request["payload"], schemas[purpose])
-            validate_structured(raw, schemas[purpose])
+            response_received = True
             if purpose == "travel_intake_v1":
-                result = understanding(raw, request["payload"]["user_text"]).model_dump()
+                parsed = understanding(raw, request["payload"]["user_text"])
+                result = parsed.model_dump()
+                normalizations = parsed._normalizations
             elif purpose == "travel_supervisor_v1":
                 result = decision(raw).model_dump()
             else:
+                validate_structured(raw, schemas[purpose])
                 result = validate_answer(raw, request["payload"]).model_dump()
             serialized = json.dumps(result, ensure_ascii=False)
             if SENSITIVE_RESEARCH_TEXT.search(serialized) or re.search(
@@ -128,6 +133,7 @@ def run(database: Path, jid: str, provider: Any = None) -> None:
                     model_executed=True,
                     purpose=purpose,
                     input_hash=fingerprint(request["payload"]),
+                    normalizations=normalizations,
                 )
                 if isinstance(provider, OpenAICompatibleProvider) and provider.last_diagnostic:
                     summary["diagnostic"] = provider.last_diagnostic.safe_dict()
@@ -137,7 +143,10 @@ def run(database: Path, jid: str, provider: Any = None) -> None:
                 )
         except Exception as exc:
             code = str(exc) if re.fullmatch(r"[A-Z0-9_]+", str(exc)) else "AGENT_MODEL_FAILED"
-            summary = dict(reason=code, purpose=request["task"], model_executed=False)
+            from .intake_values import IntakeError
+            summary = dict(reason=code, purpose=request["task"], model_executed=response_received)
+            if isinstance(exc, IntakeError):
+                summary["failure"] = exc.failure
             if isinstance(provider, OpenAICompatibleProvider) and provider.last_diagnostic:
                 summary["diagnostic"] = provider.last_diagnostic.safe_dict()
                 summary["model_executed"] = bool(provider.last_diagnostic.http_attempts)

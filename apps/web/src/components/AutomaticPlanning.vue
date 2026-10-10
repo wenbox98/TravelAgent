@@ -34,16 +34,19 @@ const visiblePoints=computed(()=>morePoints.value?points.value:points.value.slic
 const returnedSearches=computed(()=>task.value?.query_progress.filter(q=>q.observed_candidates!==undefined).length||0)
 const canUpdate=computed(()=>Boolean(conversation.value?.selected||conversation.value?.excluded.length||conversation.value?.excluded_activities.length||overview.value?.selected_current||overview.value?.excluded_current?.length||overview.value?.selected_points?.length||overview.value?.excluded_points?.length))
 watch(()=>props.plan.session_id,()=>{showMore.value=false;morePoints.value=false})
-const stage=computed(()=>({CACHE:'正在检查可用本机资料',RESEARCH:'正在查小红书',LOGIN:'等待正常登录',LOGIN_CHECK:'正在检查小红书登录',LOGIN_REQUIRED:'请在官方窗口完成正常登录',LOGIN_AUTHENTICATED:'小红书登录已确认',SEARCH:'正在查小红书',READING:'正在阅读笔记正文',EXTRACT:'正在提取必要资料',REVIEW:'正在审核来源上下文',MATERIALS:'正在组织暂定材料',PLANNING:'正在整理旅行建议',RESULT:'新的旅行建议已就绪'}[task.value?.stage||'']||'任务状态已保存'))
+const stage=computed(()=>({INTAKE:'正在理解你的旅行需求',DECIDING:'正在结合资料决定下一步',AGENT_DECISION:'正在结合资料决定下一步',CACHE:'正在检查可用本机资料',RESEARCH:'正在查小红书',LOGIN:'等待正常登录',LOGIN_CHECK:'正在检查小红书登录',LOGIN_REQUIRED:'请在官方窗口完成正常登录',LOGIN_AUTHENTICATED:'小红书登录已确认',SEARCH:'正在查小红书',READING:'正在阅读笔记正文',EXTRACT:'正在提取必要资料',REVIEW:'正在审核来源上下文',MATERIALS:'正在组织暂定材料',PLANNING:'正在整理旅行建议',RESULT:'新的旅行建议已就绪'}[task.value?.stage||'']||'任务状态已保存'))
 const names=(id:string)=>props.plan.draft.activities.find(a=>a.activity_id===id)?.name||props.plan.combination_candidates.find(a=>a.activity_id===id)?.name||'来源活动'
 const problem=computed(()=>{
  const r=task.value?.reason||''
+ if(r==='WORKER_ENTRY_FAILED'||r==='AGENT_CHILD_EXITED')return '模型后台启动异常，本次任务已停止。请查看失败阶段；已保存资料和原条件保留，不会自动重试，也不需要补填旅行条件。'
+ if(task.value?.understanding?.status==='FAILED')return '需求条件接收失败，任务已停止。请查看上方的失败阶段和原因；原条件、失败与用量记录保留，不会自动重试。'
  if(r.includes('XHS_PROFILE_UNAVAILABLE'))return '研究启动失败：本机服务无法安全访问专用浏览器目录，尚未检查登录或搜索。这是启动环境问题，不是你漏填条件。需要用普通本机权限正常重启工作台；失败与额度记录保留，不会自动重放。'
  if(startupFailure.value)return '研究在开始查找前异常停止，尚未得到材料。这是系统故障，不是资料已足够或需要你补填条件。原失败已保留；修复后由你显式发起新任务，不会自动重试。'
  if(r==='ROUTE_REFERENCE_ONLY')return '资料支持下面的路线参考，暂不支持具体玩法安排；交通与当前可行性仍有缺口。'
  if(r.includes('VERIFICATION')||r.includes('DENIED')||r.includes('RATE_LIMIT'))return '网站需要验证或限制了访问，已停止。请查看官方页面；不会尝试规避，也不会自动重试。'
  if(r.includes('LOGIN'))return '尚未完成正常登录，未继续查找。已有资料和结果保留。'
  if(r==='USER_CANCELED')return '已停止本次任务，已有采用版保留。'
+ if(r==='WORKER_EXITED'||r==='WORKER_MONITOR_FAILED')return '后台任务意外停止，未自动重试。已读取资料、合格引用和用量均保留，原采用版没有改变。可以先选择已有内容，再明确发起一次新的有限更新；这不会重放原失败任务。'
  if(r.includes('SERVER_STOPPED'))return '服务已重启，本次任务没有自动重放；已保存的结果可继续查看。'
  if(r.includes('CONDITIONS_CHANGED')||r.includes('STALE'))return '条件已变化，旧任务停止，不能覆盖当前结果。'
  if(r.startsWith('PLANNING_'))return '资料已保存，但建议未通过生成或约束检查；原采用版保留。可查看依据并补充条件。'

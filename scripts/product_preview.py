@@ -334,4 +334,25 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        # Worker stderr is intentionally discarded. Preserve only safe startup
+        # diagnostics so its parent can distinguish no dispatch from HTTP failure.
+        role = sys.argv[1] if len(sys.argv) > 1 else "serve"
+        if role.endswith("worker") and "--workspace" in sys.argv and "--job" in sys.argv:
+            import json
+            import re
+            from travel_agent.preview.worker import failure_diagnostic
+
+            job = sys.argv[sys.argv.index("--job") + 1]
+            audit = Path(sys.argv[sys.argv.index("--workspace") + 1]) / "operation-audit"
+            if re.fullmatch(r"[a-zA-Z0-9_-]{1,120}", job) and audit.is_dir():
+                metrics = audit / f"metrics-{os.getpid()}.json"
+                measured = json.loads(metrics.read_text()) if metrics.exists() else {}
+                diagnostic = failure_diagnostic(exc, "WORKER_ENTRY")
+                diagnostic.update(reason="WORKER_ENTRY_FAILED", exit_code=1,
+                                  model_executed=bool(measured.get("model_http")))
+                (audit / f"exit-{job}.json").write_text(json.dumps(diagnostic), encoding="utf8")
+            raise SystemExit(1) from None
+        raise

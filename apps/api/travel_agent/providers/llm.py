@@ -194,6 +194,7 @@ class OpenAICompatibleProvider:
     ) -> dict[str, Any]:
         from travel_agent.planning.advisory import PROMPT as ADVISORY_PROMPT
         from travel_agent.planning.agent_contract import INTAKE_PROMPT, DECISION_PROMPT
+        from travel_agent.planning.intake_values import IntakeError
         started = monotonic()
         diagnostic = Diagnostic(requested_model=safe_model(self.model, self.api_key.get_secret_value()),
                                 timeout_seconds=self.timeout)
@@ -344,6 +345,10 @@ class OpenAICompatibleProvider:
             if task == "planning_advisory_v4":
                 from travel_agent.planning.advisory import envelope_schema as guide_envelope
                 validation_schema = guide_envelope()
+            if task == "travel_intake_v1":
+                from travel_agent.planning.agent_contract import understanding
+                # Same discriminated receiver in both JSON-object and schema transport modes.
+                understanding(output, payload["user_text"])
             result = validate_structured(output, validation_schema)
             diagnostic.stage, diagnostic.category = "COMPLETE", "SUCCESS"
             return result
@@ -359,6 +364,9 @@ class OpenAICompatibleProvider:
             reason = error.reason if isinstance(error, URLError) else error
             category = "TIMEOUT" if isinstance(reason, TimeoutError) else "TLS_ERROR" if isinstance(reason, ssl.SSLError) else "NETWORK_ERROR"
             fail("TRANSPORT", category, "LLM_UNAVAILABLE")
+        except IntakeError:
+            diagnostic.stage, diagnostic.category = "SCHEMA", "SCHEMA_INVALID"
+            raise
         except LLMError as error:
             diagnostic.stage, diagnostic.category = error.diagnostic.stage, error.diagnostic.category
             diagnostic.schema_errors = error.diagnostic.schema_errors

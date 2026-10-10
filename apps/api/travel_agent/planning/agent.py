@@ -7,6 +7,7 @@ import re
 import subprocess
 from time import monotonic, sleep
 from typing import Any
+from pydantic import ValidationError
 
 from travel_agent.persistence.database import Database
 from travel_agent.preview.projection import fingerprint
@@ -15,6 +16,7 @@ from .agent_contract import MAX_ROUNDS, COMPLETION_RESERVE, CONSENT, Understandi
 from .flow import PlanningService
 from .flow_models import PlanDraft
 from .workbench import DailyBudget
+from .intake_values import IntakeError, invalid_value, model_record
 
 
 def safe_input(p: dict[str, Any], text: str) -> str:
@@ -112,7 +114,10 @@ def apply_intake(p: dict[str, Any], value: Understanding) -> None:
             if field == "walking_allowed":
                 draft.walking_origin = "USER_EXPLICIT"
     # Revalidate every assignment (Pydantic models do not validate setattr by default).
-    draft = PlanDraft.model_validate(draft.model_dump())
+    try:
+        draft = PlanDraft.model_validate(draft.model_dump())
+    except ValidationError as exc:
+        raise invalid_value(exc, "INTAKE_APPLY") from None
     if draft.driving == "NO" and draft.transport == "SELF_DRIVE":
         if "transport" in {i.field for i in value.updates}:
             raise ValueError("INTAKE_CONFLICTING_TRANSPORT")
@@ -166,7 +171,7 @@ def apply_intake(p: dict[str, Any], value: Understanding) -> None:
         "trip_budget": "人数与预算",
         "inputs": "出行条件",
     }
-    p["automatic_changes"] = [labels.get(k, k) for k in p["agent_changes"]]
+    p["automatic_changes"] = [labels[k] for k in p["agent_changes"] if k in labels]
     if p["agent_followup"] and value.intent not in {"QUESTION", "HYPOTHETICAL"}:
         p.setdefault("automatic_input_history", []).append(p["request"])
         p["request"] = p["agent_input"]
@@ -378,6 +383,20 @@ def run(
             row = db.connection.execute(
                 "SELECT status,summary_json FROM preview_jobs WHERE job_id=?", (jid,)
             ).fetchone()
+            if provider is None and row[0] in {"QUEUED", "RUNNING"}:
+                receipt = database.parent / "operation-audit" / f"exit-{jid}.json"
+                failure = json.loads(receipt.read_text(encoding="utf8")) if receipt.exists() else dict(
+                    reason="AGENT_CHILD_EXITED", phase="WORKER_ENTRY", category="PROCESS",
+                    exit_code=process.returncode, model_executed=False,
+                )
+                info = json.loads(row[1] or "{}")
+                info.update(reason=failure["reason"], failure=failure,
+                            model_executed=failure["model_executed"])
+                db.connection.execute(
+                    "UPDATE preview_jobs SET status='FAILED',summary_json=?,finished_at=? WHERE job_id=? AND status IN ('QUEUED','RUNNING')",
+                    (json.dumps(info), db.stamp(), jid),
+                )
+                return dict(status="FAILED", **info)
             return dict(status=row[0], **json.loads(row[1] or "{}"))
 
         def call(purpose: str, data: dict[str, Any], stage: str) -> dict[str, Any]:
@@ -408,10 +427,11 @@ def run(
                             model_executed=result.get("model_executed", False),
                             job_id=jid,
                             reason=result.get("reason", "AGENT_MODEL_FAILED"),
+                            failure=result.get("failure"),
                         )
                         save(db, sid, state, bump=False)
                 raise ValueError(result.get("reason") or "AGENT_MODEL_FAILED")
-            return dict(result["result"], _job_id=jid)
+            return dict(result["result"], _job_id=jid, _normalizations=result.get("normalizations", []))
 
         def finish(reason: str) -> None:
             with db.transaction():
@@ -457,6 +477,7 @@ def run(
             _, state = current()
             raw = call("travel_intake_v1", intake_payload(state["planning"]), "INTAKE")
             jid = raw.pop("_job_id")
+            normalizations = raw.pop("_normalizations")
             with db.transaction():
                 _, state = current()
                 p = state["planning"]
@@ -485,6 +506,7 @@ def run(
                     provisional=False,
                     job_id=jid,
                     result=value.model_dump(),
+                    normalizations=normalizations,
                     input_evidence=evidence,
                     input_hash=fingerprint(p["agent_input"]),
                     destination_field=p.get("agent_destination_field") or None,
@@ -512,6 +534,7 @@ def run(
                 data = decision_payload(db, scope, sid, p, budget)
                 raw = call("travel_supervisor_v1", data, "DECIDING")
                 jid = raw.pop("_job_id")
+                raw.pop("_normalizations")
                 choice = decision(raw)
                 _, state = current()
                 p = state["planning"]
@@ -776,26 +799,45 @@ def run(
                     return
             finish("ROUND_LIMIT")
         except Exception as exc:
-            reason = str(exc) if re.fullmatch(r"[A-Z0-9_]+", str(exc)) else "AGENT_STOPPED"
+            reason = str(exc) if re.fullmatch(r"[A-Z0-9_]+", str(exc)) else "AGENT_INTERNAL_ERROR"
             from travel_agent.preview.worker import failure_diagnostic
 
             with db.transaction():
                 row, state = plans.load(sid)
                 p = state["planning"]
+                live_task = db.connection.execute("SELECT stage FROM planning_tasks WHERE task_id=?", (tid,)).fetchone()
+                phase = live_task["stage"] if live_task else "AGENT"
+                failure = failure_diagnostic(exc, phase)
+                if phase == "INTAKE":
+                    failure.update(reason=reason, phase="INTAKE_APPLY", category="CONSTRAINT")
+                if isinstance(exc, ValidationError) and phase == "INTAKE":
+                    typed = invalid_value(exc, "INTAKE_APPLY")
+                    reason = str(typed)
+                    failure.update(typed.failure)
+                if isinstance(exc, IntakeError):
+                    failure.update(exc.failure)
                 if p.get("automatic_task_id") == tid:
                     if p["agent_understanding"]["status"] == "QUEUED":
-                        p["agent_understanding"].update(status="FAILED", reason=reason)
+                        child_row = model_record(db, scope, sid, task["grant_id"], p)
+                        child_info = json.loads(child_row["summary_json"] or "{}") if child_row else {}
+                        p["agent_understanding"].update(status="FAILED", reason=reason,
+                            failure=failure, job_id=child_row["job_id"] if child_row else None,
+                            model_executed=bool(child_info.get("model_executed") or
+                                child_info.get("diagnostic", {}).get("http_attempts")))
+                    elif p["agent_understanding"]["status"] == "FAILED" and p["agent_understanding"].get("failure"):
+                        failure.update(p["agent_understanding"]["failure"])
                     if p.get("agent_rounds") and p["agent_rounds"][-1]["status"] == "DISPATCHED":
                         p["agent_rounds"][-1].update(status="FAILED", result=dict(reason=reason))
                     save(db, sid, state, bump=False)
                 db.connection.execute(
-                    "UPDATE planning_tasks SET status='BLOCKED',summary_json=?,finished_at=? WHERE task_id=? AND status='RUNNING'",
+                    "UPDATE planning_tasks SET status='BLOCKED',stage=?,summary_json=?,finished_at=? WHERE task_id=? AND status='RUNNING'",
                     (
+                        failure["phase"],
                         json.dumps(
                             dict(
                                 reason=reason,
                                 generated=p.get("agent_generated", False),
-                                failure=failure_diagnostic(exc, "AGENT"),
+                                failure=failure,
                             )
                         ),
                         db.stamp(),

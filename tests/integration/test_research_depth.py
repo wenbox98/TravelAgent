@@ -282,7 +282,7 @@ def test_multi_source_points_choice_actual_advisory_payload_and_zero_access_reco
     v, model, reader = deep_run(s)
     assert v["job"]["can_preview"] and v["automatic_task"]["new_body_count"] == 3
     points = v["reference_overview"]["projected"]["points"]
-    lodging = next(p for p in points if p["topic_label"] == "取舍与住宿线索")
+    lodging = next(p for p in points if p["topic_label"] == "选择与取舍")
     assert v["reference_overview"]["projected"]["source_count"] == 3
     assert len(v["draft"]["activities"]) >= 4
     used = deepcopy(v["operation"]["cumulative_used"])
@@ -485,7 +485,7 @@ def test_new_plan_dispatch_refreshes_post_research_context_and_selected_text(aut
     point = next(
         p
         for p in v["reference_overview"]["projected"]["points"]
-        if p["topic_label"] == "取舍与住宿线索"
+        if p["topic_label"] == "选择与取舍"
     )
     v = send(s, v, "select_point", option_id=point["option_id"])
     previous = deepcopy(v["job"]["proposals"])
