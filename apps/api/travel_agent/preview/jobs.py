@@ -68,12 +68,15 @@ class JobService:
         }
 
     def create(
-        self, session: str, revision: int, destination: str | None, key: str, *, ready: bool
+        self, session: str, revision: int, destination: str | None, key: str, *, ready: bool,
+        cached_body: bool = False,
     ) -> dict[str, Any]:
         safe_text(key, 128)
         if not 8 <= len(key) <= 128:
             raise ValueError("INVALID_IDEMPOTENCY_KEY")
         payload = [session, revision, destination]
+        if cached_body:
+            payload.append("CACHED_BODY_NEW_MODEL_ANALYSIS")
         with self.db.transaction() as con:
             old = con.execute(
                 "SELECT job_id,request_hash FROM preview_jobs WHERE account_scope=? AND idempotency_key=?",
@@ -83,7 +86,16 @@ class JobService:
                 if old[1] != fingerprint(payload):
                     raise ValueError("IDEMPOTENCY_CONFLICT")
                 return self.get(old[0])
-            if not self.index(ready)["enabled"]:
+            if cached_body:
+                from travel_agent.planning.workbench import DailyBudget
+
+                current = DailyBudget(self.db, self.continuation).check_trip(self.scope, session)
+                if (not ready or not current["gate"].get("cached_body_request")
+                    or self.budget.summary()["remaining"]["model"] < 4
+                    or con.execute("SELECT 1 FROM preview_jobs WHERE continuation_id=? AND status IN ('QUEUED','RUNNING','WAITING_LOGIN')",
+                                   (self.continuation,)).fetchone()):
+                    raise ValueError("CACHE_BODY_TASK_BINDING_DENIED")
+            elif not self.index(ready)["enabled"]:
                 raise ValueError("LIVE_RESEARCH_UNAVAILABLE")
             v = self.preview.get(session)
             if v["revision"] != revision:

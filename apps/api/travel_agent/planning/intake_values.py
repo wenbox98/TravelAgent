@@ -126,6 +126,15 @@ def boolean_driving(item: DrivingUpdate) -> tuple[Literal["YES", "NO"], dict[str
                        received_type="boolean", received_value=item.value, value=value)
 
 
+def relaxed_pace_evidence(quote: str) -> None:
+    """Layout/timing flexibility alone cannot become an asserted travel preference."""
+    positive = re.search(r"轻松|悠闲|休闲|慢(?:慢|一点|一些|节奏)|不赶(?:路|时间|行程)?|别太赶", quote)
+    denied = re.search(r"(?:不想|不要|不是|并非|不需要).{0,4}(?:轻松|悠闲|休闲|慢节奏)", quote)
+    if not positive or denied or re.search(r"如果|假设|是否|能否|[?？]", quote):
+        raise IntakeError("INTAKE_PACE_EVIDENCE_REQUIRED", phase="INTAKE_EVIDENCE",
+                          field="pace", category="EVIDENCE")
+
+
 def model_record(db: Any, scope: str, sid: str, grant: str, p: dict[str, Any]) -> Any:
     return db.connection.execute(
         "SELECT job_id,status,summary_json FROM preview_jobs WHERE job_id=? AND account_scope=? "

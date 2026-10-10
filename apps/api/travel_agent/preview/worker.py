@@ -44,7 +44,7 @@ def failure_diagnostic(exc: Exception, phase: str) -> dict[str, Any]:
     if phase == "SOURCE_STARTUP" and type(exc).__name__ == "ProfileError":
         reason = "XHS_PROFILE_UNAVAILABLE"
     elif isinstance(exc, ValueError) and re.fullmatch(
-        r"(?:CONFIGURED_|BOUNDED_|GATE_|ROUTE_CHOICES_)[A-Z0-9_]+", str(exc)
+        r"(?:CONFIGURED_|BOUNDED_|GATE_|ROUTE_CHOICES_|CACHE_BODY_)[A-Z0-9_]+", str(exc)
     ):
         reason = str(exc)
     result: dict[str, Any] = dict(reason=reason, phase=phase, exception_type=type(exc).__name__, frames=frames[-5:])
@@ -270,7 +270,7 @@ def run_job(
                     sleep(0.25)
                 raise ResearchStopped("NEED_LOGIN")
 
-            if reader is None:
+            if reader is None and not data.get("cached_body_step"):
                 from travel_agent.research.live import LiveResearchReader
 
                 phase = "SOURCE_STARTUP"
@@ -304,6 +304,10 @@ def run_job(
 
             def after(out: dict[str, Any]) -> None:
                 active()
+                if data.get("cached_body_step"):
+                    from travel_agent.research.cached_reprocess import validate
+
+                    validate(store, j, data["cached_body_step"])
                 progress("REVIEW")
                 if review_dispatch:
                     review_dispatch(
@@ -326,6 +330,16 @@ def run_job(
                 out["continue_after_pending_review"] = data.get("planning_protocol") == 2 and (
                     ordinary or j["continuation_id"] == "p051-scope-locked-planning"
                 )
+
+            if data.get("cached_body_step"):
+                from travel_agent.research.cached_reprocess import analyze
+
+                phase = "CACHE_BODY_ANALYSIS"
+                progress(phase)
+                state, summary = analyze(store, j, data,
+                    ExtractionRecovery(store, EvidenceExtractor(provider, protocol_version=3)),
+                    budget, dispatch, after, active)
+                return
 
             from travel_agent.domain.source_policy import private_policy
 
@@ -633,11 +647,27 @@ def extract_worker(
     budget = BoundedBudget(store, a["batch_id"])
     budget.check_provider(provider)
     budget.check_permit("MODEL", "extract:" + a["source_id"])
+    cached = store.db.connection.execute(
+        "SELECT j.* FROM preview_jobs j JOIN research_runs r USING(research_id) WHERE r.run_id=? AND j.continuation_id=?",
+        (a["run_id"], a["batch_id"]),
+    ).fetchone()
+    if cached and (step := json.loads(cached["request_json"]).get("cached_body_step")):
+        from travel_agent.research.cached_reprocess import validate
+
+        validate(store, cached, step)
+        if research_gaps != tuple(step["gaps"]):
+            raise ValueError("CACHE_BODY_TASK_BINDING_DENIED")
     research = store.db.connection.execute(
         "SELECT research_id FROM research_runs WHERE run_id=?", (a["run_id"],)
     ).fetchone()[0]
+    def guard() -> None:
+        budget.check_job_active(research)
+        from travel_agent.research.cached_reprocess import validate_attempt
+
+        validate_attempt(store, attempt)
+
     ExtractionRecovery(store, EvidenceExtractor(provider, protocol_version=3)).run_reserved(
         attempt,
         research_gaps=research_gaps,
-        dispatch_guard=lambda: budget.check_job_active(research),
+        dispatch_guard=guard,
     )

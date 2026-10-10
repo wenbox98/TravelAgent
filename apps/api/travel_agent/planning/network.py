@@ -7,11 +7,18 @@ import sys
 from threading import RLock, local
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from travel_agent.providers.network_fence import in_amap_transport
 
 
 def install(role: str, metrics_file: Path, *, model_only: bool = False) -> None:
+    # Windows can reuse a PID. Preserve the prior process's counters before
+    # establishing the current worker's well-known diagnostic path.
+    if metrics_file.exists():
+        metrics_file.rename(metrics_file.with_name(
+            f"{metrics_file.stem}-previous-{uuid4().hex}{metrics_file.suffix}"
+        ))
     metrics = dict(model_http=0, amap_http=0, external_dns=0, external_socket=0, blocked_external=0)
     lock, context = RLock(), local()
     resolved: dict[str, set[str]] = {}

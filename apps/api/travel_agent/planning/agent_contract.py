@@ -13,6 +13,20 @@ MAX_ROUNDS = 6
 COMPLETION_RESERVE = 2  # One feedback decision + one planning request.
 
 
+def cached_body_reprocess_requested(text: str) -> bool:
+    """Explicit current instruction, never a question, quote, negation or hypothesis."""
+    import re
+
+    for clause in re.split(r"[。；;\n]", text):
+        if re.search(r"如果|假如|假设|是否|能否|怎么|如何|了解|[?？]|[“\"「]", clause):
+            continue
+        if re.search(r"(?:不要|不想|禁止|不能|无需|不必|并非|不是)[^，,。；;\n]{0,8}(?:用|使用)已缓存", clause):
+            continue
+        if re.search(r"(?:用|使用)已缓存(?:的)?正文.{0,32}(?:重新分析|重新提取)", clause):
+            return True
+    return False
+
+
 def limits(days: int | None, regional: bool = False, *, followup: bool = False) -> dict[str, int]:
     """Only new V4 consent: pay for intake, research decisions and final advice."""
     from travel_agent.research.advisory_coverage import limits as research_limits
@@ -71,6 +85,8 @@ INTAKE_PROMPT = (
     "driving/rental use YES, NO, UNKNOWN strings (not booleans); walking_allowed alone uses JSON "
     "true/false/null. days/people are integer counts, target_fen integer Chinese fen, not yuan. "
     "pace is UNKNOWN or RELAXED; spatial is UNDECIDED/CITY_CORE/CITY_AND_SURROUNDINGS/REGIONAL. "
+    "Output flexibility (no exact times, no need to fill every day) is NOT a pace preference. "
+    "Only an explicit preference for relaxed travel can set pace RELAXED; otherwise preserve it. "
     "Clocks use HH:MM; datetime fields need an explicitly known ISO date and time. "
     "Do not convert relative phrases such as this week into invented dates. "
     "Initial understanding only trusts updates with evidence, not provisional rule parsing. "
@@ -90,6 +106,8 @@ DECISION_PROMPT = (
     "bounded batch of distinct bodies from its observed list, selected again after each strict extraction/review "
     "according to actual remaining gaps and title diversity (max_body is program-owned), "
     "DECOMPOSE to organize already reviewed references, "
+    "CACHED_BODY results, when supplied, are newly extracted and independently reviewed cached text, "
+    "not a site visit or saved-reply replay. Do not repeat that operation. "
     "GENERATE for editable grounded advisory alternatives, KEY_LEG only if explicitly authorized and "
     "public endpoints/mode are confirmed, ANSWER for cached questions/hypotheses, or FINISH. "
     "Tool outcomes, failures and coverage changes must influence your next decision. A sufficient useful "
@@ -155,6 +173,10 @@ def understanding(raw: Any, text: str) -> Understanding:
         raise IntakeError("INTAKE_NONASSERTED_UPDATE", phase="INTAKE_EVIDENCE", category="NONASSERTED")
     from .models import TripInputs
     for item in value.updates:
+        if item.field == "pace" and item.value == "RELAXED":
+            from .intake_values import relaxed_pace_evidence
+
+            relaxed_pace_evidence(item.quote)
         if isinstance(item, DrivingUpdate) and type(item.value) is bool:
             normalized, audit = boolean_driving(item)
             item.value = normalized

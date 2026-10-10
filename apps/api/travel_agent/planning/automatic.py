@@ -428,6 +428,16 @@ class AutomaticService:
     ) -> None:
         _, state = self.plans.load(sid)
         p = state["planning"]
+        from .agent_contract import cached_body_reprocess_requested
+
+        cached_reprocess = agent and cached_body_reprocess_requested(text)
+        cached_request = None
+        if cached_reprocess:
+            from travel_agent.research.cached_reprocess import prepare
+
+            # Validate before invalidating any current task or issuing a new grant.
+            cached_request = prepare(self.db, self.scope, sid, p, text,
+                                     coverage(self.db, self.scope, sid, p)["gaps"])
         if (
             agent
             and self.db.connection.execute(
@@ -459,13 +469,21 @@ class AutomaticService:
                 p["draft"].get("days"), p["travel_kind"] == "REGIONAL", followup=followup
             )
         if agent:
-            from .agent_contract import cache_only_requested, requested_model_cap
+            from .agent_contract import (
+                cache_only_requested, requested_model_cap, cached_body_reprocess_requested,
+            )
 
-            if cache_only_requested(text):
+            cached_reprocess = cached_body_reprocess_requested(text)
+            if cache_only_requested(text) or cached_reprocess:
                 limits.update(connect=0, search=0, detail=0)
+            if cached_reprocess:
+                limits.update(map_place=0, map_route=0)
+                limits["model"] = min(limits["model"], 8)
             if (cap := requested_model_cap(text)) is not None:
                 limits["model"] = min(limits["model"], cap)
-        if agent and map_consent:
+            if cached_reprocess and limits["model"] < 5:
+                raise ValueError("CACHE_BODY_INSUFFICIENT_MODEL_PERMISSION")
+        if agent and map_consent and not cached_reprocess:
             limits.update(map_place=2, map_route=1)
         p["automatic_coverage"] = coverage(self.db, self.scope, sid, p)
         if followup:
@@ -493,6 +511,8 @@ class AutomaticService:
         if p["automatic_coverage"]["sufficient"] and not agent:
             limits.update(connect=0, search=0, detail=0, model=1)
         if agent:
+            p["agent_cached_body_reprocess"] = cached_reprocess
+            p["agent_cached_body_request"] = cached_request
             p["agent_input"] = text
             p["agent_destination_field"] = destination_field
             p["agent_followup"] = followup
@@ -511,7 +531,7 @@ class AutomaticService:
             authorization = OperationAuthorization(
                 confirm=True, tasks=["RESEARCH", "PLANNING"], hours=1, **limits
             )
-            if agent and map_consent:
+            if agent and map_consent and not cached_reprocess:
                 authorization.tasks.append("MAP")
             authorize(
                 self.db,
@@ -525,6 +545,11 @@ class AutomaticService:
                 "UPDATE research_continuations SET gate_json=json_set(gate_json,'$.automatic_task_id',?,'$.automatic_generation',?,'$.consent',?) WHERE continuation_id=?",
                 (tid, p["automatic_generation"], consent_version, grant),
             )
+            if cached_request:
+                self.db.connection.execute(
+                    "UPDATE research_continuations SET gate_json=json_set(gate_json,'$.cached_body_request',json(?)) WHERE continuation_id=?",
+                    (json.dumps(cached_request), grant),
+                )
         except (ValueError, RuntimeError) as exc:
             if str(exc) not in {"CONFIGURED_120_SECOND_PROVIDER_REQUIRED", "NOT_CONFIGURED"}:
                 raise
@@ -711,7 +736,7 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
         "SELECT status,summary_json,research_id FROM preview_jobs WHERE job_id=?",
         (row["research_job_id"],),
     ).fetchone()
-    if research and row["stage"] == "RESEARCH":
+    if research and row["stage"] in {"RESEARCH", "CACHE_BODY_ANALYSIS"}:
         stage = (
             "LOGIN_REQUIRED"
             if research[0] == "WAITING_LOGIN"

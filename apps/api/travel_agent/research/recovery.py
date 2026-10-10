@@ -25,7 +25,8 @@ class ExtractionRecovery:
     def execute(self, *, run_id: str, revision: int, content_id: str, account_scope: str,
                 policy: SourcePolicy, batch_id: str, max_attempts: int,
                 research_gaps: tuple[str, ...] = (), retry_fix_commit: str | None = None,
-                dispatch: Callable[[str, tuple[str, ...]], dict[str, Any]] | None = None) -> dict[str, Any]:
+                dispatch: Callable[[str, tuple[str, ...]], dict[str, Any]] | None = None,
+                cached_reprocess: bool = False) -> dict[str, Any]:
         db = self.store.db
         if not re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", batch_id) or not 1 <= max_attempts <= 12:
             raise ValueError("INVALID_EXTRACTION_BATCH")
@@ -36,11 +37,16 @@ class ExtractionRecovery:
         if row is None:
             raise ValueError("SOURCE_NOT_RESTORED")
         source_id = row[0]
-        content = next((c for c in self.store.contents.load(source_id, account_scope)
+        content = next((c for c in self.store.contents.load(source_id, account_scope, purge=not cached_reprocess)
                         if c["content_id"] == content_id), None)
         source = self.store.repository.get(source_id, account_scope)
         if content is None or source is None or content["policy_id"] != policy["policy_id"]:
             raise PermissionError("SOURCE_RESTORE_POLICY_DENIED")
+        if cached_reprocess:
+            from .cached_reprocess import permits_new_batch
+
+            permits_new_batch(self.store, batch_id=batch_id, run_id=run_id,
+                              content=content, research_gaps=research_gaps)
         with db.transaction() as con:
             if not self.store.is_current(run_id, revision):
                 raise ValueError("STALE_REVISION")
@@ -49,7 +55,7 @@ class ExtractionRecovery:
             if owner[0] != account_scope:
                 raise PermissionError("SCOPE_MISMATCH")
             previous_batch = con.execute("SELECT batch_id FROM extraction_attempts WHERE content_id=? LIMIT 1", (content_id,)).fetchone()
-            if previous_batch is not None and previous_batch[0] != batch_id:
+            if previous_batch is not None and previous_batch[0] != batch_id and not cached_reprocess:
                 raise ValueError("CONTENT_BATCH_IMMUTABLE")
             con.execute("INSERT OR IGNORE INTO extraction_batches VALUES(?,?,?)", (batch_id, account_scope, max_attempts))
             batch = con.execute("SELECT * FROM extraction_batches WHERE batch_id=?", (batch_id,)).fetchone()

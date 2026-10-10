@@ -584,6 +584,57 @@ def run(
                 message(p, "ASSISTANT", value.summary, origin="LLM_INTAKE")
                 checkpoint(state, "DECIDING")
             seen: set[str] = set()
+            if p.get("agent_cached_body_reprocess"):
+                from travel_agent.research.cached_reprocess import gap_keys
+
+                if value.intent in {"QUESTION", "HYPOTHETICAL"}:
+                    raise ValueError("CACHE_BODY_EXPLICIT_REQUEST_REQUIRED")
+                step = p["agent_cached_body_request"]
+                if tuple(step["gaps"]) != gap_keys(p["agent_input"], coverage(db, scope, sid, p)["gaps"]):
+                    raise ValueError("CACHE_BODY_GAPS_CHANGED")
+                with db.transaction():
+                    live, state = current()
+                    p = state["planning"]
+                    job = JobService(db, scope, "CACHED_PRIVATE_PREVIEW", task["grant_id"]).create(
+                        sid, live["revision"], p["destination"], tid + "-cached-body",
+                        ready=True, cached_body=True,
+                    )
+                    request = json.loads(db.connection.execute(
+                        "SELECT request_json FROM preview_jobs WHERE job_id=?", (job["job_id"],)
+                    ).fetchone()[0])
+                    request["cached_body_step"] = step
+                    db.connection.execute("UPDATE preview_jobs SET request_json=? WHERE job_id=?",
+                        (json.dumps(request, ensure_ascii=False), job["job_id"]))
+                    p["research_job_id"] = job["job_id"]
+                    p.setdefault("agent_research_job_ids", []).append(job["job_id"])
+                    p["agent_rounds"].append(dict(round=0, tool="CACHED_BODY", status="DISPATCHED",
+                        before=coverage(db, scope, sid, p),
+                        reason="按明确请求重新提取已缓存正文并独立审核；不重新访问来源。"))
+                    checkpoint(state, "CACHE_BODY_ANALYSIS")
+                    db.connection.execute("UPDATE planning_tasks SET research_job_id=? WHERE task_id=?",
+                                          (job["job_id"], tid))
+                run_job(database, job["job_id"], provider=provider,
+                    extract_dispatch=extract_dispatch, review_dispatch=review_dispatch, product=True)
+                with db.transaction():
+                    _, state = current()
+                    p = state["planning"]
+                    child_row = db.connection.execute("SELECT * FROM preview_jobs WHERE job_id=?",
+                                                      (job["job_id"],)).fetchone()
+                    info = json.loads(child_row["summary_json"] or "{}")
+                    if info.get("reviewed_evidence_count"):
+                        merge_research(db, scope, sid, state, child_row["research_id"])
+                    p["agent_rounds"][-1].update(status="COMPLETE", after=coverage(db, scope, sid, p), result=dict(
+                        status=child_row["status"], reason=info.get("reason"),
+                        accepted=info.get("new_evidence_count", 0),
+                        reviewed=info.get("analysis_accepted_evidence_count", 0),
+                        available=info.get("reviewed_evidence_count", 0),
+                        reused=info.get("existing_evidence_count", 0),
+                        cached_body_count=info.get("cached_body_count", 0),
+                        origin="CACHED_BODY_NEW_MODEL_ANALYSIS", search_count=0, body_count=0))
+                    save(db, sid, state, bump=False)
+                if child_row["status"] in {"FAILED", "CANCELED"} or info.get("analysis_stopped"):
+                    finish(info.get("reason") or "CACHE_BODY_ANALYSIS_STOPPED")
+                    return
             for number in range(1, MAX_ROUNDS + 1):
                 _, state = current()
                 p = state["planning"]

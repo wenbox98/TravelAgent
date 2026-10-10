@@ -44,6 +44,11 @@ def error(code: str, status: int) -> JSONResponse:
                 'DESTINATION_REQUIRED':'请先确认要研究的目的区域。','DESTINATION_CONFLICT':'已有研究的目的区域与输入不一致，请保留原研究或新建本地需求。',
                 'NEW_MATERIAL_UNAVAILABLE':'本任务没有可采用的新合格材料；原选择保留。','JOB_UNAVAILABLE':'当前范围没有此研究任务。'}
     messages.update({
+        'CACHE_BODY_NO_ELIGIBLE_OR_NEW_SNAPSHOT': '当前旅行没有可重新分析的有效缓存正文，或相同版本与缺口已处理。未重新访问来源，也未调用模型。',
+        'CACHE_BODY_NO_CURRENT_GAP': '当前没有适用的资料缺口，未启动重新分析。',
+        'CACHE_BODY_INSUFFICIENT_MODEL_PERMISSION': '本次明确的模型上限不足以完成理解、一次提取、独立审核与后续建议；未发起模型请求。',
+        'CACHE_BODY_TASK_BINDING_DENIED': '缓存重新分析的许可或任务已变化，本轮停止，原结果保留。',
+        'CACHE_BODY_SNAPSHOT_OR_POLICY_DENIED': '缓存正文、版本或资料使用许可已失效，本轮停止；不会重新访问来源兜底。',
         'PLANNING_UNAVAILABLE': '本轮AI建议仅供两个合成场景验收；未配置、额度用完或当前数据不在许可范围。草稿保留。',
         'STALE_PROPOSAL': '条件已更新，旧建议不能覆盖当前草稿；已采用方案保留。',
         'MAP_MODE_REQUIRED': '本次查询方式未决定，请明确选择道路、公交或步行参考；不改变旅行偏好。',
@@ -131,6 +136,7 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
     @app.exception_handler(ValueError)
     async def rejected(request: Request, exc: ValueError) -> JSONResponse:
         codes = {"STALE_REVISION", "RESEARCH_CHANGED", "OPTION_UNAVAILABLE", "PREVIEW_REQUIRED", "IDEMPOTENCY_CONFLICT",
+                 "CACHE_BODY_NO_ELIGIBLE_OR_NEW_SNAPSHOT", "CACHE_BODY_NO_CURRENT_GAP", "CACHE_BODY_TASK_BINDING_DENIED", "CACHE_BODY_SNAPSHOT_OR_POLICY_DENIED", "CACHE_BODY_INSUFFICIENT_MODEL_PERMISSION",
                  "RESEARCH_UNAVAILABLE", "SESSION_UNAVAILABLE", "INVALID_IDEMPOTENCY_KEY", "PREFERENCES_REQUIRED",
                  'LIVE_RESEARCH_UNAVAILABLE','DESTINATION_REQUIRED','DESTINATION_CONFLICT','NEW_MATERIAL_UNAVAILABLE','JOB_UNAVAILABLE'}
         return error(str(exc), 409) if str(exc) in codes else error("CACHE_UNAVAILABLE", 503)

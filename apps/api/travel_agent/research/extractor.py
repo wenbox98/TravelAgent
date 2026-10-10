@@ -175,6 +175,9 @@ def build_claim(row: dict[str, Any], grounded: GroundingResult, canonical: Canon
     return claim, metadata
 
 
+REFERENCE_PROMPT_VERSION = "reference-selection-v1.2"
+
+
 class EvidenceExtractor:
     def __init__(
         self, provider: LLMProvider | None = None, *, clock: Callable[[], datetime] | None = None,
@@ -275,7 +278,7 @@ class EvidenceExtractor:
                         schema, task = selection_schema(_TOPICS), "select_evidence_references_v1"
                         model_input = {"is_synthetic": source_type == "SYNTHETIC", "spans": payload(directory, view),
                             "completeness": completeness, "research_gaps": list(research_gaps),
-                            "extraction_version": 3, "prompt_version": "reference-selection-v1.1"}
+                            "extraction_version": 3, "prompt_version": REFERENCE_PROMPT_VERSION}
                     output = provider.structured(task, model_input, schema)
                     rows = validate_structured(output, schema)["claims"]
                     if self.protocol_version == 3:

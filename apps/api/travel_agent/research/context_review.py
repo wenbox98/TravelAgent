@@ -404,6 +404,9 @@ def reserve_review(
     *,
     evaluation: bool = False,
 ) -> str:
+    from .cached_reprocess import validate_attempt
+
+    validate_attempt(store, attempt)
     data, ctx = build_input(store, attempt, scope, target)
     with store.db.transaction() as con:
         state = budget.state()
@@ -440,11 +443,14 @@ def reserve_review(
 
 
 def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> dict[str, Any]:
+    from .cached_reprocess import validate_attempt
+
     con = store.db.connection
     r = con.execute("SELECT * FROM context_review_runs WHERE review_id=?", (review_id,)).fetchone()
     if r is None:
         raise ValueError("REVIEW_RESERVATION_MISSING")
     budget = BoundedBudget(store, r["continuation_id"])
+    validate_attempt(store, r["attempt_id"])
     if isinstance(provider, OpenAICompatibleProvider):
         budget.check_provider(provider)
     data, ctx = build_input(
@@ -470,6 +476,7 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
     def checkpoint(safe: dict[str, Any]) -> None:
         if r["mode"] == "RUNTIME" and safe.get("transport_phase") == "OPENING":
             budget.check_job_active(ctx["attempt"]["research_id"])
+            validate_attempt(store, r["attempt_id"])
         with store.db.transaction():
             con.execute(
                 "UPDATE context_review_runs SET diagnostic_json=? WHERE review_id=? AND status='RUNNING'",
@@ -481,6 +488,7 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
     try:
         if r["mode"] == "RUNTIME":
             budget.check_job_active(ctx["attempt"]["research_id"])
+            validate_attempt(store, r["attempt_id"])
         schema = REVIEW_SCHEMA_V1 if r["review_version"] == 1 else REVIEW_SCHEMA
         envelope = transport_schema(r["review_version"])
         output = validate_structured(
@@ -531,6 +539,7 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
             # Revalidate current snapshot/revision/policy after a potentially long response.
             if r["mode"] == "RUNTIME":
                 budget.check_job_active(ctx["attempt"]["research_id"])
+                validate_attempt(store, r["attempt_id"])
             fresh, _ = build_input(
                 store,
                 r["attempt_id"],
@@ -556,20 +565,23 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
                 i, d = item["candidate_index"], item["program"]
                 if d["action"] == "NEEDS_REVIEW" or i not in ctx["raw"]:
                     continue
-                try:
-                    review_candidates(
-                        store,
-                        attempt_id=r["attempt_id"],
-                        account_scope=r["account_scope"],
-                        decisions={i: deepcopy(d)},
-                        model_review_id=review_id,
-                    )
-                except ValueError:
-                    item["program"] = {
-                        "action": "NEEDS_REVIEW",
-                        "reason_code": "DEPENDENCY_UNRESOLVED",
-                    }
                 with store.db.transaction():
+                    # Cancellation/revocation and each independent commit share
+                    # one transaction; a late sibling cannot outlive its grant.
+                    validate_attempt(store, r["attempt_id"])
+                    try:
+                        review_candidates(
+                            store,
+                            attempt_id=r["attempt_id"],
+                            account_scope=r["account_scope"],
+                            decisions={i: deepcopy(d)},
+                            model_review_id=review_id,
+                        )
+                    except ValueError:
+                        item["program"] = {
+                            "action": "NEEDS_REVIEW",
+                            "reason_code": "DEPENDENCY_UNRESOLVED",
+                        }
                     con.execute(
                         "UPDATE context_review_runs SET results_json=? WHERE review_id=?",
                         (json.dumps(results, ensure_ascii=False), review_id),

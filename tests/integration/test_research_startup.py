@@ -110,3 +110,25 @@ print('PASS')
     for role in ("serve", "research-preflight"):
         out = subprocess.run([sys.executable, "-c", code, role, str(tmp_path / (role + ".json"))], capture_output=True, text=True, encoding="utf8", timeout=15)
         assert out.returncode == 0, out.stderr
+
+
+def test_reused_pid_metrics_preserve_old_counts_and_current_worker_path(tmp_path):
+    import subprocess
+
+    path = tmp_path / "metrics-123.json"
+    original = b'{"role":"worker","model_http":1,"external_dns":1,"external_socket":1}'
+    path.write_bytes(original)
+    code = """
+import sys,json
+from pathlib import Path
+sys.path.insert(0,str(Path('apps/api').resolve()))
+from travel_agent.planning.network import install
+install('serve',Path(sys.argv[1]))
+v=json.loads(Path(sys.argv[1]).read_text())
+assert v['role']=='serve' and all(v[k]==0 for k in v if k!='role')
+"""
+    result = subprocess.run([sys.executable, "-c", code, str(path)],
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    archived = list(tmp_path.glob("metrics-123-previous-*.json"))
+    assert len(archived) == 1 and archived[0].read_bytes() == original

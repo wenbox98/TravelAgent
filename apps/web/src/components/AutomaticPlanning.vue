@@ -36,7 +36,7 @@ const visiblePoints=computed(()=>morePoints.value?points.value:points.value.slic
 const returnedSearches=computed(()=>task.value?.query_progress.filter(q=>q.observed_candidates!==undefined).length||0)
 const canUpdate=computed(()=>Boolean(conversation.value?.selected||conversation.value?.excluded.length||conversation.value?.excluded_activities.length||overview.value?.selected_current||overview.value?.excluded_current?.length||overview.value?.selected_points?.length||overview.value?.excluded_points?.length))
 watch(()=>props.plan.session_id,()=>{showMore.value=false;morePoints.value=false})
-const stage=computed(()=>({INTAKE:'正在理解你的旅行需求',DECIDING:'正在结合资料决定下一步',AGENT_DECISION:'正在结合资料决定下一步',CACHE:'正在检查可用本机资料',RESEARCH:'正在查小红书',LOGIN:'等待正常登录',LOGIN_CHECK:'正在检查小红书登录',LOGIN_REQUIRED:'请在官方窗口完成正常登录',LOGIN_AUTHENTICATED:'小红书登录已确认',SEARCH:'正在查小红书',READING:'正在阅读笔记正文',EXTRACT:'正在提取必要资料',REVIEW:'正在审核来源上下文',MATERIALS:'正在组织暂定材料',PLANNING:'正在整理旅行建议',RESULT:'新的旅行建议已就绪'}[task.value?.stage||'']||'任务状态已保存'))
+const stage=computed(()=>({INTAKE:'正在理解你的旅行需求',DECIDING:'正在结合资料决定下一步',AGENT_DECISION:'正在结合资料决定下一步',CACHE_BODY_ANALYSIS:'正在重新分析缓存正文',CACHE:'正在检查可用本机资料',RESEARCH:'正在查小红书',LOGIN:'等待正常登录',LOGIN_CHECK:'正在检查小红书登录',LOGIN_REQUIRED:'请在官方窗口完成正常登录',LOGIN_AUTHENTICATED:'小红书登录已确认',SEARCH:'正在查小红书',READING:'正在阅读笔记正文',EXTRACT:'正在提取必要资料',REVIEW:'正在审核来源上下文',MATERIALS:'正在组织暂定材料',PLANNING:'正在整理旅行建议',RESULT:'新的旅行建议已就绪'}[task.value?.stage||'']||'任务状态已保存'))
 const names=(id:string)=>props.plan.draft.activities.find(a=>a.activity_id===id)?.name||props.plan.combination_candidates.find(a=>a.activity_id===id)?.name||'来源活动'
 const problem=computed(()=>{
  const r=task.value?.reason||''
@@ -45,6 +45,7 @@ const problem=computed(()=>{
  if(r.includes('XHS_PROFILE_UNAVAILABLE'))return '研究启动失败：本机服务无法安全访问专用浏览器目录，尚未检查登录或搜索。这是启动环境问题，不是你漏填条件。需要用普通本机权限正常重启工作台；失败与额度记录保留，不会自动重放。'
  if(startupFailure.value)return '研究在开始查找前异常停止，尚未得到材料。这是系统故障，不是资料已足够或需要你补填条件。原失败已保留；修复后由你显式发起新任务，不会自动重试。'
  if(r==='ROUTE_REFERENCE_ONLY')return '资料支持下面的路线参考，暂不支持具体玩法安排；交通与当前可行性仍有缺口。'
+ if(r.startsWith('CACHE_BODY_'))return '缓存正文重新分析已停止：正文、权限、版本、任务或当前缺口未通过检查。旧结果与用量保留，不重新访问来源兜底。'
  if(r.includes('VERIFICATION')||r.includes('DENIED')||r.includes('RATE_LIMIT'))return '网站需要验证或限制了访问，已停止。请查看官方页面；不会尝试规避，也不会自动重试。'
  if(r.includes('LOGIN'))return '尚未完成正常登录，未继续查找。已有资料和结果保留。'
  if(r==='USER_CANCELED')return '已停止本次任务，已有采用版保留。'
@@ -69,7 +70,7 @@ const problem=computed(()=>{
    <p v-if="failure" role="alert" class="warning">{{failure}}</p>
    <div v-if="failure||unconfirmed"><button type="button" class="quiet" :disabled="busy" @click="emit('recover')">读取已保存状态</button><button v-if="resumable" type="button" :disabled="busy||Boolean(blockedReason)" @click="emit('resume')">继续确认原提交</button></div>
    <p id="message-feedback" role="status" aria-live="polite">{{notice}}</p>
-   <p>发送会结合本次选择和必要公开资料交给现有DeepSeek处理；更新优先用缓存，需要补资料才有限查小红书。仅提问或假设不改条件、不查新资料，当前采用版保留。</p>
+   <p>发送会结合本次选择和必要公开资料交给现有DeepSeek处理；更新优先用缓存，需要补资料才有限查小红书。仅提问或假设不改条件、不查新资料，当前采用版保留。明确输入“用已缓存正文按当前缺口重新分析”时，仅分析当前旅行最多两篇有效缓存正文；连接、搜索、详情及地图为0，模型最多8次或你明确的更低上限，不使用旧余额。</p>
    <button :disabled="Boolean(blocked)">{{sendLabel}}</button><button type="button" class="quiet" :disabled="busy||active||answering||Boolean(blockedReason)||unconfirmed||!canUpdate" @click="emit('talk','submit',undefined,'按当前取舍更新建议')">按当前取舍更新建议</button>
    <p v-if="answering" role="status">消息已接收，正在结合现有资料回答，刷新不会重复请求。</p><p v-else-if="answered" role="status">本次缓存回答已完成；建议与事实核实仍有区别。</p><p v-if="plan.answer_job?.status==='FAILED'" class="warning">本次回答未完成：{{plan.answer_job.reason}}。失败已保留，不会自动重试。</p>
    <aside v-if="conversation.proposed_conditions&&Object.keys(conversation.proposed_conditions).length"><p>AI需要你确认的解释：{{conversation.proposed_conditions.days?`可用${conversation.proposed_conditions.days}天；`:''}}{{conversation.proposed_conditions.driving==='NO'?'不自驾；':conversation.proposed_conditions.driving==='YES'?'愿意自驾；':''}}{{conversation.proposed_conditions.pace==='RELAXED'?'轻松节奏；':''}}{{conversation.proposed_conditions.transport?`交通：${({UNKNOWN:'暂未决定',PUBLIC_TRANSIT:'公共交通',SELF_DRIVE:'自驾',LOCAL_SERVICE:'当地服务',WALKING:'步行'} as Record<string,string>)[conversation.proposed_conditions.transport]}；`:''}}</p><button type="button" :disabled="busy||active||answering" @click="emit('talk','confirm_update')">确认并更新建议</button><p>这次点击会按上方用途启动一次有界更新；旧采用版保留。</p></aside>
