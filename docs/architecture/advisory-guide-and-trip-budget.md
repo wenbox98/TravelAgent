@@ -30,6 +30,8 @@ TripBudget用整数分计算人数×天数、房间×晚数、一次性或每日
 
 `GET /api/v1/preview/planning/{session_id}/guide-export`沿用本机认证与同源防护，读取采用版，重验卡片/引用后生成转义Markdown。不导出全文、原模型输入、私址、诊断或临时地图值。刷新重启不派发外部请求，导出不是重新生成建议。
 
+`GET /api/v1/preview/planning/{session_id}/guide-download`使用同一生成与鉴权路径，将相同Markdown作为`Content-Disposition: attachment`的UTF-8文件返回；旧JSON接口保留。普通页面使用原生下载链接，不依赖立即销毁的临时Blob，不把点击当作文件已保存。没有采用版时不提供链接；引用失效继续拒绝，不修改数据库、采用版与账本。OpenAPI同批增加此下载契约；domain和数据库不变。
+
 范围：关键词资料库继续可用，向量仍NOT_IMPLEMENTED；G1保持历史NOT PASS；不新增供应商、酒店抓取、自动预订或复杂求解器。
 
 ## P09.1 / 1.3 最小契约调整

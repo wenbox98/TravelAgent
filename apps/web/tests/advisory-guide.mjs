@@ -18,7 +18,7 @@ assert(html.includes('首项钟点未定也可以先看建议') && html.includes
 assert(html.includes('停留待选') && html.includes('休息自定') && html.includes('尚未计入类别：往返交通'))
 assert(html.includes('不适用，不是免费酒店') && html.includes('本地修改和导出仍可使用'))
 assert(html.includes('&lt;script&gt;合成A&lt;/script&gt;') && !html.includes('<script>合成A'))
-assert.match(html, /<button class="quiet">导出采用版 Markdown<\/button>/)
+assert.match(html, /<a class="quiet action-link" href="[^"]*guide-download" download>导出采用版 Markdown<\/a>/)
 assert.match(html, /<button>采用这版建议攻略<\/button>/)
 console.log('PASS AdvisoryGuide: no required clock, unknown cost, limited knowledge, usable local actions, safe rendering')
 

@@ -1282,6 +1282,36 @@ paths:
             application/json:
               schema:
                 $ref: ./domain.schema.json#/$defs/ErrorResponse
+  /api/v1/preview/planning/{session_id}/guide-download:
+    get:
+      operationId: downloadPlanningGuide
+      summary: 下载当前采用版Markdown文件，重验来源；不修改采用版或派发外部请求
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      security:
+      - PreviewMapSession: []
+      responses:
+        '200':
+          description: 与guide-export相同的采用版Markdown，附件下载而非临时Blob
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              description: attachment及UTF-8编码文件名
+          content:
+            text/markdown:
+              schema:
+                type: string
+        default:
+          description: 沿用本机认证、同源保护与引用失效错误
+          content:
+            application/json:
+              schema:
+                $ref: ./domain.schema.json#/$defs/ErrorResponse
   /api/v1/preview/automatic-planning:
     post:
       operationId: startAutomaticPlanning

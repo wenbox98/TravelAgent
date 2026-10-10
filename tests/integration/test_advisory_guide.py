@@ -537,3 +537,15 @@ def test_guide_export_requires_local_authenticated_session(normal):
         out = client.get(url)
         assert out.status_code == 200 and "合成A慢游" in out.json()["markdown"]
         assert client.get(url, headers={"Origin": "https://untrusted.example"}).status_code == 403
+        download_url = url.replace("guide-export", "guide-download")
+        before = s.load(v["session_id"])[1]
+        downloaded = client.get(download_url)
+        assert downloaded.status_code == 200
+        assert downloaded.content == out.json()["markdown"].encode("utf8")
+        assert downloaded.headers["content-type"].startswith("text/markdown")
+        assert downloaded.headers["content-disposition"].startswith("attachment; filename*=UTF-8''")
+        assert downloaded.headers["cache-control"] == "no-store"
+        assert s.load(v["session_id"])[1] == before
+        assert client.get(download_url, headers={"Origin": "https://untrusted.example"}).status_code == 403
+        client.cookies.clear()
+        assert client.get(download_url).status_code == 401

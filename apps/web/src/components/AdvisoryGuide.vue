@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { request } from '../api'
 import type { PlanView, Draft, BudgetLine, GuideView, GuideDayChoice } from '../planning-api'
 const props = defineProps<{plan:PlanView;busy:boolean}>()
 const emit = defineEmits<{action:[action:string,extra:Record<string,unknown>]}>()
 const copy=<T,>(v:T):T=>JSON.parse(JSON.stringify(v)) as T
-const editing=ref(false),composing=ref(false),selected=ref<string[]>([]),error=ref(''),exported=ref('')
+const editing=ref(false),composing=ref(false),selected=ref<string[]>([]),error=ref('')
 const form=ref<Draft>(copy(props.plan.draft))
 const guide=computed(()=>props.plan.guide_view as GuideView)
 watch(()=>props.plan,(v)=>{form.value=copy(v.draft);selected.value=v.draft.activities.map(a=>a.activity_id)},{deep:true,immediate:true})
-watch(()=>props.plan.session_id,()=>{editing.value=false;composing.value=false;exported.value='';error.value=''})
+watch(()=>props.plan.session_id,()=>{editing.value=false;composing.value=false;error.value=''})
 const money=(v:{min_fen:number|null;max_fen:number|null})=>v.min_fen===null?'未知':`${(v.min_fen/100).toFixed(2)}–${((v.max_fen??v.min_fen)/100).toFixed(2)} 元`
 const sign=(v:number)=>`${v>0?'+':''}${(v/100).toFixed(2)}`
 const number=(e:Event)=>{const s=(e.target as HTMLInputElement).value;return s===''?null:Number(s)}
@@ -22,7 +21,6 @@ function price(line:BudgetLine,key:'min_fen'|'max_fen',e:Event){const n=number(e
 function basis(line:BudgetLine,e:Event){line.basis=(e.target as HTMLSelectElement).value;line.status=line.basis==='USER_BUDGET_TARGET'?'ESTIMATED':'UNKNOWN';if(line.status==='UNKNOWN'){line.unit_amount.min_fen=null;line.unit_amount.max_fen=null;save()}}
 function time(e:Event){form.value.inputs.activity_start=(e.target as HTMLInputElement).value||null;save()}
 function stay(i:number,key:'stay_min'|'stay_max',e:Event){form.value.activities[i][key]=number(e);const a=form.value.activities[i];if((a.stay_min===null)===(a.stay_max===null)&&!(a.stay_min!==null&&a.stay_max!==null&&a.stay_min>a.stay_max))save()}
-async function download(){error.value='';try{const v=await request<{filename:string;markdown:string}>(`/api/v1/preview/planning/${props.plan.session_id}/guide-export`);const u=URL.createObjectURL(new Blob([v.markdown],{type:'text/markdown;charset=utf-8'}));const a=document.createElement('a');a.href=u;a.download=v.filename;a.click();URL.revokeObjectURL(u);exported.value='已从当前采用版导出 Markdown；没有联网查询。'}catch(e){error.value=e instanceof Error?e.message:'导出失败，采用版保留'}}
 </script>
 <template>
   <section class="card advisory-guide">
@@ -110,8 +108,8 @@ async function download(){error.value='';try{const v=await request<{filename:str
     </fieldset></details>
     <details><summary>可选详细时间视图</summary><p>只有已知的假设参与计算；后续移动未知时，具体到达时间保持未知。</p><p v-for="r in plan.timeline" :key="r.activity_id">第 {{r.day}} 天 {{r.name}}：{{r.display_start}} → {{r.display_end}}</p></details>
     <details><summary>还需留意的事项与来源</summary><p v-for="v in [...guide.assumptions,...guide.tradeoffs,...guide.unknowns,...plan.gaps]" :key="v">{{v}}</p><p>来源知识、地点提及、用户选择与AI停留建议保持各自含义；具体卡片可在资料库展开。</p><p v-for="d in plan.job?.decisions.filter(d=>d.status==='REJECTED')||[]" :key="d.proposal_id">提议未采用：{{d.reason}}</p></details>
-    <p v-if="plan.differences.length">草稿有修改，原采用版保留。</p><div class="actions"><button :disabled="busy||!guide.available" @click="emit('action','adopt',{})">采用这版建议攻略</button><button class="quiet" :disabled="busy||(!plan.adopted&&!plan.proposal_preview_active)" @click="emit('action','cancel',{})">取消修改，恢复原版</button><button class="quiet" :disabled="busy||!plan.adopted" @click="download">导出采用版 Markdown</button></div>
-    <p v-if="exported" role="status">{{exported}}</p><p v-if="error" class="warning" role="alert">{{error}}</p>
+    <p v-if="plan.differences.length">草稿有修改，原采用版保留。</p><div class="actions"><button :disabled="busy||!guide.available" @click="emit('action','adopt',{})">采用这版建议攻略</button><button class="quiet" :disabled="busy||(!plan.adopted&&!plan.proposal_preview_active)" @click="emit('action','cancel',{})">取消修改，恢复原版</button><a v-if="!busy&&plan.adopted" class="quiet action-link" :href="`/api/v1/preview/planning/${plan.session_id}/guide-download`" download>导出采用版 Markdown</a><button v-else class="quiet" disabled>导出采用版 Markdown</button></div>
+    <p v-if="plan.adopted" class="muted">下载当前采用版；生成文件前会再次核对来源。下载是否完成请查看浏览器提示。</p><p v-if="error" class="warning" role="alert">{{error}}</p>
   </section>
 </template>
 <style scoped>

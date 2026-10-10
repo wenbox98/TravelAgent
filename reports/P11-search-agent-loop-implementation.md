@@ -107,3 +107,8 @@ context_review.check_decision规则6：独立审核的非路线主题、不同�
 ### 页面慢读取覆盖预览与采用版本
 
 普通页面预览A后首次采用报STALE_REVISION，DB仍保留revision34合法预览；刷新读取后再次采用，DB确认revision35、采用v1、预览标记清除。页面PlanningPanel.poll在busy期间仍发读取，晚返回可覆盖已保存的新revision；apply未拒绝较旧版本。新增plan-snapshot.acceptsPlanSnapshot并用于apply，busy期间不启动轮询。同版本进度和不同旅行切换仍允许。新增延迟读取竞态回归，全部npm test通过；npm run build首次沙盒spawn EPERM，按主机权限重跑通过，静态index-BTS0vzsF.js。后台B真实任务仍正常运行，不重启。无新业务请求；私有DB/旧采用/账本/T03未修改。A本地复核采用只证明保存链路，仍缺玩法与住宿；B真实内容未验收。前批否定报价修复的mypy112文件实际通过。
+
+
+### 采用版原生文件下载
+
+实际页面Blob导出提示成功，但两次受支持下载事件均未确认文件，不能判为下载成功；内部下载页被浏览器策略禁止，未绕过。新增flow_api.download_guide，通过原export_guide生成相同Markdown并返回UTF-8附件；原JSON出口保留，普通页面使用原生同源下载链接，取消点击即成功提示。OpenAPI与攻略契约同步新增路径；不改变domain或SQLite。合成接口验证文件字节与JSON完全相同、采用版未改、认证401、外源403、no-store；test_advisory_guide.py 30项通过16.20秒，Ruff、mypy112、全网页测试与构建通过。初次混合验证命令工作目录误设为apps/web，Python/Ruff未执行；随后在正确仓库目录实际补齐。静态index-DydIdkRa.js已构建但未部署；B仍在研究，不重启。A采用v1仍内容不足，下载文件验收待部署后执行。

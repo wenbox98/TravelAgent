@@ -1,5 +1,7 @@
 from typing import Any
 from fastapi import FastAPI, Request
+from fastapi.responses import Response
+from urllib.parse import quote
 from travel_agent.persistence.database import Database
 from travel_agent.preview.api import PreviewConfig, error
 from .flow import PlanningService, timeline
@@ -144,6 +146,17 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
             )
 
     from .reference_overview import ReferenceOverviewExport
+
+    @app.get("/api/v1/preview/planning/{session_id}/guide-download", response_class=Response)
+    def download_guide(session_id: str) -> Any:
+        value = export_guide(session_id)
+        if isinstance(value, Response):
+            return value
+        return Response(
+            value["markdown"],
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(value["filename"], safe="")},
+        )
 
     @app.get(
         "/api/v1/preview/planning/{session_id}/reference-overview-export",
