@@ -390,15 +390,18 @@ def test_budget_gate_denies_tools_without_reset_and_stop_is_not_success(service,
     assert final["automatic_task"]["agent_rounds"][0]["result"]["executed"] is False
 
 
-def test_explicit_cache_only_request_reserves_zero_site_budget(service, monkeypatch):
-    text = "去合成青谷5天。本次只用已缓存资料，不搜索、不读取新正文。"
+@pytest.mark.parametrize("consent,text", [
+    (CONSENT, "去合成青谷5天。本次只用已缓存资料，不搜索、不读取新正文。"),
+    ("PRIVATE_GOAL_AGENT_V5", "去合成青谷5天。用已审核的缓存玩法重新生成，不再搜索或读取新正文。"),
+])
+def test_explicit_cache_only_request_reserves_zero_site_budget(service, monkeypatch, consent, text):
     wire = Wire(monkeypatch, lambda task, data: (
         intake(text, [("destination", "合成青谷", "合成青谷"), ("days", 5, "5天")])
         if task == "travel_intake_v1"
         else choose("RESEARCH_GAP", query="合成青谷 玩法", gap_key="PLAY")
     ))
     reader = Reader()
-    v = service.start(AutomaticStart(request=text, consent=CONSENT), str(uuid4()))
+    v = service.start(AutomaticStart(request=text, consent=consent), str(uuid4()))
     assert {k: v["automatic_task"]["limits"][k] for k in ("connect", "search", "detail")} == {
         "connect": 0, "search": 0, "detail": 0
     }
@@ -412,6 +415,10 @@ def test_explicit_cache_only_request_reserves_zero_site_budget(service, monkeypa
     ("改成5天。本次只用已缓存资料，不搜索。", True),
     ("这次仅使用现有资料，生成建议。", True),
     ("本轮只用缓存", True),
+    ("用已审核的缓存玩法重新生成七天攻略，不再搜索或读取新正文。", True),
+    ("不要搜索和阅读新的正文", True),
+    ("如果不再搜索或读取新正文会怎样？", False),
+    ('来源说“不再搜索或读取新正文”', False),
     ("先用缓存，不足再查资料", False),
     ("如果本次只用缓存会怎样？", False),
     ("我不想本次只用缓存", False),

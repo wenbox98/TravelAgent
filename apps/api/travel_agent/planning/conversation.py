@@ -242,6 +242,13 @@ def submission_intent(text: str) -> str:
 
 
 def action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) -> dict[str, Any]:
+    from travel_agent.preview.service import view_cache
+
+    with view_cache():
+        return _action(db, scope, sid, body, key)
+
+
+def _action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) -> dict[str, Any]:
     from .automatic import AutomaticService, save, invalidate, revise
     from .flow_models import PlanDraft
     from .reference_overview import references

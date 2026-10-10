@@ -23,6 +23,9 @@ _view_cache: ContextVar[dict[tuple[Any, ...], Any] | None] = ContextVar("preview
 @contextmanager
 def view_cache() -> Iterator[None]:
     """Reuse checked projections only within one read; writes invalidate by SQLite versions."""
+    if _view_cache.get() is not None:
+        yield
+        return
     token = _view_cache.set({})
     try:
         yield
@@ -60,8 +63,13 @@ class PreviewService:
         repo, contents = EvidenceRepository(self.db), SourceContentStore(self.db)
         evidence = []
         for source_id in sources:
-            b = repo.get(source_id, self.scope)
-            if b is None or bool(b["is_synthetic"]) != (self.mode == "SYNTHETIC_DEMO"):
+            bundle = repo.get(source_id, self.scope)
+            if bundle is None:
+                continue
+            # DomainModel decodes its immutable JSON on every keyed read. Decode
+            # this already validated snapshot once, without sharing mutable data.
+            b = bundle.to_dict()
+            if bool(b["is_synthetic"]) != (self.mode == "SYNTHETIC_DEMO"):
                 continue
             p = self.db.connection.execute("SELECT policy_json FROM source_policies WHERE policy_id=? ORDER BY version DESC LIMIT 1", (b["policy_id"],)).fetchone()
             policy = SourcePolicy(json.loads(p[0])) if p else None
@@ -87,7 +95,7 @@ class PreviewService:
                     if model is None or not any(i['candidate_index']==meta.get('audit_candidate_index') and
                         i['program']['action']=='ACCEPT' for i in json.loads(model[0])):
                         continue
-                singleton = EvidenceBundle(b.to_dict() | {"claims": [claim], "claim_metadata": {claim["claim_id"]: meta}})
+                singleton = EvidenceBundle(b | {"claims": [claim], "claim_metadata": {claim["claim_id"]: meta}})
                 if audit_grounding(singleton, cached)["unsupported"]:
                     continue
                 try:
@@ -98,7 +106,7 @@ class PreviewService:
                 accepted.append(claim)
                 metadata[claim["claim_id"]] = meta
             if accepted:
-                evidence.append(EvidenceBundle(b.to_dict() | {"claims": accepted, "claim_metadata": metadata}))
+                evidence.append(EvidenceBundle(b | {"claims": accepted, "claim_metadata": metadata}))
         return dict(q), tuple(evidence)
 
     def researches(self) -> list[dict[str, Any]]:

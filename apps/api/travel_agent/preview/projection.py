@@ -127,7 +127,7 @@ def project(
     """Reuse reviewed object grouping. Never assemble separate day objects into a trip."""
     by_id = {
         c["claim_id"]: (b, c, b["claim_metadata"][c["claim_id"]])
-        for b in evidence
+        for b in (bundle.to_dict() for bundle in evidence)
         for c in b["claims"]
     }
 

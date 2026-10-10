@@ -172,6 +172,8 @@ def test_read_scoped_cache_isolated_and_invalidates_writes_and_external_withdraw
             assert evidence
             q["current_revision"] = -99
             assert service(db)._cache("partial")[0]["current_revision"] != -99
+            with view_cache():
+                assert service(db)._cache("partial")[0]["current_revision"] != -99
             assert calls == ["partial"]
             db.connection.execute("UPDATE source_contents SET expires_at='2020-01-01T00:00:00+00:00'")
             assert not service(db)._cache("partial")[1]

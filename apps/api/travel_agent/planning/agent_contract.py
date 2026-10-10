@@ -55,6 +55,14 @@ def cache_only_requested(text: str) -> bool:
             clause,
         ):
             return True
+        # Ordinary instructions do not have to repeat a technical consent phrase.
+        # This combined prohibition forbids both fresh search and fresh bodies;
+        # detect it before creating a grant, independently of model decisions.
+        if re.search(
+            r"(?:不要|不再|禁止|无需)(?:新增|重新|再)?(?:搜索|检索)(?:或|和|及|、)(?:读取|阅读|抓取|采集)(?:新的?|新增)?正文",
+            clause,
+        ):
+            return True
     return False
 
 

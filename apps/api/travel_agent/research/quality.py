@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 from hashlib import sha256
 import re
 from typing import Any
+from collections.abc import Mapping
 
 from travel_agent.domain.models import EvidenceBundle
 
@@ -29,7 +30,7 @@ def has_locator(claim: dict[str, Any]) -> bool:
     return bool(match and int(match[1]) < int(match[2]))
 
 
-def metadata_for(bundle: EvidenceBundle, claim: dict[str, Any]) -> dict[str, Any]:
+def metadata_for(bundle: Mapping[str, Any], claim: dict[str, Any]) -> dict[str, Any]:
     return dict(bundle.get("claim_metadata", {}).get(claim["claim_id"], {}))
 
 
@@ -38,7 +39,7 @@ def confidence_level(bundle: EvidenceBundle, claim: dict[str, Any]) -> str:
     return str(metadata_for(bundle, claim).get("confidence_level", "LOW"))
 
 
-def is_grounded(bundle: EvidenceBundle, claim: dict[str, Any]) -> bool:
+def is_grounded(bundle: Mapping[str, Any], claim: dict[str, Any]) -> bool:
     """Accepted extractive evidence; legacy locators alone do not attest grounding.
 
     This checks the persisted extraction attestation, not a fresh source re-read.
