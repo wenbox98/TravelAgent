@@ -46,6 +46,7 @@ def main() -> None:
     parser.add_argument("--predecessor", default="")
     parser.add_argument("--evaluation-attempt", action="append", default=[])
     parser.add_argument("--identifier", default="")
+    parser.add_argument("--research-gaps", nargs="*", default=[])
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--open", action="store_true")
     args = parser.parse_args()
@@ -119,7 +120,10 @@ def main() -> None:
         store = EvidenceStore(db)
         budget = BoundedBudget(store, args.continuation)
         if args.action == "extract-worker":
-            extract_worker(store, configured_provider(), args.identifier)
+            extract_worker(
+                store, configured_provider(), args.identifier,
+                research_gaps=tuple(args.research_gaps),
+            )
             return
         if args.action == "review-worker":
             run_review(store, configured_provider(), args.identifier)

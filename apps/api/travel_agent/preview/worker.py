@@ -64,8 +64,14 @@ def configured_provider() -> OpenAICompatibleProvider:
 
 
 def model_command(
-    database: Path, kind: str, identifier: str, *, product: bool = False
+    database: Path, kind: str, identifier: str, *, product: bool = False,
+    research_gaps: tuple[str, ...] | None = None,
 ) -> list[str]:
+    extra = []
+    if research_gaps is not None:
+        if kind != "extract-worker":
+            raise ValueError("WORKER_GAP_CONTEXT_DENIED")
+        extra = ["--research-gaps", *extraction_gap_ids(research_gaps)]
     if product:
         return [
             sys.executable,
@@ -75,7 +81,7 @@ def model_command(
             identifier,
             "--workspace",
             str(database.resolve().parent),
-        ]
+        ] + extra
     return [
         sys.executable,
         str(PROJECT_ROOT / "scripts/live_workbench.py"),
@@ -84,7 +90,17 @@ def model_command(
         str(database.resolve()),
         "--identifier",
         identifier,
-    ]
+    ] + extra
+
+
+def extraction_gap_ids(values: tuple[str, ...]) -> tuple[str, ...]:
+    """Only bounded program gap identifiers cross the child-process boundary."""
+    if len(values) > 32 or any(
+        not isinstance(v, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", v)
+        for v in values
+    ):
+        raise ValueError("WORKER_GAP_CONTEXT_DENIED")
+    return values
 
 
 def supervised_review(
@@ -281,7 +297,9 @@ def run_job(
                     provider=provider,
                     deadline=180,
                     finish_report=False,
-                    command=model_command(database, "extract-worker", attempt, product=product),
+                    command=model_command(
+                        database, "extract-worker", attempt, product=product, research_gaps=gaps
+                    ),
                 )
 
             def after(out: dict[str, Any]) -> None:
@@ -601,7 +619,11 @@ def launch_job(database: Path, job_id: str) -> None:
     threading.Thread(target=monitor, daemon=True).start()
 
 
-def extract_worker(store: EvidenceStore, provider: OpenAICompatibleProvider, attempt: str) -> None:
+def extract_worker(
+    store: EvidenceStore, provider: OpenAICompatibleProvider, attempt: str, *,
+    research_gaps: tuple[str, ...] = (),
+) -> None:
+    research_gaps = extraction_gap_ids(research_gaps)
     a = store.db.connection.execute(
         "SELECT a.*,c.source_id FROM extraction_attempts a JOIN source_contents c USING(content_id) WHERE attempt_id=?",
         (attempt,),
@@ -616,6 +638,6 @@ def extract_worker(store: EvidenceStore, provider: OpenAICompatibleProvider, att
     ).fetchone()[0]
     ExtractionRecovery(store, EvidenceExtractor(provider, protocol_version=3)).run_reserved(
         attempt,
-        research_gaps=("ROUTES", "DURATION", "TRANSPORT"),
+        research_gaps=research_gaps,
         dispatch_guard=lambda: budget.check_job_active(research),
     )

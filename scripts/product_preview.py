@@ -102,6 +102,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8768)
     parser.add_argument("--open", action="store_true")
     parser.add_argument("--job", default="")
+    parser.add_argument("--research-gaps", nargs="*", default=[])
     parser.add_argument("--destination", default="")
     parser.add_argument("--batch", choices=["p05", "p051", "p052", "p06"], default="p06")
     parser.add_argument("--code-sha", default="")
@@ -243,9 +244,13 @@ def main() -> None:
         from travel_agent.research.store import EvidenceStore
 
         with Database(database) as db:
-            (extract_worker if args.action == "extract-worker" else run_review)(
-                EvidenceStore(db), configured_provider(), args.job
-            )
+            if args.action == "extract-worker":
+                extract_worker(
+                    EvidenceStore(db), configured_provider(), args.job,
+                    research_gaps=tuple(args.research_gaps),
+                )
+            else:
+                run_review(EvidenceStore(db), configured_provider(), args.job)
         return
     # Exactly one owner of the independent working copy. Never stop other apps.
     lock = (workspace / "serve.lock").open("a+b")
