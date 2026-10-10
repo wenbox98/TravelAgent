@@ -766,6 +766,9 @@ def _worker_finished(db: Database, jid: str, *, automatic: bool, reason: str,
                 (jid,),
             ).fetchone()
             if task:
+                from travel_agent.preview.lifecycle import interrupt_grant
+
+                interrupt_grant(db, task["grant_id"], reason)
                 summary = json.loads(task["summary_json"] or "{}")
                 summary.update(reason=reason, failure=dict(
                     reason=reason, phase=task["stage"], category="PROCESS", exit_code=exit_code,

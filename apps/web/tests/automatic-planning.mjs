@@ -13,7 +13,7 @@ const childUrl='data:text/javascript;base64,'+Buffer.from(childScript).toString(
 const script=ts.transpileModule(setup.content,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from ['"]([^'"]+)['"]/g,(_,name)=>`from "${name==='./AgentProgress.vue'?childUrl:name==='../intake'?new URL('../src/intake.ts',import.meta.url).href:import.meta.resolve(name)}"`)
 const component=(await import('data:text/javascript;base64,'+Buffer.from(script).toString('base64'))).default
 const task={status:'RUNNING',stage:'LOGIN_CHECK',login_state:'LOGIN_CHECK',research_attempted:false,changes:[],sources:[],limits:{search:3,detail:6,model:13,connect:1},search_count:0,candidate_count:0,unique_candidate_count:0,new_body_count:0,body_attempts:0,cache_source_count:0,accepted_source_count:0,duplicate_body_count:0,query_progress:[],generated:false,coverage:null}
-async function render(t,extra={}){return renderToString(createSSRApp(component,{plan:{destination:'合成北区',session_id:'fixture',draft:{days:7,activities:[]},combination_candidates:[],automatic_task:{...task,...t},job:{can_preview:true,proposals:[{title:'来源有限的玩法',reason:'合成参考',activities:[],unknowns:['交通未知']}]},...extra},busy:false}))}
+async function render(t,extra={},props={}){return renderToString(createSSRApp(component,{plan:{destination:'合成北区',session_id:'fixture',draft:{days:7,activities:[]},combination_candidates:[],automatic_task:{...task,...t},job:{can_preview:true,proposals:[{title:'来源有限的玩法',reason:'合成参考',activities:[],unknowns:['交通未知']}]},...extra},busy:false,...props}))}
 assert((await render({})).includes('正在检查小红书登录'))
 const login=await render({stage:'LOGIN_REQUIRED',login_state:'LOGIN_REQUIRED'})
 assert(login.includes('小红书官方页面完成正常登录')&&login.includes('同一个任务'))
@@ -85,3 +85,12 @@ assert(cachedAnalysis.includes('本次新增资料：1')&&cachedAnalysis.include
 const cachedDenied=await render({protocol:'PRIVATE_GOAL_AGENT_V4',status:'BLOCKED',stage:'CACHE_BODY_ANALYSIS',reason:'CACHE_BODY_SNAPSHOT_OR_POLICY_DENIED'})
 assert(cachedDenied.includes('不重新访问来源兜底')&&!cachedDenied.includes('网站需要验证或限制了访问'))
 console.log('PASS cached-body analysis: distinct origin, bounded explicit purpose and local failure display')
+
+const disconnected=await render({protocol:'PRIVATE_GOAL_AGENT_V4',stage:'REVIEW',agent_rounds:[{round:1,tool:'RESEARCH_GAP',reason:'合成故障注入',status:'DISPATCHED'}]}, {}, {connectionLost:true,busy:true})
+assert(disconnected.includes('连接中断，进度暂无法确认'))
+assert(!disconnected.includes('正在执行；刷新不会重复派发')&&!disconnected.includes('正在审核来源上下文'))
+const terminated=await render({protocol:'PRIVATE_GOAL_AGENT_V4',status:'INTERRUPTED',reason:'SERVER_STOPPED',stage:'REVIEW',agent_rounds:[{round:1,tool:'RESEARCH_GAP',reason:'合成故障注入',status:'DISPATCHED'}]})
+assert(terminated.includes('本步骤未完成，任务已停止')&&!terminated.includes('正在执行；刷新不会重复派发'))
+const deadline=await render({status:'INTERRUPTED',reason:'TASK_DEADLINE'})
+assert(deadline.includes('总等待时限'))
+console.log('PASS lifecycle UI: disconnected progress is unknown; stopped rounds are not running; timeout is distinct')

@@ -13,6 +13,133 @@ from travel_agent.planning.suggestions import _worker_finished
 from test_goal_agent import service  # noqa: F401
 
 
+def pending_review(service):
+    from test_workbench_pipeline import add_source, Provider
+    from travel_agent.research.store import EvidenceStore
+    from travel_agent.research.bounded import BoundedBudget
+    from travel_agent.research.context_review import reserve_review
+
+    v = service.start(AutomaticStart(request="合成青谷七天", consent=CONSENT), str(uuid4()))
+    tid = v["automatic_task"]["task_id"]
+    db = service.db
+    gid = db.connection.execute("SELECT grant_id FROM planning_tasks WHERE task_id=?", (tid,)).fetchone()[0]
+    db.connection.execute("UPDATE planning_tasks SET status='RUNNING',stage='RESEARCH' WHERE task_id=?", (tid,))
+    store = EvidenceStore(db)
+    aid = add_source(store, gid, Provider())
+    rid = reserve_review(store, BoundedBudget(store, gid), aid, "owner", {})
+    research = db.connection.execute("SELECT r.research_id FROM extraction_attempts a JOIN research_runs r USING(run_id) WHERE attempt_id=?", (aid,)).fetchone()[0]
+    jid = "job-" + uuid4().hex
+    db.connection.execute("INSERT INTO preview_jobs VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?,NULL)",
+                          (jid,gid,v["session_id"],"owner",v["revision"]-1,research,"{}",jid,jid,"RUNNING",'{"stage":"REVIEW"}',db.stamp()))
+    db.connection.execute("UPDATE planning_tasks SET research_job_id=? WHERE task_id=?", (jid,tid))
+    state = json.loads(db.connection.execute("SELECT state_json FROM preview_sessions WHERE session_id=?", (v["session_id"],)).fetchone()[0])
+    state["planning"]["research_job_id"] = jid
+    db.connection.execute("UPDATE preview_sessions SET state_json=? WHERE session_id=?", (json.dumps(state),v["session_id"]))
+    db.connection.execute("UPDATE planning_tasks SET status='RUNNING',stage='RESEARCH' WHERE task_id=?", (tid,))
+    db.connection.execute("UPDATE context_review_runs SET status='RUNNING',diagnostic_json=? WHERE review_id=?",
+                          ('{"http_status":200,"transport_phase":"BODY_READ"}', rid))
+    return v, tid, gid, aid, rid
+
+
+@pytest.mark.parametrize("stop", ["restart", "legacy_restart", "worker_exit"])
+def test_interruption_settles_pending_review_and_preserves_extraction(service, stop):
+    from travel_agent.planning.automatic import recover
+    v, tid, gid, aid, rid = pending_review(service)
+    con = service.db.connection
+    before = [tuple(r) for r in con.execute("SELECT * FROM continuation_operations")]
+    material = con.execute("SELECT state_json FROM preview_sessions WHERE session_id=?", (v["session_id"],)).fetchone()[0]
+    candidates = [tuple(r) for r in con.execute("SELECT * FROM extraction_candidates")]
+    if stop in {"restart", "legacy_restart"}:
+        if stop == "legacy_restart":
+            con.execute("UPDATE planning_tasks SET status='INTERRUPTED',summary_json=? WHERE task_id=?", ('{"reason":"SERVER_STOPPED"}', tid))
+            con.execute("UPDATE research_continuations SET finished_at=? WHERE continuation_id=?", (service.db.stamp(), gid))
+            con.execute("UPDATE preview_jobs SET status='CANCELED',cancel_requested=1 WHERE continuation_id=?", (gid,))
+        recover(service.db)
+        recover(service.db)
+    else:
+        _worker_finished(service.db, tid, automatic=True, reason="WORKER_EXITED", exit_code=7)
+    row = con.execute("SELECT * FROM context_review_runs WHERE review_id=?", (rid,)).fetchone()
+    assert row["status"] == "INTERRUPTED" and row["finished_at"]
+    assert json.loads(row["diagnostic_json"])["transport_phase"] == "BODY_READ"
+    assert con.execute("SELECT status FROM extraction_attempts WHERE attempt_id=?", (aid,)).fetchone()[0] == "PENDING_REVIEW"
+    assert [tuple(r) for r in con.execute("SELECT * FROM continuation_operations")] == before
+    assert [tuple(r) for r in con.execute("SELECT * FROM extraction_candidates")] == candidates
+    assert con.execute("SELECT state_json FROM preview_sessions WHERE session_id=?", (v["session_id"],)).fetchone()[0] == material
+    assert con.execute("SELECT finished_at FROM research_continuations WHERE continuation_id=?", (gid,)).fetchone()[0]
+    assert con.execute("SELECT status FROM preview_jobs WHERE continuation_id=?", (gid,)).fetchone()[0] == "INTERRUPTED"
+
+
+def test_late_review_result_cannot_replace_interruption_or_approve(service):
+    from test_workbench_pipeline import Provider
+    from travel_agent.research.store import EvidenceStore
+    from travel_agent.research.context_review import run_review
+
+    _, tid, _, _, rid = pending_review(service)
+    con = service.db.connection
+    con.execute("UPDATE context_review_runs SET status='PENDING' WHERE review_id=?", (rid,))
+    before = [tuple(r) for r in con.execute("SELECT * FROM extraction_candidates")]
+
+    class LateProvider(Provider):
+        def structured(self, *args):
+            result = super().structured(*args)
+            _worker_finished(service.db, tid, automatic=True, reason="WORKER_EXITED", exit_code=7)
+            return result
+
+    provider = LateProvider()
+    result = run_review(EvidenceStore(service.db), provider, rid)
+    assert provider.calls == ["review_evidence_context_v2"]
+    assert result["status"] == "INTERRUPTED"
+    assert [tuple(r) for r in con.execute("SELECT * FROM extraction_candidates")] == before
+
+
+@pytest.mark.parametrize("fault", ["nonzero", "kill", "deadline"])
+def test_actual_subprocess_failure_is_terminal(service, monkeypatch, fault):
+    """Real OS processes under the production supervisor; no external transports."""
+    import subprocess
+    import sys
+    import time
+    from travel_agent.planning import suggestions
+
+    _, tid, gid, _, rid = pending_review(service)
+    real_popen, real_monotonic = subprocess.Popen, suggestions.monotonic
+    processes = []
+    launched = time.monotonic()
+
+    def spawn(*args, **kwargs):
+        body = "import time; time.sleep(.4); raise SystemExit(7)" if fault == "nonzero" else "import time; time.sleep(60)"
+        child = real_popen([sys.executable, "-c", body], **kwargs)
+        processes.append(child)
+        return child
+
+    monkeypatch.setattr(suggestions.subprocess, "Popen", spawn)
+    if fault == "deadline":
+        monkeypatch.setattr(suggestions, "monotonic", lambda: real_monotonic() + (4000 if time.monotonic() - launched > .5 else 0))
+    try:
+        suggestions.launch(service.db.path, tid, automatic=True)
+        end = time.monotonic() + 10
+        while not processes and time.monotonic() < end:
+            time.sleep(.05)
+        assert processes
+        if fault == "kill":
+            processes[0].kill()
+        row = None
+        while time.monotonic() < end:
+            row = service.db.connection.execute("SELECT status,summary_json FROM planning_tasks WHERE task_id=?", (tid,)).fetchone()
+            if row[0] not in {"QUEUED", "RUNNING"}:
+                break
+            time.sleep(.05)
+        assert row[0] == "INTERRUPTED", dict(row)
+        reason = json.loads(row[1])["reason"]
+        assert reason == ("TASK_DEADLINE" if fault == "deadline" else "WORKER_EXITED")
+        assert service.db.connection.execute("SELECT status FROM context_review_runs WHERE review_id=?", (rid,)).fetchone()[0] == "INTERRUPTED"
+        assert service.db.connection.execute("SELECT finished_at FROM research_continuations WHERE continuation_id=?", (gid,)).fetchone()[0]
+    finally:
+        for child in processes:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=5)
+
+
 @pytest.mark.parametrize("reason", ["WORKER_EXITED", "WORKER_MONITOR_FAILED"])
 def test_dead_worker_is_terminal_without_replaying_or_resetting_usage(service, reason):
     s = service

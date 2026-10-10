@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {AutomaticTask} from '../planning-api'
-defineProps<{task:AutomaticTask}>()
+defineProps<{task:AutomaticTask;connectionLost?:boolean}>()
 const label=(s:string)=>({CACHED_BODY:'重新分析缓存正文并独立审核',CACHE:'复核本机资料',DECOMPOSE:'整理来源玩法与取舍',RESEARCH_GAP:'按缺口择读并审核来源正文',GENERATE:'生成可选择建议',KEY_LEG:'核实关键公共衔接',ANSWER:'结合缓存回答',FINISH:'结束本次循环'}[s]||s)
 const fieldLabel=(s:string)=>({destination:'目的区域',days:'天数',arrival_transport:'到达方式',transport:'当地交通',driving:'驾驶意愿',rental:'租车意向',pace:'节奏',walking_allowed:'步行意愿',spatial:'活动范围',people:'人数',target_fen:'参考预算',activity_start:'首项开始',return_deadline:'返回截止',depart_at:'出发时间',return_by:'返回时间'}[s]||s)
 const position=(task:AutomaticTask,field:string)=>task.understanding?.input_evidence?.find(e=>e.field===field)
@@ -11,7 +11,7 @@ const valueLabel=(field:string,value:unknown)=>value===null?'未定':field==='ta
 <template>
  <section v-if="['PRIVATE_GOAL_AGENT_V3','PRIVATE_GOAL_AGENT_V4'].includes(task.protocol||'')" aria-label="需求理解与工具循环">
   <h3>需求理解与本次进展</h3>
-  <p v-if="task.understanding?.status==='QUEUED'" role="status">正在等待模型理解。{{task.understanding.provisional?'当前规则结果仅为暂定，尚未确认理解完成。':'本条消息尚未理解完成；此前确认的条件继续有效。'}}</p>
+  <p v-if="task.understanding?.status==='QUEUED'&&!connectionLost&&['QUEUED','RUNNING'].includes(task.status)" role="status">正在等待模型理解。{{task.understanding.provisional?'当前规则结果仅为暂定，尚未确认理解完成。':'本条消息尚未理解完成；此前确认的条件继续有效。'}}</p>
   <div v-else-if="task.understanding?.status==='FAILED'" class="warning" role="alert"><p>模型理解未完成：{{failureText(task)}}。{{task.understanding.model_executed?'已调用模型，但条件接收失败；本次更新未被采用。':'尚无已执行模型的记录。'}}没有自动重试。</p><p v-if="!task.search_count">未执行搜索；这是程序接收问题，不是你没填齐条件。</p><p v-if="task.understanding.failure?.historical">这是对已保存失败的本地诊断；原失败、原回复和用量记录保留，任务未重新执行。</p></div>
   <template v-else-if="task.understanding?.result">
    <p>{{task.understanding.result.summary}} · 来自本次模型理解，原话定位经程序校验。</p>
@@ -19,7 +19,7 @@ const valueLabel=(field:string,value:unknown)=>value===null?'未定':field==='ta
    <details><summary>查看本条原话依据</summary><p v-for="u in task.understanding.result.updates" :key="u.field">{{fieldLabel(u.field)}}：{{valueLabel(u.field,u.value)}} · “{{u.quote}}”<template v-if="position(task,u.field)">（原话位置{{position(task,u.field)!.start}}–{{position(task,u.field)!.end}}）</template></p><p v-if="task.understanding.destination_field">目的区域字段：{{task.understanding.destination_field}}（来自你单独填写的字段，不伪造原话位置）</p></details>
    <p v-if="task.understanding.result.user_needs.length">可选补充：{{task.understanding.result.user_needs.join('；')}}。未提供的条件仍未知。</p>
   </template>
-  <ol v-if="task.agent_rounds?.length"><li v-for="round in task.agent_rounds" :key="round.round"><strong>第{{round.round}}轮 · {{label(round.tool)}}</strong><p>{{round.reason}}</p><p>{{resultLabel(round.status==='DISPATCHED'?'DISPATCHED':round.result?.status||round.status)}}</p><details v-if="round.result?.reason"><summary>查看该步停止记录</summary><p>{{round.result.reason}}</p></details><p v-if="round.tool==='CACHED_BODY' && round.result?.accepted!==undefined">本次新增资料：{{round.result.accepted}}；本次审核采信（含重复）：{{round.result.reviewed||0}}；当前可用：{{round.result.available||0}}，其中此前已有：{{round.result.reused||0}}。不代表现实已核实。</p><p v-else-if="round.result?.accepted!==undefined">本轮合格结果：{{round.result.accepted}}；保留来源条件，不代表现实已核实。</p></li></ol>
+  <ol v-if="task.agent_rounds?.length"><li v-for="round in task.agent_rounds" :key="round.round"><strong>第{{round.round}}轮 · {{label(round.tool)}}</strong><p>{{round.reason}}</p><p>{{round.status==='DISPATCHED'?(connectionLost?'连接中断，本步骤的完成状态暂无法确认':!['QUEUED','RUNNING'].includes(task.status)?'本步骤未完成，任务已停止；原记录保留':resultLabel('DISPATCHED')):resultLabel(round.result?.status||round.status)}}</p><details v-if="round.result?.reason"><summary>查看该步停止记录</summary><p>{{round.result.reason}}</p></details><p v-if="round.tool==='CACHED_BODY' && round.result?.accepted!==undefined">本次新增资料：{{round.result.accepted}}；本次审核采信（含重复）：{{round.result.reviewed||0}}；当前可用：{{round.result.available||0}}，其中此前已有：{{round.result.reused||0}}。不代表现实已核实。</p><p v-else-if="round.result?.accepted!==undefined">本轮合格结果：{{round.result.accepted}}；保留来源条件，不代表现实已核实。</p></li></ol>
   <p v-if="task.coverage?.gaps.length">系统待研究：{{task.coverage.gaps.map(g=>g.label).join('；')}}。这些是资料缺口，不是要求你先填完整问卷。</p>
   <p>明确输入“用已缓存正文按当前缺口重新分析”会核验当前旅行最多两篇有效正文，以新有限模型许可重新提取和独立审核；不重新访问来源。相同版本与缺口不会重复分析。已有回复的本地重新校验不属于此操作。</p>
   <p>首次理解、每轮决策、提取审核和建议生成共用本次模型额度；任何失败都不会自动重试。已有可用初稿可先比较和采用。</p>

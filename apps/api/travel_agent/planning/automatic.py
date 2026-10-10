@@ -162,9 +162,14 @@ def invalidate(db: Any, sid: str, reason: str = "CONDITIONS_CHANGED") -> None:
     ).fetchall()
     for r in rows:
         db.connection.execute(
-            "UPDATE planning_tasks SET status='CANCELED',summary_json=?,finished_at=? WHERE task_id=?",
-            (json.dumps(dict(reason=reason)), db.stamp(), r["task_id"]),
+            "UPDATE planning_tasks SET status=?,summary_json=?,finished_at=? WHERE task_id=?",
+            ("INTERRUPTED" if reason in {"SERVER_STOPPED", "TASK_DEADLINE"} else "CANCELED",
+             json.dumps(dict(reason=reason)), db.stamp(), r["task_id"]),
         )
+        if r["grant_id"]:
+            from travel_agent.preview.lifecycle import interrupt_grant
+
+            interrupt_grant(db, r["grant_id"], reason)
         for jid in (r["research_job_id"], r["planning_job_id"]):
             if jid:
                 db.connection.execute(
@@ -191,6 +196,11 @@ def invalidate(db: Any, sid: str, reason: str = "CONDITIONS_CHANGED") -> None:
 
 
 def recover(db: Any) -> None:
+    with db.transaction():
+        _recover(db)
+
+
+def _recover(db: Any) -> None:
     # Boot does not replay a pending dispatch. Operator can create a NEW intent later.
     for r in db.connection.execute(
         "SELECT DISTINCT session_id FROM planning_tasks WHERE status IN ('QUEUED','RUNNING')"
@@ -203,6 +213,18 @@ def recover(db: Any) -> None:
     db.connection.execute(
         "UPDATE planning_tasks SET status='INTERRUPTED' WHERE status='CANCELED' AND json_extract(summary_json,'$.reason')='SERVER_STOPPED'"
     )
+    # Also settle children left by an earlier server version which already
+    # closed the parent grant, without changing its saved result or reason.
+    from travel_agent.preview.lifecycle import interrupt_grant
+
+    for row in db.connection.execute(
+        "SELECT DISTINCT c.continuation_id,coalesce(json_extract(t.summary_json,'$.reason'),'SERVER_STOPPED') AS reason "
+        "FROM research_continuations c LEFT JOIN planning_tasks t ON t.grant_id=c.continuation_id "
+        "WHERE c.finished_at IS NOT NULL AND json_extract(c.gate_json,'$.purpose')='PRIVATE_OPERATION' "
+        "AND (EXISTS (SELECT 1 FROM context_review_runs r WHERE r.continuation_id=c.continuation_id AND r.status IN ('PENDING','RUNNING')) "
+        "OR EXISTS (SELECT 1 FROM extraction_attempts a WHERE a.batch_id=c.continuation_id AND a.status IN ('PENDING','RUNNING')))"
+    ).fetchall():
+        interrupt_grant(db, row["continuation_id"], row["reason"])
 
 
 def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:

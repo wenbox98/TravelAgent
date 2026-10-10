@@ -1,5 +1,7 @@
 # TravelAgent｜私人本地建议型攻略助手
 
+运行中服务断连会明确显示进度未知并保留输入；重启和worker异常退出会收敛未完成审核，保留资料与用量，不自动重放。已用隔离真实进程做故障注入，原服务退出根因仍未确定，见[中断恢复报告](reports/P10-service-interruption-and-recovery.md)。
+
 首次条件接收已改为逐字段类型契约，驾驶布尔兼容仅限有明确原话的极性一致陈述；非法值停止并显示失败字段和阶段，保留模型已执行、HTTP和用量记录。历史失败只读诊断，不自动重试或改写条件。真实全流程验收结果另行记录，不能以类型修复代替攻略质量通过。
 
 当前新提交使用V4：首次模型理解、到达与当地交通区分、有界业务工具循环，并修复默认后续无法研究后生成及同查询只读一篇的限制。同一列表按每篇实际审核后的缺口择读多篇，先预留反馈和生成成本。旧V3许可、失败与采用版不改写。真实质量尚未实测，G1仍NOT PASS；见 [V4契约](docs/architecture/goal-directed-private-planning.md)、[预算与多来源修复](reports/P10-agent-budget-and-multi-source.md) 和[原V3报告](reports/P10-goal-agent-and-intake.md)。

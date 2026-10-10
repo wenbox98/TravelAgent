@@ -151,6 +151,8 @@ class ExtractionRecovery:
             if valid_response and audit_grounding(result.bundle, (content,))["unsupported"]:
                 raise ValueError("SNAPSHOT_GROUNDING_MISMATCH")
             with db.transaction() as con:
+                if con.execute("SELECT status FROM extraction_attempts WHERE attempt_id=?", (attempt_id,)).fetchone()[0] != "RUNNING":
+                    raise ValueError("RESERVATION_INTERRUPTED")
                 if dispatch_guard is not None:
                     dispatch_guard()
                 if not self.store.is_current(run_id, revision):
@@ -171,7 +173,7 @@ class ExtractionRecovery:
         except BaseException as error:
             status = "INTERRUPTED" if isinstance(error, (KeyboardInterrupt, SystemExit, CancelledError)) else "FAILED"
             with db.transaction() as con:
-                con.execute("UPDATE extraction_attempts SET status=?,diagnostic_json=?,finished_at=? WHERE attempt_id=?",
+                con.execute("UPDATE extraction_attempts SET status=?,diagnostic_json=?,finished_at=? WHERE attempt_id=? AND status='RUNNING'",
                             (status, json.dumps(Diagnostic().safe_dict()), db.stamp(), attempt_id))
             if not isinstance(error, Exception):
                 raise

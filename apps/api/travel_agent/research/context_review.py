@@ -550,7 +550,7 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
             if _digest(fresh) != r["input_hash"]:
                 raise ValueError("REVIEW_INPUT_CHANGED")
             con.execute(
-                "UPDATE context_review_runs SET results_json=?,status='COMPLETED',finished_at=? WHERE review_id=?",
+                "UPDATE context_review_runs SET results_json=?,status='COMPLETED',finished_at=? WHERE review_id=? AND status='RUNNING'",
                 (json.dumps(results, ensure_ascii=False), store.db.stamp(), review_id),
             )
         if r["mode"] == "RUNTIME":
@@ -568,6 +568,7 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
                 with store.db.transaction():
                     # Cancellation/revocation and each independent commit share
                     # one transaction; a late sibling cannot outlive its grant.
+                    budget.check_job_active(ctx["attempt"]["research_id"])
                     validate_attempt(store, r["attempt_id"])
                     try:
                         review_candidates(
@@ -597,11 +598,11 @@ def run_review(store: EvidenceStore, provider: LLMProvider, review_id: str) -> d
             # Preserve any earlier transport checkpoint when structural validation fails.
             if isinstance(error, LLMError):
                 con.execute(
-                    "UPDATE context_review_runs SET diagnostic_json=? WHERE review_id=?",
+                    "UPDATE context_review_runs SET diagnostic_json=? WHERE review_id=? AND status='RUNNING'",
                     (json.dumps(diagnostic), review_id),
                 )
             con.execute(
-                "UPDATE context_review_runs SET status='FAILED',finished_at=? WHERE review_id=?",
+                "UPDATE context_review_runs SET status='FAILED',finished_at=? WHERE review_id=? AND status='RUNNING'",
                 (store.db.stamp(), review_id),
             )
         return review_summary(store, review_id)

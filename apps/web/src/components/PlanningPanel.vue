@@ -17,6 +17,9 @@ const data = ref<PlanView | null>(null), form = ref<Draft | null>(null)
 const index = ref<PlanIndex | null>(null)
 const destination = ref(''), requestText = ref(''), kind = ref('CITY'), mapConsent=ref(false)
 const busy = ref(false), error = ref(''), status = ref('')
+const connectionLost = ref(false)
+const connectionMessage = '本机连接已中断，无法确认后台是否仍在运行。这里保留的是最后读取的状态，输入已保留；恢复连接后只读取状态，不会重新派发任务。'
+function connectionFailure(e:unknown){if(e instanceof RequestError&&(['OFFLINE','TIMEOUT','AUTH_REQUIRED','CSRF_DENIED'].includes(e.code)||e.status>=500))connectionLost.value=true}
 const creating = ref(Boolean(readIdea())), validationTrip = ref(false), selectedActivities = ref<string[]>([])
 const pendingTrip=ref('')
 const conditionEditing=ref(false)
@@ -88,8 +91,8 @@ async function load(sid?: string) {
     if (!sid || !index.value) await refreshIndex()
     const selected = pendingMatches(index.value?.current)?index.value!.current!.session_id:pendingSession() || sid || localStorage.getItem('ta-current-trip')
     const next = selected && index.value?.trips.some(t => t.session_id === selected) ? await request<PlanView>('/api/v1/preview/planning/' + selected) : index.value?.current
-    if (ticket === generation) {if(next)apply(next);offerSubmissionRecovery()}
-  } catch(e) { error.value = e instanceof Error ? e.message : '本地读取失败';if(e instanceof RequestError&&['AUTH_REQUIRED','CSRF_DENIED'].includes(e.code))emit('reconnect') }
+    if (ticket === generation) {connectionLost.value=false;error.value='';if(next)apply(next);offerSubmissionRecovery()}
+  } catch(e) { connectionFailure(e);error.value = e instanceof Error ? e.message : '本地读取失败';if(e instanceof RequestError&&['AUTH_REQUIRED','CSRF_DENIED'].includes(e.code))emit('reconnect') }
 }
 async function saveAndSwitch(){const sid=pendingTrip.value;await act('save');if(!edited.value){pendingTrip.value='';await load(sid)}}
 function beginIdea(idea:string,region:string,travelKind:string,allowMap=false){mapConsent.value=allowMap;requestText.value=idea;destination.value=region;kind.value=travelKind;void automatic('start')}
@@ -188,11 +191,18 @@ onMounted(async () => {
   window.addEventListener('beforeunload',protectLeave)
   await load()
   if (disposed) return
+  let ticks=0
   poll = setInterval(async () => {
-    if (!polling && !busy.value && !edited.value && data.value && (['QUEUED','RUNNING'].includes(data.value.answer_job?.status||'') || ['QUEUED','RUNNING'].includes(data.value.automatic_task?.status||'') || (data.value.job && ['QUEUED', 'RUNNING'].includes(data.value.job.status)) || (data.value.research_job && ['QUEUED','RUNNING','WAITING_LOGIN'].includes(data.value.research_job.status)))) {
+    // Continue detecting owner loss while editing or awaiting an uncertain POST.
+    // Recovery only reads local state; it never resubmits a previous intent.
+    if (!polling && (++ticks%3===0 || externalRunning.value || ['QUEUED','RUNNING'].includes(data.value?.job?.status||''))) {
       polling = true
-      const ticket = generation, sid = data.value.session_id
-      try { const next = await request<PlanView>('/api/v1/preview/planning/' + sid); if (ticket === generation && sid === data.value?.session_id&&!edited.value) apply(next) } catch(e) { error.value=e instanceof Error?e.message:'暂时未读到任务进度；任务可能仍在运行，请读取状态，勿重复派发。' }
+      const ticket = generation, sid = data.value?.session_id, baseline=JSON.stringify(data.value?.draft)
+      try {
+        if(sid){const next=await request<PlanView>('/api/v1/preview/planning/'+sid,undefined,undefined,{timeoutMs:5000});if(ticket===generation&&sid===data.value?.session_id&&!busy.value)apply(next,baseline)}
+        else await request('/health',undefined,undefined,{timeoutMs:5000})
+        if(ticket===generation){if(connectionLost.value)error.value='';connectionLost.value=false}
+      } catch(e) { if(ticket===generation){connectionFailure(e);error.value=e instanceof Error?e.message:'暂时未读到任务状态；输入已保留。'} }
       finally { polling = false }
     }
   }, 1000)
@@ -202,16 +212,17 @@ const showSavedGuide=ref(false)
 </script>
 <template>
   <section class="planning-flow">
+    <p v-if="connectionLost" class="warning" role="alert" data-testid="connection-lost">{{connectionMessage}}</p>
     <div class="trip-toolbar"><div><p class="eyebrow">一个想法，逐步成为你的安排</p><h1>{{ data && !creating ? data.destination : '想去哪里走走？' }}</h1></div><button class="quiet" :disabled="busy||conditionEditing" @click="creating = !creating">{{ creating ? '回到当前旅行' : '新建独立旅行' }}</button></div>
     <p v-if="error" class="warning" role="alert">{{ error }} <button class="quiet" :disabled="busy" @click="load(data?.session_id)">读取已保存状态</button></p><p v-if="status" role="status">{{ status }}</p>
     <p v-if="data&&form&&edited" role="status">{{busy?'正在保存本次更改…':'有未保存更改；保存成功前请保留本页。'}}</p>
     <div v-if="pendingTrip" class="card"><p>当前输入仍保留。保存成功后再切换。</p><button :disabled="busy" @click="saveAndSwitch">保存后继续</button><button class="quiet" @click="pendingTrip='';error=''">留在当前旅行</button></div>
-    <TripIntake v-if="creating || !data" :busy="busy" :ready="true" :submitting="submission==='intake'" :feedback="intakeFeedback" :failure="intakeFailure" :unconfirmed="intakeUnconfirmed" :resumable="intakeResumable" @resume="resumeSubmission('intake')" @recover="load(data?.session_id)" @start="beginIdea" @local="beginLocal" />
+    <TripIntake v-if="creating || !data" :busy="busy||connectionLost" :ready="!connectionLost" :submitting="submission==='intake'" :feedback="intakeFeedback" :failure="intakeFailure" :unconfirmed="intakeUnconfirmed" :resumable="intakeResumable" @resume="resumeSubmission('intake')" @recover="load(data?.session_id)" @start="beginIdea" @local="beginLocal" />
     <details class="card"><summary>历史旅行与合成场景</summary><label>恢复本次旅行<select :disabled="conditionEditing||busy" :value="data?.session_id || ''" @change="load(($event.target as HTMLSelectElement).value)"><option value="">请选择</option><option v-for="t in index?.trips" :key="t.session_id" :value="t.session_id">{{ t.destination }} · {{ t.demo ? '合成测试' : '本机私人草稿' }}</option></select></label><p>以下仅用虚构活动，测试输入不作为你的真实旅行偏好。</p><div class="actions"><button class="quiet" :disabled="busy" @click="create('CITY')">成都城市公交 · 合成</button><button class="quiet" :disabled="busy" @click="create('REGIONAL')">区域交通未定 · 合成</button><button class="quiet" :disabled="busy" @click="create('OTHER_CITY')">苏州两日 · 合成</button><button class="quiet" :disabled="busy" @click="create('GUIDE_MULTI_DAY')">多日食宿预算 · 合成</button></div></details>
     <template v-if="data && form && !creating">
       <TripConditions :plan="data" :busy="busy||externalRunning||edited" @editing="conditionEditing=$event" @save="extra=>act('save',extra)" />
       <fieldset class="condition-guard" :disabled="conditionEditing">
-      <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy" :blocked-reason="conditionEditing?'请先保存或取消条件草稿，再发送；消息已保留。':edited?'请先保存当前编辑，再发送；输入已保留。':''" :submitting="submission==='conversation'" :feedback="talkFeedback" :failure="talkFailure" :unconfirmed="talkUnconfirmed||intakeUnconfirmed" :resumable="talkResumable||intakeResumable" :acknowledgment="messageAcknowledgment" @resume="resumeSubmission('conversation')" @recover="load(data.session_id)" @run="automatic" @talk="talk" @browse="showSavedGuide=true" @export-reference="exportReference" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
+      <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy||connectionLost" :connection-lost="connectionLost" :blocked-reason="conditionEditing?'请先保存或取消条件草稿，再发送；消息已保留。':edited?'请先保存当前编辑，再发送；输入已保留。':''" :submitting="submission==='conversation'" :feedback="talkFeedback" :failure="talkFailure" :unconfirmed="talkUnconfirmed||intakeUnconfirmed" :resumable="talkResumable||intakeResumable" :acknowledgment="messageAcknowledgment" @resume="resumeSubmission('conversation')" @recover="load(data.session_id)" @run="automatic" @talk="talk" @browse="showSavedGuide=true" @export-reference="exportReference" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
       <CriticalMap v-if="!data.demo&&data.critical_map" :plan="data" :busy="busy||edited||externalRunning" @updated="apply" @mode="mapMode" />
       <details v-if="data.guide_view && data.draft.activities.length" class="card" :open="showSavedGuide||data.proposal_preview_active"><summary>已保存攻略、修改与导出</summary><AdvisoryGuide :plan="data" :busy="busy" @action="act" /></details>
       <details class="card"><summary>高级：本地选材、手动操作与详细条件</summary>

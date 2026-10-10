@@ -35,8 +35,8 @@ export async function readIndex(): Promise<Index> {
   if(!result||typeof result.csrf_token!=='string'||typeof result.product_flow_available!=='boolean')throw new RequestError('本机服务响应不完整；输入已保留，请重新连接工作台。','INVALID_RESPONSE')
   csrf = result.csrf_token; return result
 }
-export async function request<T>(url: string, body?: unknown, key?: string): Promise<T> {
-  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),15000)
+export async function request<T>(url: string, body?: unknown, key?: string, options?:{timeoutMs:number}): Promise<T> {
+  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),options?.timeoutMs??15000)
   try {
   const response = await fetch(url, {credentials: 'same-origin', cache: 'no-store', signal:controller.signal,
     ...(body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json',
