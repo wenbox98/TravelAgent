@@ -123,6 +123,26 @@ def test_narrow_unverified_disclaimer_is_not_a_fact_assertion(normal, text):
 
 
 @pytest.mark.parametrize("text", [
+    "仅为预留额度，不是报价或已核实票价",
+    "金额仅是预算，并非当前价格和已核实的费用",
+    "预算不构成实时报价及已核实价格",
+])
+def test_coordinated_negative_price_object_preserves_other_assertion_guards(normal, text):
+    s, _ = normal
+    v = synthetic(s)
+    _, state = s.load(v["session_id"])
+    data = payload(s.db, s.scope, v["session_id"], state["planning"])
+    raw = proposal(data)
+    raw["proposals"][0]["budget_lines"] = [
+        line("ticket", "ACTIVITY", "PER_PERSON", 100, 200, conditions=[text]).model_dump()
+    ]
+    assert validate(raw, data)["accepted_count"] == 1
+    for assertion in ("，但票价已核实", "，保证可订", "，公交20分钟即可到达", "，门票100元"):
+        raw["proposals"][0]["budget_lines"][0]["conditions"] = [text + assertion]
+        assert validate(raw, data)["accepted_count"] == 0
+
+
+@pytest.mark.parametrize("text", [
     "来源中的自驾环线只作历史参考，本方案不假设自驾或租车。",
     "把来源的7天自驾环线当作历史参考，重排为5天不自驾的对照方案。",
     "来源中的自驾条件只作历史参考，非自驾衔接方式与价格未知。",
