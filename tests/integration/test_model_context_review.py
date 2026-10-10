@@ -89,6 +89,30 @@ def test_unknown_output_operations_rejected():
         validate_structured({"reviews": [], "shell": "run a command"}, REVIEW_SCHEMA)
 
 
+def test_guide_play_clause_retains_context_and_cannot_approve_separate_price(tmp_path, clock):
+    body = "建议在合成青谷公园散步赏花，门票价格88元，未确认开放情况。"
+    with Database(tmp_path / "clauses.sqlite3", clock=clock) as db:
+        store, _, out = execute(db, clock, lambda s: [
+            choice(s, 0, (), "EXPERIENCE", 0, "GUIDE_SUGGESTION"),
+            choice(s, 0, (), "PRICE", 1, "GUIDE_SUGGESTION")], body)
+        data, ctx = build_input(store, out["attempt_id"], "owner", {})
+        assert "".join(s["text"] for s in data["spans"]) == body
+        p = proposal(data)
+        p["reference_scope"] = "GUIDE_SUGGESTION"
+        p["context_span_ids"] = [data["candidates"][0]["statement_span_id"]]
+        assert check_decision(p, data, ctx)["action"] == "ACCEPT"
+        p = proposal(data, 1)
+        p["reference_scope"] = "GUIDE_SUGGESTION"
+        p["context_span_ids"] = [data["candidates"][1]["statement_span_id"]]
+        with pytest.raises(ValueError, match="UNVERIFIED_IMPORTANT_FACT"):
+            check_decision(p, data, ctx)
+        p = proposal(data)
+        p["reference_scope"] = "AUTHOR_RECORDED_TRIP"
+        p["context_span_ids"] = [data["candidates"][0]["statement_span_id"]]
+        with pytest.raises(ValueError, match="ROLE_MISMATCH"):
+            check_decision(p, data, ctx)
+
+
 @pytest.mark.parametrize(
     "invitation",
     [

@@ -27,11 +27,19 @@ ACTIVE = {"QUEUED", "RUNNING", "WAITING_CONFIGURATION"}
 def material_pool(items: list[dict[str, Any]], library: Any, source_limit: int) -> list[dict[str, Any]]:
     """Keep locked choices, then distinct named activities across supporting sources."""
     from .materials import activity_subject
+    from .activity_content import content_references
+    from travel_agent.knowledge.planning import card_references
 
     selected: list[dict[str, Any]] = []
     names: set[str] = set()
     sources: set[str] = set()
-    pending = list(items)
+    cards = {r["card_id"]: library.get(r) for a in items for r in a["knowledge_refs"]}
+    refs = card_references([c for c in cards.values() if c.get("kind") == "SOURCE_REFERENCE"])
+    # A route-only card from an earlier query must not take a duplicate name's
+    # slot before a later independently reviewed play reference can enter.
+    pending = sorted(items, key=lambda a: (
+        not (a.get("locked") or a.get("locked_start")), not bool(content_references(a, refs)),
+    ))
     while pending:
         represented: set[str] = set()
         rest = []

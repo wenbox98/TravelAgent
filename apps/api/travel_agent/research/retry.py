@@ -133,7 +133,7 @@ def run_extra_worker(store: EvidenceStore, provider: OpenAICompatibleProvider, a
     reference = auth["authorization_id"] in REFERENCE_AUTHORIZATIONS.values()
     if config != _config(provider, config["total_deadline_seconds"], reference=reference):
         raise ValueError("EXTRA_WORKER_CONFIG_MISMATCH")
-    ExtractionRecovery(store, EvidenceExtractor(provider, protocol_version=3 if reference else 2)).run_reserved(attempt_id,
+    ExtractionRecovery(store, EvidenceExtractor(provider, protocol_version=3 if reference else 2, reference_version=1)).run_reserved(attempt_id,
         research_gaps=("ROUTES", "DURATION", "TRANSPORT") if reference else ())
 
 

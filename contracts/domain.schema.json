@@ -3473,6 +3473,28 @@
     "ReferenceSelection": {
       "type": "object",
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "reference_version": {
+              "const": 1
+            },
+            "prompt_version": {
+              "const": "reference-selection-v1"
+            }
+          }
+        },
+        {
+          "properties": {
+            "reference_version": {
+              "const": 2
+            },
+            "prompt_version": {
+              "const": "reference-selection-v2"
+            }
+          }
+        }
+      ],
       "required": [
         "source_id",
         "content_id",
@@ -3513,10 +3535,16 @@
           "const": 1
         },
         "reference_version": {
-          "const": 1
+          "enum": [
+            1,
+            2
+          ]
         },
         "prompt_version": {
-          "const": "reference-selection-v1"
+          "enum": [
+            "reference-selection-v1",
+            "reference-selection-v2"
+          ]
         },
         "statement": {
           "$ref": "#/$defs/ReferenceSpan"
@@ -3823,6 +3851,13 @@
     "PreviewEvidence": {
       "additionalProperties": false,
       "properties": {
+        "clause_context": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Clause Context",
+          "type": "array"
+        },
         "route_association": {
           "anyOf": [
             {

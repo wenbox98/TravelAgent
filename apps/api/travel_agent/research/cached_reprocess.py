@@ -14,7 +14,8 @@ BINDING_FIELDS = ("content_id", "source_id", "content_hash", "normalization_vers
                   "policy_id", "policy_version", "content_completeness")
 GAP_TERMS = {
     "LODGING": r"住宿|落脚|住哪|酒店|民宿|搬行李",
-    "PLAY": r"玩法|体验|看点|游玩", "TRANSPORT": r"交通|接驳|公交|地铁",
+    "PLAY": r"玩法|体验|看点|游玩", "PLAY_DETAIL": r"玩法|体验|看点|游玩|散步|欣赏|参观|观赏|徒步|品尝",
+    "TRANSPORT": r"交通|接驳|公交|地铁",
     "DURATION": r"停留|时长|天数", "ROUTES": r"路线|顺序|区域组合",
     "SEASON": r"季节|时令|月份",
 }
@@ -82,7 +83,15 @@ def prepare(db: Any, scope: str, sid: str, p: dict[str, Any], text: str,
         if not external_allowed(db, content):
             denied = True
             continue
-        score = sum(bool(re.search(GAP_TERMS[key], content["normalized_text"])) for key in keys if key in GAP_TERMS)
+        body = content["normalized_text"]
+        score = 10 * sum(bool(re.search(GAP_TERMS[key], body)) for key in keys if key in GAP_TERMS)
+        if {"PLAY", "PLAY_DETAIL"} & set(keys):
+            # Spend the two-snapshot allowance on concrete, relevant play content,
+            # not just the newest note containing the word 游玩. This ranks text;
+            # it neither approves claims nor expands the trip's cache bindings.
+            names = {a["name"] for a in p["draft"]["activities"] if len(a["name"]) >= 2}
+            score += 3 * sum(name in body for name in names)
+            score += len(set(re.findall(r"散步|参观|观赏|徒步|品尝|看展|漫步|拍照|登顶|游览|欣赏|体验", body)))
         candidates.append((score, content["retrieved_at"], binding(content)))
     if not candidates:
         if denied:
@@ -181,7 +190,8 @@ def analyze(store: EvidenceStore, job: Any, data: dict[str, Any], recovery: Any,
             if out["status"] not in {"PENDING_REVIEW", "NO_ACCEPTED_EVIDENCE"}:
                 raise ValueError("CACHE_BODY_EXTRACTION_NOT_COMPLETED")
             active()
-            after(out)
+            if out["status"] == "PENDING_REVIEW":
+                after(out)
             active()
         except Exception as exc:
             active()  # cancellation/obsolete generation must still escape

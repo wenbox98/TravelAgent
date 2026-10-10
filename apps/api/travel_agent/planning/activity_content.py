@@ -9,7 +9,8 @@ from .scoped_context import REVIEWED, same_document
 def explicit_subject(name: str, text: str) -> bool:
     if re.search(r"→|➜|➡|➝|➠|->", text):
         return False
-    if len(re.sub(r"[\W\d_]", "", text.replace(name, ""))) < 8:
+    short_action = bool(re.search(r"(?:在|沿|到|去)" + re.escape(name) + r"(?:散步|看花|观鸟|参观|游览|欣赏|观赏|拍照|体验|看展|徒步)", text))
+    if not short_action and len(re.sub(r"[\W\d_]", "", text.replace(name, ""))) < 8:
         return False
     from .materials import natural_names
 
@@ -17,7 +18,7 @@ def explicit_subject(name: str, text: str) -> bool:
     if named - {name}:
         return False
     return bool(
-        named == {name}
+        named == {name} or short_action
         or re.match(
             r"^(?:在|我(?:们)?(?:计划|想)?在)"
             + re.escape(name)
@@ -28,6 +29,24 @@ def explicit_subject(name: str, text: str) -> bool:
             r"^[\s📍]*" + re.escape(name) + r"(?:[：:]|适合|可以|不适合|不推荐|需要|的体验)", text
         )
     )
+
+
+def reviewed_clause_subject(name: str, row: dict[str, Any]) -> bool:
+    """A reviewed same-parent subject premise can qualify a separate play clause.
+
+    No day/header or same-document inference: clause_context is projected only
+    from exact v2 selected premises after snapshot audit and independent review.
+    """
+    if explicit_subject(name, row["text"]):
+        return True
+    if not row.get("clause_context") or not re.search(
+        r"散步|观赏|欣赏|参观|徒步|品尝|看展|漫步|拍照|体验|观鸟|看花", row["text"]
+    ) or re.search(r"→|➜|➡|->", row["text"]):
+        return False
+    subject = re.compile(r"(?:前往|到|去|在|沿)(?:免费的)?" + re.escape(name)
+        + r"(?:风景区|景区)?[，。；\s]*$")
+    return any(subject.search(c) and not re.search(r"不|没|未|如果|假设|→|➡|->", c)
+               for c in row["clause_context"])
 
 
 def content_references(
@@ -46,8 +65,8 @@ def content_references(
         for r in refs
         if r.get("topic") == "EXPERIENCE"
         and r.get("review_status") in REVIEWED
-        and explicit_subject(activity["name"], r["text"])
-        and not any(name in r["text"] for name in other_subjects)
+        and reviewed_clause_subject(activity["name"], r)
+        and not any(name in "\n".join([r["text"], *r.get("clause_context", [])]) for name in other_subjects)
         and any(same_document(b, r) for b in bound)
     ]
 

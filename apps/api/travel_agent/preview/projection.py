@@ -134,7 +134,10 @@ def project(
     def statement(row: dict[str, Any]) -> dict[str, Any]:
         bundle, claim, meta = by_id[row["claim_id"]]
         reference = meta.get("reference_selection") or {}
+        from travel_agent.research.references import clause_context
+        context = clause_context(reference, meta["applicable_conditions"])
         return {
+            **({"clause_context": [safe_text(c) for c in context]} if context else {}),
             "claim_id": claim["claim_id"],
             "source_id": bundle["source_id"],
             "source_title": safe_text(bundle["source_title"] or "未提供标题"),

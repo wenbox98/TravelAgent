@@ -17,6 +17,30 @@ from test_workbench_pipeline import dispatches
 from automatic_fakes import config
 
 
+def test_play_request_matches_actual_play_detail_gap_without_unrelated_reanalysis():
+    from travel_agent.research.cached_reprocess import gap_keys
+    gaps = [dict(key="PLAY_DETAIL"), dict(key="LODGING"), dict(key="TRANSPORT")]
+    assert gap_keys("用已缓存正文按当前玩法缺口重新分析", gaps) == ("PLAY_DETAIL",)
+
+
+def test_play_reanalysis_ranks_concrete_bound_content_before_newer_generic_note(monkeypatch):
+    from types import SimpleNamespace
+    import travel_agent.research.cached_reprocess as module
+    def content(identifier, text, time):
+        return dict(content_id=identifier, source_id="synthetic:" + identifier, content_hash="a" * 64,
+            normalization_version=1, policy_id="authored", policy_version=1,
+            content_completeness="FULL_TEXT", normalized_text=text, retrieved_at=time)
+    rows = [content("new-generic", "游玩攻略很好看。", "2026-10-10T12:00:00"),
+        content("play-a", "合成青谷公园可以散步、观赏，合成南馆可以参观、看展。", "2026-10-10T10:00:00"),
+        content("play-b", "合成南馆可以欣赏、体验展陈。", "2026-10-10T09:00:00")]
+    monkeypatch.setattr("travel_agent.planning.workbench.local_contents", lambda *args: rows)
+    monkeypatch.setattr(module, "external_allowed", lambda *args: True)
+    db = SimpleNamespace(connection=SimpleNamespace(execute=lambda *args: []))
+    p = dict(draft=dict(activities=[dict(name="合成青谷公园"), dict(name="合成南馆")]))
+    result = prepare(db, "owner", "authored-session", p, "用已缓存正文按当前玩法缺口重新分析", [dict(key="PLAY_DETAIL")])
+    assert [s["content_id"] for s in result["snapshots"]] == ["play-a", "play-b"]
+
+
 @pytest.mark.parametrize("text,expected", [
     ("用已缓存正文按当前住宿缺口重新分析", True),
     ("请使用已缓存的正文按当前缺口重新提取。本次最多6次模型请求。", True),
@@ -202,7 +226,8 @@ def test_cancel_before_model_late_result_cannot_commit_or_continue(cached_trip, 
     assert len(wire.sent) == (2 if stage == "select_evidence_references_v1" else 3)
 
 
-def test_second_body_failure_keeps_independent_first_body_without_retry(cached_trip):
+@pytest.mark.parametrize("defect", ["envelope", "all_invalid_items"])
+def test_second_body_failure_keeps_independent_first_body_without_retry(cached_trip, defect):
     service, view, wire, oracle = cached_trip
     created = submit(service, view, "用已缓存正文按当前住宿缺口重新分析")
     wire.sent.clear()
@@ -215,7 +240,7 @@ def test_second_body_failure_keeps_independent_first_body_without_retry(cached_t
         if task == "select_evidence_references_v1":
             extraction_count += 1
             if extraction_count == 2:
-                return {"claims": [{"invalid": "synthetic failure"}]}
+                return {"claims": "invalid envelope"} if defect == "envelope" else {"claims": [{"invalid": "synthetic failure"}]}
         return oracle.structured(task, data, {})
 
     wire.respond = respond
@@ -225,8 +250,13 @@ def test_second_body_failure_keeps_independent_first_body_without_retry(cached_t
         extract_dispatch=extract, review_dispatch=review)
     final = service.plans.get(view["session_id"])
     assert service.db.connection.execute("SELECT count(*) FROM claims").fetchone()[0] == before + 1
-    assert extraction_count == 2 and len(wire.sent) == 4
-    assert final["automatic_task"]["reason"] == "CACHE_BODY_EXTRACTION_NOT_COMPLETED"
+    assert extraction_count == 2
+    if defect == "envelope":
+        assert len(wire.sent) == 4
+        assert final["automatic_task"]["reason"] == "CACHE_BODY_EXTRACTION_NOT_COMPLETED"
+    else:
+        assert not final["automatic_task"]["reason"].startswith("CACHE_BODY_")
+        assert final["automatic_task"]["agent_rounds"][0]["result"]["reason"] is None
     assert final["automatic_task"]["agent_rounds"][0]["result"]["accepted"] > 0
 
 

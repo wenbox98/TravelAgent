@@ -40,6 +40,7 @@ class PreviewMutation(StrictModel):
 
 
 class PreviewEvidence(StrictModel):
+    clause_context: list[str] = Field(default_factory=list)
     route_association: dict[str, Any] | None = None
     source_version: str = ""
     claim_id: str

@@ -184,19 +184,22 @@ def build_claim(row: dict[str, Any], grounded: GroundingResult, canonical: Canon
     return claim, metadata
 
 
-REFERENCE_PROMPT_VERSION = "reference-selection-v1.2"
+REFERENCE_PROMPT_VERSION = "reference-selection-v2.0"
 
 
 class EvidenceExtractor:
     def __init__(
         self, provider: LLMProvider | None = None, *, clock: Callable[[], datetime] | None = None,
-        protocol_version: int = 3,
+        protocol_version: int = 3, reference_version: int = 2,
     ) -> None:
         self.provider = provider
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         if protocol_version not in {2, 3}:
             raise ValueError("UNKNOWN_EXTRACTION_PROTOCOL")
         self.protocol_version = protocol_version
+        if reference_version not in {1, 2}:
+            raise ValueError("REFERENCE_VERSION_UNSUPPORTED")
+        self.reference_version = reference_version
 
     def extract(
         self, *, source_id: str, source_title: str | None, body: str | None,
@@ -286,7 +289,8 @@ class EvidenceExtractor:
                     schema, task = EXTRACTION_SCHEMA, "extract_evidence"
                     if self.protocol_version == 3:
                         snapshot_hash = sha256(json.dumps([body, dom_body], ensure_ascii=False).encode()).hexdigest()
-                        directory = catalog(view, source_id, content_id or "ephemeral-" + snapshot_hash, snapshot_hash)
+                        directory = catalog(view, source_id, content_id or "ephemeral-" + snapshot_hash,
+                                            snapshot_hash, version=self.reference_version)
                         schema, task = selection_schema(_TOPICS), "select_evidence_references_v1"
                         model_input = {"is_synthetic": source_type == "SYNTHETIC", "spans": payload(directory, view),
                             "completeness": completeness, "research_gaps": list(research_gaps),

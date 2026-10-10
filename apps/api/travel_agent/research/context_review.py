@@ -200,7 +200,13 @@ def build_input(
     view = canonicalize(
         content["raw_text"], content["dom_text"], completeness=content["content_completeness"]
     )
-    directory = catalog(view, content["source_id"], content["content_id"], content["content_hash"])
+    versions = {json.loads(r[0])["reference_selection"]["reference_version"] for r in store.db.connection.execute(
+        "SELECT candidate_json FROM extraction_candidates WHERE attempt_id=? AND json_extract(locator_json,'$.passed')=1",
+        (attempt_id,),
+    )}
+    if len(versions) != 1:
+        raise ValueError("REVIEW_REFERENCE_VERSION_MISMATCH")
+    directory = catalog(view, content["source_id"], content["content_id"], content["content_hash"], version=versions.pop())
     candidates, raw = [], {}
     for r in store.db.connection.execute(
         "SELECT candidate_index,candidate_json,locator_json FROM extraction_candidates "

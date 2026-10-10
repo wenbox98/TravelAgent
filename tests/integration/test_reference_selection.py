@@ -40,10 +40,11 @@ def choice(spans, block=1, conditions=(0,), topic="ROUTE", occurrence=0, kind="A
             "proposed_reference_kind": kind}
 
 
-def execute(db, clock, select, body=BODY):
+def execute(db, clock, select, body=BODY, reference_version=2):
     store, _, _, kwargs = prepare(db, clock, [], body=body)
     provider = ReferenceProvider(select)
-    outcome = ExtractionRecovery(store, EvidenceExtractor(provider, clock=clock, protocol_version=3)).execute(**kwargs)
+    outcome = ExtractionRecovery(store, EvidenceExtractor(provider, clock=clock, protocol_version=3,
+        reference_version=reference_version)).execute(**kwargs)
     return store, provider, outcome
 
 
@@ -71,6 +72,64 @@ def test_catalog_exact_positions_filtering_and_long_context():
     oversized=canonicalize("\n".join("句"*100 for _ in range(80)))
     sent=payload(catalog(oversized,"s","c","b"*64),oversized)
     assert sum(len(s["text"]) for s in sent)==6000
+
+
+def test_clause_catalog_preserves_legacy_ids_full_context_and_exact_text():
+    body = "建议在合成青谷公园散步赏花，门票价格为88元，未确认开放情况。"
+    view = canonicalize(body)
+    old = catalog(view, "synthetic:clauses", "content-clauses", "a" * 64, version=1)
+    new = catalog(view, "synthetic:clauses", "content-clauses", "a" * 64)
+    assert len(old["spans"]) == 1 and len(new["spans"]) == 3
+    assert "".join(s["text"] for s in payload(new, view)) == body
+    for directory in (old, new):
+        sent = payload(directory, view)
+        row = materialize(dict(topic="EXPERIENCE", statement_span_id=sent[0]["span_id"],
+            condition_span_ids=[], proposed_reference_kind="GUIDE_SUGGESTION"), directory, view)
+        validate_reference(row, view, "synthetic:clauses")
+        from travel_agent.domain.models import validator
+        validator("ReferenceSelection").validate(row["reference_selection"])
+    assert all(s["parent_start"] == 0 and s["parent_end"] == len(body)
+               and s["context_required"] for s in new["spans"].values())
+    bad = deepcopy(row)
+    bad["reference_selection"]["reference_version"] = 1
+    with pytest.raises(ValueError):
+        validate_reference(bad, view, "synthetic:clauses")
+
+
+def test_saved_v1_snapshot_still_builds_independent_review_and_audits(clock):
+    with Database(Path(':memory:'), clock=clock) as db:
+        store, _, out = execute(db, clock, lambda s: [choice(s)], reference_version=1)
+        from travel_agent.research.context_review import build_input
+        data, ctx = build_input(store, out["attempt_id"], "owner", {})
+        assert ctx["directory"]["binding"]["reference_version"] == 1
+        review_candidates(store, attempt_id=out["attempt_id"], account_scope="owner", decisions={
+            0: accept(reference_scope="AUTHOR_PROPOSED_PLAN", dependency_resolution="INDEPENDENT")})
+        bundle = store.lookup("partial", "合成青谷", "owner")[0]
+        assert audit_grounding(bundle, store.contents.load(bundle["source_id"], "owner"))["unsupported"] == 0
+        assert data["candidates"]
+
+
+def test_clause_subject_projection_excludes_other_paragraph_and_ambiguous_lengths():
+    from travel_agent.research.references import clause_context
+    body = "下午去合成青谷公园，沿湖散步观赏林间花草。\n另一天去合成南馆，参观展览。"
+    view = canonicalize(body)
+    directory = catalog(view, "synthetic:context", "context-body", "a" * 64)
+    sent = payload(directory, view)
+    row = materialize(dict(topic="EXPERIENCE", statement_span_id=sent[1]["span_id"],
+        condition_span_ids=[sent[0]["span_id"], sent[2]["span_id"]],
+        proposed_reference_kind="GUIDE_SUGGESTION"), directory, view)
+    conditions = [c["text"] for c in row["applicable_conditions"]]
+    assert clause_context(row["reference_selection"], conditions) == [sent[0]["text"]]
+    assert clause_context(row["reference_selection"], conditions + ["甲" * len(conditions[0])]) == []
+
+
+def test_only_reviewed_same_parent_subject_is_used_for_play_not_day_or_route():
+    from travel_agent.planning.activity_content import reviewed_clause_subject
+    row = dict(text="沿湖散步观赏林间花草。", clause_context=["下午去合成青谷公园，"])
+    assert reviewed_clause_subject("合成青谷公园", row)
+    for context in [[], ["Day1 合成青谷公园→合成南馆"], ["不去合成青谷公园，"], ["如果去合成青谷公园，"]]:
+        assert not reviewed_clause_subject("合成青谷公园", dict(row, clause_context=context))
+    assert reviewed_clause_subject("合成青谷公园", dict(text="15点沿合成青谷公园散步，"))
 
 
 def test_program_union_second_occurrence_persistence_and_zero_access_recovery(tmp_path,clock):

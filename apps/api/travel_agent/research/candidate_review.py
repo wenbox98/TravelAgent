@@ -112,7 +112,8 @@ def review_candidates(store: EvidenceStore, *, attempt_id: str, account_scope: s
                         raise ValueError("DURATION_SCOPE_REVIEW_REQUIRED")
                     if decision.get("context_conditions"):
                         raise ValueError("REFERENCE_REVIEW_REQUIRES_SPAN_IDS")
-                    directory = catalog(view, content["source_id"], content["content_id"], content["content_hash"])
+                    directory = catalog(view, content["source_id"], content["content_id"], content["content_hash"],
+                                        version=reference["reference_version"])
                     condition_ids = [s["span_id"] for s in reference["conditions"]]
                     condition_ids += decision.get("context_span_ids", [])
                     association = decision.get("route_association")

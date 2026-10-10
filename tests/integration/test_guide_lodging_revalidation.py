@@ -18,6 +18,19 @@ from uuid import uuid4
 normal = normal_fixture
 
 
+@pytest.mark.parametrize("text,name", [
+    ("住宿：优先住合成青谷市区，搬行李较方便。", "合成青谷市区"),
+    ("住宿：建议住在合成木鱼镇，按个人偏好选择。", "合成木鱼镇"),
+    ("推荐住合成南溪村，环境取舍见正文。", "合成南溪村"),
+])
+def test_lodging_area_is_exact_location_without_advice_prefix(text, name):
+    from travel_agent.planning.lodging import researched_areas
+    row = dict(claim_id="authored-area", text=text, conditions=[], reference_kind="GUIDE_SUGGESTION", source_id="synthetic:area")
+    areas = researched_areas([row])
+    assert [a["name"] for a in areas] == [name]
+    assert areas[0]["references"] == [row]
+
+
 def test_reviewed_area_advice_keeps_role_conditions_and_current_citation_boundary():
     from travel_agent.planning.lodging import researched_areas
     row = dict(claim_id="authored-lodging", text="去年住在合成青谷老城片区，前往展馆较方便。", conditions=["去年秋季自驾"], reference_kind="AUTHOR_RECORDED_TRIP", source_id="synthetic:area")

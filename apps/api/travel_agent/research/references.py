@@ -8,23 +8,31 @@ from typing import Any
 from .canonical import CanonicalBody
 from .model_input import outbound_blocks
 
-REFERENCE_VERSION = 1
+REFERENCE_VERSION = 2
 EXTRACTION_VERSION = 3
-PROMPT_VERSION = "reference-selection-v1"
+PROMPT_VERSION = "reference-selection-v2"
 REFERENCE_KINDS = ("AUTHOR_RECORDED_TRIP", "AUTHOR_PROPOSED_PLAN", "GUIDE_SUGGESTION", "UNKNOWN")
 
 
-def catalog(view: CanonicalBody, source_id: str, content_id: str, content_hash: str) -> dict[str, Any]:
+def catalog(view: CanonicalBody, source_id: str, content_id: str, content_hash: str,
+            *, version: int = REFERENCE_VERSION) -> dict[str, Any]:
     """Filter whole blocks first; transmit each text character once, never a hidden parent."""
+    if version not in {1, 2}:
+        raise ValueError("REFERENCE_VERSION_UNSUPPORTED")
     binding = {"source_id": source_id, "content_id": content_id, "content_hash": content_hash,
                "normalization_version": 1, "canonical_hash": sha256(view.text.encode()).hexdigest(),
-               "reference_version": REFERENCE_VERSION, "prompt_version": PROMPT_VERSION}
+               "reference_version": version, "prompt_version": f"reference-selection-v{version}"}
     prefix = sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest()[:20]
     spans = {}
     for block in outbound_blocks(view.blocks):
         # Sentence boundaries retain punctuation. Long sentences are explicitly split,
         # with parent coordinates and mandatory context review, not silently truncated.
-        for sentence in re.finditer(r"[^。！？!?；;]+[。！？!?；;]*|[。！？!?；;]+", block.text):
+        # v2 exposes exact clauses so a price and a play suggestion can be reviewed
+        # separately. Every character is still sent once with the complete parent;
+        # no redaction or rewriting. v1 remains reproducible for saved references.
+        boundary_pattern = (r"[^。！？!?；;，,]+[。！？!?；;，,]*|[。！？!?；;，,]+"
+                            if version == 2 else r"[^。！？!?；;]+[。！？!?；;]*|[。！？!?；;]+")
+        for sentence in re.finditer(boundary_pattern, block.text):
             cursor, stop = sentence.start(), sentence.end()
             while cursor < stop:
                 end = min(cursor + 120, stop)
@@ -54,6 +62,28 @@ def payload(directory: dict[str, Any], view: CanonicalBody) -> list[dict[str, An
             for s in directory["spans"].values()]
 
 
+def clause_context(reference: dict[str, Any], conditions: list[str]) -> list[str]:
+    """Project already audited exact premises in the statement's parent only.
+
+    Persisted conditions are a set, so reconstruct a span/text pair only where its
+    character length uniquely identifies both. Ambiguity gives no subject link.
+    This never reads another paragraph or changes an independent review.
+    """
+    if reference.get("reference_version") != 2:
+        return []
+    statement = reference["statement"]
+    spans = reference["conditions"]
+    result = []
+    for span in spans:
+        size = span["end"] - span["start"]
+        texts = [c for c in conditions if len(c) == size]
+        matching = [s for s in spans if s["end"] - s["start"] == size]
+        if (len(texts) == len(matching) == 1
+            and all(span[k] == statement[k] for k in ("parent_start", "parent_end"))):
+            result.append((span["start"], texts[0]))
+    return [text for _, text in sorted(result)]
+
+
 def materialize(selection: dict[str, Any], directory: dict[str, Any], view: CanonicalBody) -> dict[str, Any]:
     ids = [selection["statement_span_id"], *selection["condition_span_ids"]]
     if any(identifier not in directory["spans"] for identifier in ids):
@@ -78,7 +108,7 @@ def materialize(selection: dict[str, Any], directory: dict[str, Any], view: Cano
 
 def validate_reference(row: dict[str, Any], view: CanonicalBody, source_id: str) -> None:
     ref = row["reference_selection"]
-    directory = catalog(view, source_id, ref["content_id"], ref["content_hash"])
+    directory = catalog(view, source_id, ref["content_id"], ref["content_hash"], version=ref["reference_version"])
     selected = {"topic": row["topic"], "statement_span_id": ref["statement"]["span_id"],
         "condition_span_ids": [s["span_id"] for s in ref["conditions"]],
         "proposed_reference_kind": ref["proposed_reference_kind"]}

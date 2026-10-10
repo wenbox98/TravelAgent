@@ -134,7 +134,7 @@ def prepare(
                     from travel_agent.planning.scoped_context import anchor
 
                     c["scoped_references"] = [
-                        {
+                        dict({
                             k: r[k]
                             for k in (
                                 "claim_id",
@@ -148,11 +148,11 @@ def prepare(
                                 "review_status",
                                 "route_association",
                             )
-                        }
+                        }, **({"clause_context": r["clause_context"]} if r.get("clause_context") else {}))
                         for r in refs.values()
-                        if anchor(e)
-                        and anchor(r) == anchor(e)
-                        and (r["claim_id"] == e["claim_id"] or r["topic"] == "EXPERIENCE")
+                        if (r["claim_id"] == e["claim_id"] and e.get("clause_context"))
+                        or (anchor(e) and anchor(r) == anchor(e)
+                            and (r["claim_id"] == e["claim_id"] or r["topic"] == "EXPERIENCE"))
                     ]
                     from travel_agent.planning.materials import activities
 

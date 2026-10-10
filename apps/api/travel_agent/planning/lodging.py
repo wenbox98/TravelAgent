@@ -15,7 +15,7 @@ def researched_areas(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for row in rows:
         if not re.search(r"住宿|住在|入住|酒店|民宿|落脚|建议住|推荐住", row["text"]):
             continue
-        for match in re.finditer(r"(?:住在|入住|建议住|推荐住|住宿选|住宿[：:]|落脚在)([\u4e00-\u9fffA-Za-z·]{2,20}?(?:片区|附近|周边|商圈|市中心|老城区|地铁站|火车站|市区|街区|路|区))", row["text"]):
+        for match in re.finditer(r"(?:住在|入住|建议住|推荐住|优先住|住宿选|住宿[：:]\s*(?:(?:优先|建议|推荐)(?:住在|住)?)?|落脚在)([\u4e00-\u9fffA-Za-z·]{2,20}?(?:片区|附近|周边|商圈|市中心|老城区|地铁站|火车站|市区|街区|路|区|镇|村))", row["text"]):
             prefix = re.split(r"[，。；！？]", row["text"][:match.start()])[-1]
             if re.search(r"不|没|未|避免", prefix[-8:]):
                 continue

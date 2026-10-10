@@ -197,7 +197,8 @@ def audit_grounding(bundle: EvidenceBundle, contents: tuple[dict[str, Any], ...]
                 if supported and ref:
                     from .references import catalog
                     view = canonicalize(content["raw_text"], content["dom_text"], completeness=content["content_completeness"])
-                    directory = catalog(view, content["source_id"], content["content_id"], content["content_hash"])
+                    directory = catalog(view, content["source_id"], content["content_id"], content["content_hash"],
+                                        version=ref["reference_version"])
                     selected = [ref["statement"], *ref["conditions"]]
                     supported = bool(
                         all(ref[k] == v for k, v in directory["binding"].items())

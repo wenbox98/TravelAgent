@@ -249,13 +249,28 @@ def test_material_pool_keeps_named_play_diversity_and_locked_steps():
         def get(self, ref):
             return dict(sources=[dict(source_id=ref["source"])])
     def activity(name, source="one", locked=False):
-        return dict(name=name, activity_id=name, knowledge_refs=[dict(source=source)], locked=locked)
+        return dict(name=name, activity_id=name, knowledge_refs=[dict(card_id=name, source=source)], locked=locked)
     items = [activity("机场", locked=True), activity("游客中心"), activity("景交车"),
              *[activity(f"合成第{i}园") for i in range(14)], activity("合成北馆", "two")]
     selected = material_pool(items, Cards(), 20)
     assert selected[0]["name"] == "机场" and any(a["name"] == "合成北馆" for a in selected)
     assert not {"游客中心", "景交车"} & {a["name"] for a in selected}
     assert len(selected) == 12
+
+
+def test_later_play_card_wins_duplicate_name_without_cross_source_attribution(monkeypatch):
+    from travel_agent.planning.automatic import material_pool
+    from test_research_depth import reference
+    rows = [dict(reference("合成青谷公园→合成南馆", "ROUTE", "route"), claim_id="route"),
+            dict(reference("在合成青谷公园散步观鸟，按兴趣欣赏沿途景色。", index="play"), claim_id="play")]
+    class Cards:
+        def get(self, ref):
+            return dict(kind="SOURCE_REFERENCE", sources=[dict(source_id="source-" + ref["card_id"])])
+    monkeypatch.setattr("travel_agent.knowledge.planning.card_references", lambda cards: rows)
+    items = [dict(name="合成青谷公园", activity_id=key, provenance="SOURCE_REFERENCE",
+                  knowledge_refs=[dict(card_id=key)], locked=False) for key in ("route", "play")]
+    selected = material_pool(items, Cards(), 20)
+    assert [a["activity_id"] for a in selected] == ["play"]
 
 
 def test_generated_day_play_and_lodging_gaps_are_goal_feedback():
