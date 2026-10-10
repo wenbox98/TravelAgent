@@ -52,6 +52,9 @@ def no_raw(db: Any) -> Iterator[None]:
 class Library:
     def __init__(self, db: Any, scope: str):
         self.db, self.scope = db, scope
+        if db.connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='knowledge_fts'").fetchone():
+            self.fts = True
+            return
         try:
             db.connection.execute(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(card_id UNINDEXED,version UNINDEXED,tokens)"

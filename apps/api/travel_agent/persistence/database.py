@@ -105,7 +105,39 @@ class Database:
                 self.connection.execute(f"RELEASE {name}")
             raise
         else:
-            self.connection.execute(f"RELEASE {name}" if nested else "COMMIT")
+            try:
+                self.connection.execute(f"RELEASE {name}" if nested else "COMMIT")
+            except BaseException:
+                # A busy COMMIT leaves SQLite's transaction active. Release its
+                # writer lock before a terminal handler attempts another save.
+                if self.connection.in_transaction:
+                    self.connection.execute(f"ROLLBACK TO {name}" if nested else "ROLLBACK")
+                    if nested:
+                        self.connection.execute(f"RELEASE {name}")
+                raise
+
+    def enable_concurrent_reads(self):
+        """Called once by the local server owner, before workers are launched."""
+        if self.connection.in_transaction:
+            raise ValueError("JOURNAL_CONFIGURATION_REQUIRES_IDLE_CONNECTION")
+        mode = self.connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+        if mode != "wal":
+            raise ValueError("CONCURRENT_READ_JOURNAL_UNAVAILABLE")
+
+    @contextmanager
+    def snapshot(self):
+        """A coherent read cannot reserve the database's single writer slot."""
+        if self.connection.in_transaction:
+            raise ValueError("READ_SNAPSHOT_REQUIRES_IDLE_CONNECTION")
+        self.connection.execute("PRAGMA query_only=ON")
+        try:
+            self.connection.execute("BEGIN")
+            try:
+                yield self.connection
+            finally:
+                self.connection.execute("ROLLBACK")
+        finally:
+            self.connection.execute("PRAGMA query_only=OFF")
 
     def __enter__(self):
         return self

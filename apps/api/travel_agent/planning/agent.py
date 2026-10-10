@@ -26,6 +26,31 @@ def safe_input(p: dict[str, Any], text: str) -> str:
     return str(model_context(probe)["user_inputs"][-1])
 
 
+def research_query(destination: str, query: str | None, gap_key: str | None, gaps: set[str]) -> str:
+    """Bind a focused public query to the confirmed request area, never a private endpoint."""
+    value = (query or "").strip()
+    if not value or gap_key not in gaps:
+        raise ValueError("AGENT_INVALID_RESEARCH_ARGUMENT")
+    if destination not in value:
+        value = destination + " " + value
+    if (
+        len(value) > 160
+        or SENSITIVE_RESEARCH_TEXT.search(value)
+        or re.search(r"https?://|小区|单元|门牌|[路街巷]\s*\d+号", value)
+    ):
+        raise ValueError("AGENT_INVALID_RESEARCH_ARGUMENT")
+    return value
+
+
+def requested_body_cap(text: str) -> int | None:
+    """An explicit smaller operator limit only narrows the current grant."""
+    matches = re.findall(
+        r"(?:^|[，。；;])\s*(?:本次|这次)?最多(?:读取|阅读|读)([1-6])篇新(?:正文|资料|笔记)(?=[，。；;]|$)",
+        text,
+    )
+    return min(map(int, matches)) if matches else None
+
+
 def intake_payload(p: dict[str, Any]) -> dict[str, Any]:
     d = p["draft"]
     return dict(
@@ -177,14 +202,26 @@ def apply_intake(p: dict[str, Any], value: Understanding) -> None:
         p["request"] = p["agent_input"]
 
 
-def tools(db: Any, scope: str, sid: str, p: dict[str, Any], budget: DailyBudget, *, decision_cost: int = 0) -> dict[str, Any]:
-    remaining = budget.summary()["remaining"]
+def tools(
+    db: Any, scope: str, sid: str, p: dict[str, Any], budget: DailyBudget, *, decision_cost: int = 0
+) -> dict[str, Any]:
+    usage = budget.summary()
+    remaining = usage["remaining"]
     # The payload is observed BEFORE the supervisor request; dispatch is checked AFTER it.
     models = remaining["model"] - decision_cost
     multi_body = budget.state()["gate"].get("consent") == CONSENT
-    per_query = (remaining["detail"] + max(1, remaining["search"]) - 1) // max(1, remaining["search"])
-    max_body = max(0, min(remaining["detail"], per_query if multi_body else 1,
-                          (models - COMPLETION_RESERVE) // 2))
+    per_query = (remaining["detail"] + max(1, remaining["search"]) - 1) // max(
+        1, remaining["search"]
+    )
+    max_body = max(
+        0,
+        min(
+            remaining["detail"], per_query if multi_body else 1, (models - COMPLETION_RESERVE) // 2
+        ),
+    )
+    cap = requested_body_cap(p.get("agent_input", ""))
+    if cap is not None:
+        max_body = min(max_body, max(0, cap - usage["used"]["detail"]))
     future_decisions = MAX_ROUNDS - len(p.get("agent_rounds", [])) - decision_cost
     questions_only = p["agent_understanding"]["result"]["intent"] in {"QUESTION", "HYPOTHETICAL"}
     from .guide_assessment import references
@@ -213,8 +250,14 @@ def tools(db: Any, scope: str, sid: str, p: dict[str, Any], budget: DailyBudget,
         and remaining["map_route"] > 0
     )
     return dict(
-        CACHE=dict(allowed=future_decisions >= 1 and models >= COMPLETION_RESERVE, meaning="只复核本机资料，不联网"),
-        DECOMPOSE=dict(allowed=future_decisions >= 1 and models >= COMPLETION_RESERVE, meaning="只整理已采信引用，保留对象/作者角色"),
+        CACHE=dict(
+            allowed=future_decisions >= 1 and models >= COMPLETION_RESERVE,
+            meaning="只复核本机资料，不联网",
+        ),
+        DECOMPOSE=dict(
+            allowed=future_decisions >= 1 and models >= COMPLETION_RESERVE,
+            meaning="只整理已采信引用，保留对象/作者角色",
+        ),
         RESEARCH_GAP=dict(
             allowed=bool(can_research),
             max_search=1,
@@ -385,13 +428,32 @@ def run(
             ).fetchone()
             if provider is None and row[0] in {"QUEUED", "RUNNING"}:
                 receipt = database.parent / "operation-audit" / f"exit-{jid}.json"
-                failure = json.loads(receipt.read_text(encoding="utf8")) if receipt.exists() else dict(
-                    reason="AGENT_CHILD_EXITED", phase="WORKER_ENTRY", category="PROCESS",
-                    exit_code=process.returncode, model_executed=False,
+                failure = (
+                    json.loads(receipt.read_text(encoding="utf8"))
+                    if receipt.exists()
+                    else dict(
+                        reason="AGENT_CHILD_EXITED",
+                        phase="WORKER_ENTRY",
+                        category="PROCESS",
+                        exit_code=process.returncode,
+                        model_executed=False,
+                    )
                 )
+                metrics = (
+                    database.parent
+                    / "operation-audit"
+                    / f"metrics-{getattr(process, 'pid', 0)}.json"
+                )
+                if metrics.exists() and json.loads(metrics.read_text(encoding="utf8")).get(
+                    "model_http"
+                ):
+                    failure.update(model_executed=True, phase="WORKER_EXIT")
                 info = json.loads(row[1] or "{}")
-                info.update(reason=failure["reason"], failure=failure,
-                            model_executed=failure["model_executed"])
+                info.update(
+                    reason=failure["reason"],
+                    failure=failure,
+                    model_executed=failure["model_executed"],
+                )
                 db.connection.execute(
                     "UPDATE preview_jobs SET status='FAILED',summary_json=?,finished_at=? WHERE job_id=? AND status IN ('QUEUED','RUNNING')",
                     (json.dumps(info), db.stamp(), jid),
@@ -419,19 +481,12 @@ def run(
                 )
             result = child(jid, "agent-model-worker")
             if result["status"] != "COMPLETED":
-                with db.transaction():
-                    _, state = current()
-                    if purpose == "travel_intake_v1":
-                        state["planning"]["agent_understanding"].update(
-                            status="FAILED",
-                            model_executed=result.get("model_executed", False),
-                            job_id=jid,
-                            reason=result.get("reason", "AGENT_MODEL_FAILED"),
-                            failure=result.get("failure"),
-                        )
-                        save(db, sid, state, bump=False)
+                # The terminal handler reads the durable child receipt and saves
+                # both failures once; no intermediate writer transaction can hide it.
                 raise ValueError(result.get("reason") or "AGENT_MODEL_FAILED")
-            return dict(result["result"], _job_id=jid, _normalizations=result.get("normalizations", []))
+            return dict(
+                result["result"], _job_id=jid, _normalizations=result.get("normalizations", [])
+            )
 
         def finish(reason: str) -> None:
             with db.transaction():
@@ -565,7 +620,14 @@ def run(
                 )
                 if tool == "RESEARCH_GAP":
                     from travel_agent.research.planning import QueryPlanner
-                    identity = fingerprint([tool, QueryPlanner.normalize(choice.query or "")])
+
+                    query = research_query(
+                        p["destination"],
+                        choice.query,
+                        choice.gap_key,
+                        {g["key"] for g in data["research_gaps"]},
+                    )
+                    identity = fingerprint([tool, QueryPlanner.normalize(query)])
                 result: dict[str, Any]
                 stop_reason = None
                 if not allowed:
@@ -597,16 +659,6 @@ def run(
                             result = dict(status="NO_REVIEWED_REFERENCE", executed=False)
                         save(db, sid, state, bump=False)
                 elif tool == "RESEARCH_GAP":
-                    keys = {g["key"] for g in data["research_gaps"]}
-                    query = (choice.query or "").strip()
-                    if (
-                        not query
-                        or choice.gap_key not in keys
-                        or p["destination"] not in query
-                        or SENSITIVE_RESEARCH_TEXT.search(query)
-                        or re.search(r"https?://|小区|单元|门牌|[路街巷]\s*\d+号", query)
-                    ):
-                        raise ValueError("AGENT_INVALID_RESEARCH_ARGUMENT")
                     with db.transaction():
                         live, state = current()
                         p = state["planning"]
@@ -624,7 +676,8 @@ def run(
                         ).fetchone()
                         request = json.loads(j[0])
                         request["agent_step"] = dict(
-                            query=query, gap_key=choice.gap_key,
+                            query=query,
+                            gap_key=choice.gap_key,
                             max_body=tools(db, scope, sid, p, budget)["RESEARCH_GAP"]["max_body"],
                             multi_body=budget.state()["gate"].get("consent") == CONSENT,
                         )
@@ -733,7 +786,9 @@ def run(
                         stop_reason = "PLANNING_NOT_GENERATED"
                     else:
                         # The validated proposal is the goal. No paid FINISH is necessary.
-                        stop_reason = "SUFFICIENT" if coverage(db, scope, sid, p)["sufficient"] else "PARTIAL"
+                        stop_reason = (
+                            "SUFFICIENT" if coverage(db, scope, sid, p)["sufficient"] else "PARTIAL"
+                        )
                     save(db, sid, state, bump=False)
                 elif tool == "ANSWER":
                     from .questions import payload
@@ -805,7 +860,9 @@ def run(
             with db.transaction():
                 row, state = plans.load(sid)
                 p = state["planning"]
-                live_task = db.connection.execute("SELECT stage FROM planning_tasks WHERE task_id=?", (tid,)).fetchone()
+                live_task = db.connection.execute(
+                    "SELECT stage FROM planning_tasks WHERE task_id=?", (tid,)
+                ).fetchone()
                 phase = live_task["stage"] if live_task else "AGENT"
                 failure = failure_diagnostic(exc, phase)
                 if phase == "INTAKE":
@@ -819,12 +876,27 @@ def run(
                 if p.get("automatic_task_id") == tid:
                     if p["agent_understanding"]["status"] == "QUEUED":
                         child_row = model_record(db, scope, sid, task["grant_id"], p)
-                        child_info = json.loads(child_row["summary_json"] or "{}") if child_row else {}
-                        p["agent_understanding"].update(status="FAILED", reason=reason,
-                            failure=failure, job_id=child_row["job_id"] if child_row else None,
-                            model_executed=bool(child_info.get("model_executed") or
-                                child_info.get("diagnostic", {}).get("http_attempts")))
-                    elif p["agent_understanding"]["status"] == "FAILED" and p["agent_understanding"].get("failure"):
+                        child_info = (
+                            json.loads(child_row["summary_json"] or "{}") if child_row else {}
+                        )
+                        if child_info.get("failure"):
+                            if reason == "AGENT_INTERNAL_ERROR":
+                                failure["parent_failure"] = dict(failure)
+                            failure.update(child_info["failure"])
+                            reason = child_info.get("reason") or reason
+                        p["agent_understanding"].update(
+                            status="FAILED",
+                            reason=reason,
+                            failure=failure,
+                            job_id=child_row["job_id"] if child_row else None,
+                            model_executed=bool(
+                                child_info.get("model_executed")
+                                or child_info.get("diagnostic", {}).get("http_attempts")
+                            ),
+                        )
+                    elif p["agent_understanding"]["status"] == "FAILED" and p[
+                        "agent_understanding"
+                    ].get("failure"):
                         failure.update(p["agent_understanding"]["failure"])
                     if p.get("agent_rounds") and p["agent_rounds"][-1]["status"] == "DISPATCHED":
                         p["agent_rounds"][-1].update(status="FAILED", result=dict(reason=reason))

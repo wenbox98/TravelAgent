@@ -5,6 +5,50 @@ from travel_agent.persistence.repositories import TripRepository, OperationRepos
 from travel_agent.domain.models import Trip, EvidenceBundle, SourcePolicy
 
 
+def test_read_snapshot_is_coherent_and_does_not_reserve_writer(tmp_path):
+    path = tmp_path / "snapshot.sqlite3"
+    with Database(path) as reader, Database(path) as writer:
+        writer.connection.execute("PRAGMA busy_timeout=20")
+        with reader.snapshot():
+            before = reader.connection.execute("SELECT count(*) FROM schema_version").fetchone()[0]
+            with pytest.raises(sqlite3.OperationalError, match="readonly"):
+                reader.connection.execute("UPDATE schema_version SET applied_at='forbidden'")
+            # BEGIN IMMEDIATE on the previous read path blocks this writer.
+            writer.connection.execute("BEGIN IMMEDIATE")
+            writer.connection.execute("UPDATE schema_version SET applied_at='uncommitted'")
+            assert reader.connection.execute("SELECT count(*) FROM schema_version").fetchone()[0] == before
+            writer.connection.execute("ROLLBACK")
+        assert not reader.connection.in_transaction
+        assert reader.connection.execute("PRAGMA query_only").fetchone()[0] == 0
+
+
+def test_busy_commit_rolls_back_and_releases_writer(tmp_path):
+    path = tmp_path / "busy-commit.sqlite3"
+    with Database(path) as reader, Database(path) as writer:
+        writer.connection.execute("PRAGMA busy_timeout=20")
+        with reader.snapshot():
+            original = reader.connection.execute("SELECT applied_at FROM schema_version WHERE version=1").fetchone()[0]
+            with pytest.raises(sqlite3.OperationalError) as error, writer.transaction():
+                writer.connection.execute("UPDATE schema_version SET applied_at='uncommitted' WHERE version=1")
+            assert error.value.sqlite_errorcode == sqlite3.SQLITE_BUSY
+            assert not writer.connection.in_transaction
+        assert writer.connection.execute("SELECT applied_at FROM schema_version WHERE version=1").fetchone()[0] == original
+
+
+def test_server_wal_allows_worker_commit_during_long_status_snapshot(tmp_path):
+    path = tmp_path / "concurrent.sqlite3"
+    with Database(path) as owner:
+        owner.enable_concurrent_reads()
+    with Database(path) as reader, Database(path) as writer:
+        writer.connection.execute("PRAGMA busy_timeout=20")
+        with reader.snapshot():
+            original = reader.connection.execute("SELECT applied_at FROM schema_version WHERE version=1").fetchone()[0]
+            with writer.transaction():
+                writer.connection.execute("UPDATE schema_version SET applied_at='committed' WHERE version=1")
+            assert reader.connection.execute("SELECT applied_at FROM schema_version WHERE version=1").fetchone()[0] == original
+        assert reader.connection.execute("SELECT applied_at FROM schema_version WHERE version=1").fetchone()[0] == "committed"
+
+
 def trip_data(fixture_data):
     return {"trip_id": "trip-test", "revision": 0, "phase": "INTAKE", "original_request": "国庆从成都去川西玩", "intent": fixture_data("trip-intent.json"), "selected_ids": [], "locked_ids": [], "overview": None, "budget": None, "is_synthetic": True}
 

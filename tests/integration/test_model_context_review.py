@@ -96,6 +96,7 @@ def test_unknown_output_operations_rejected():
         "给准备来玩的朋友整理参考。",
         "想自驾去的游客可以先比较。",
         "我整理了攻略，给打算去玩的朋友参考。",
+        "给计划山区旅行的小伙伴推荐组合玩法。",
     ],
 )
 def test_reader_invitation_is_not_authors_own_future_plan(tmp_path, clock, invitation):
@@ -115,6 +116,7 @@ def test_reader_invitation_is_not_authors_own_future_plan(tmp_path, clock, invit
         "我计划去玩，给想去玩的朋友参考。",
         "计划明年出发。",
         "想去玩的朋友收藏，我计划明年再去。",
+        "给计划去玩的小伙伴参考，我自己还没出发。",
     ],
 )
 def test_reader_words_cannot_erase_a_real_or_uncertain_author_plan(tmp_path, clock, preamble):

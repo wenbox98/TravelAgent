@@ -149,6 +149,13 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
                 ):
                     raise Rejected("PLANNING_UNSUPPORTED_FACT", "text")
         factual = re.sub(r"(?:不|无法|不能|并非|不作).{0,2}保证", "", value)
+        # Strip only this narrow negative predicate. Positive facts in the
+        # same sentence, amounts and journey times still reach the checks.
+        factual = re.sub(
+            r"(?:不代表|不表示|并非|不是)(?:价格|费用|路况|交通|开放|时间|事实|可行性)?已核实",
+            "",
+            factual,
+        )
         if re.search(
             r"保证|已预订|已核实|\d+\s*(?:元|公里|km)|(?:车程|公交|驾车|接驳).{0,8}\d+\s*分钟",
             factual,

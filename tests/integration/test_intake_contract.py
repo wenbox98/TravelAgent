@@ -19,6 +19,32 @@ from test_goal_agent import Wire, intake, choose, service  # noqa: F401
 from automatic_fakes import Reader, config
 
 
+def test_unique_verbatim_quote_repairs_only_offsets_with_audit():
+    text = "改成五天，不自驾。"
+    raw = intake(text, [("days", 5, "五天"), ("driving", "NO", "不自驾")])
+    raw["updates"][0].update(start=0, end=2)
+    result = understanding(raw, text)
+    assert result.updates[0].start == text.index("五天")
+    assert result._normalizations == [dict(field="days", rule="UNIQUE_VERBATIM_QUOTE_OFFSET_V1",
+        received_start=0, received_end=2, start=2, end=4)]
+    assert raw["updates"][0]["start"] == 0
+
+
+@pytest.mark.parametrize("text,quote", [("五天改成六天", "七天"), ("五天还是五天", "五天")])
+def test_offset_repair_rejects_missing_or_ambiguous_quote(text, quote):
+    raw = intake("五天还是五天七天", [("days", 5, quote)])
+    raw["updates"][0].update(start=1, end=2)
+    with pytest.raises(ValueError, match="INTAKE_INVALID_EVIDENCE"):
+        understanding(raw, text)
+
+
+def test_quote_repair_does_not_apply_hypothetical():
+    raw = intake("如果五天呢", [("days", 5, "五天")], "HYPOTHETICAL")
+    raw["updates"][0].update(start=0, end=2)
+    with pytest.raises(ValueError, match="INTAKE_NONASSERTED_UPDATE"):
+        understanding(raw, "如果五天呢")
+
+
 def test_evidenced_boolean_driving_lands_as_enum_without_new_research(service, monkeypatch):
     text = "合成松海七天，两个人，自驾"
     response = intake(text, [("destination", "合成松海", "合成松海"),
@@ -53,6 +79,7 @@ def test_invalid_field_value_reports_stage_and_keeps_executed_model(service, mon
     assert task["reason"] == "INTAKE_INVALID_VALUE"
     assert task["understanding"]["failure"]["field"] == "driving"
     assert task["understanding"]["failure"]["phase"] == "INTAKE_SCHEMA"
+    assert task["changes"] == []
     assert final["draft"] == before
     child = service.db.connection.execute("SELECT summary_json FROM preview_jobs WHERE job_id=?",
                                         (task["understanding"]["job_id"],)).fetchone()

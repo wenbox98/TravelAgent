@@ -107,6 +107,19 @@ def proposal(data):
     )
 
 
+@pytest.mark.parametrize("text", ["不代表价格已核实", "并非已核实", "不是已核实"])
+def test_narrow_unverified_disclaimer_is_not_a_fact_assertion(normal, text):
+    s, _ = normal
+    v = synthetic(s)
+    _, state = s.load(v["session_id"])
+    data = payload(s.db, s.scope, v["session_id"], state["planning"])
+    raw = proposal(data)
+    raw["proposals"][0]["assumptions"] = ["金额仅为AI预留，" + text + "。"]
+    assert validate(raw, data)["accepted_count"] == 1
+    raw["proposals"][0]["assumptions"].append("价格已核实，公交20分钟即可到达。")
+    assert validate(raw, data)["accepted_count"] == 0
+
+
 def test_new_default_unknown_clock_movement_rest_still_useful(normal):
     s, _ = normal
     v = s.create(PlanCreate(destination="另一座城"), str(uuid4()))

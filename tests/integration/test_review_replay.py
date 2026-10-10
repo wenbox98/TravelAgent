@@ -211,8 +211,11 @@ def test_v2_old_rule_replay_keeps_model_decisions_and_history(tmp_path, clock):
         assert db.connection.execute("SELECT count(*) FROM revalidation_claims").fetchone()[0] == 1
 
 
-@pytest.mark.parametrize("rule", [4, 5])
-def test_v2_current_or_future_rule_cannot_be_replayed_as_upgrade(tmp_path, clock, rule):
+@pytest.mark.parametrize("rule_offset", [0, 1])
+def test_v2_current_or_future_rule_cannot_be_replayed_as_upgrade(tmp_path, clock, rule_offset):
+    from travel_agent.research.context_review import RULE_VERSION
+
+    rule = RULE_VERSION + rule_offset
     with Database(tmp_path / "current.sqlite3", clock=clock) as db:
         store = saved_v2(db, clock, rule)
         before = frozen(db)

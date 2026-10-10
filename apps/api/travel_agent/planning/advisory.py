@@ -10,7 +10,7 @@ from .guide_models import GuideProposal, GuideContent, BudgetLine
 from .arrangements import Rejected, _safety, _check
 from .guide_context import walking, budget_context
 
-VERSION = "advisory-guide-1.6.1"
+VERSION = "advisory-guide-1.6.3"
 SYNTHETIC = "GUIDE_MULTI_DAY"
 PROMPT = (
     "Return JSON only, protocol_version 4, Simplified Chinese, matching the supplied schema. "
@@ -55,6 +55,9 @@ PROMPT = (
     "Do not claim that quantity of references or selected names makes a useful full guide. "
     "For a day intentionally without activities, use day_choices with kind REST or SELF_ARRANGED and a concrete "
     "reason explaining the tradeoff. These are your modifiable suggestions, never inferred user consent. "
+    "Missing material alone is GAP, never REST to fill a day. If suggesting self-arranged arrival/return, "
+    "say it is an optional suggestion; never claim the user agreed to arrange flights, rental or return. "
+    "A source route group does not prove all stops are in one compact area or walkable between stops. "
     "A blank day, generic '自由活动/待定', or meals/hotel alone is NOT coverage. Use kind GAP for insufficient material. "
     "Omitted days are recorded as gaps by code. Never fill gaps with generic text to claim completeness. "
     "day_choices must not duplicate activity days. All day numbers obey the program range. "
@@ -340,7 +343,7 @@ def validate(raw: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
                 raise Rejected("CONVERSATION_EXCLUDED_COMBINATION", "activities")
             from .scoped_context import validate_uses
 
-            validate_uses(value, checked)
+            context_audit = validate_uses(value, checked)
             from .guide_assessment import assess, materials
 
             # Only day geometry is needed here; do not reinterpret source roles as Activity fields.
@@ -420,7 +423,7 @@ def validate(raw: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
                 raise Rejected("GUIDE_INVALID_DAY", "dining")
             if not set(p.lodging.area_ids) <= {a["area_id"] for a in data["lodging_areas"]}:
                 raise Rejected("GUIDE_UNKNOWN_AREA", "lodging.area_ids")
-            normalizations = []
+            normalizations = context_audit
             if lodging["state"] == "OUT_OF_SCOPE" and p.lodging.strategy not in {
                 "NOT_APPLICABLE",
                 "UNDECIDED",

@@ -210,6 +210,7 @@ def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
     p = state["planning"]
     if p["draft"]["activities"]:
         if p.get("knowledge_mode"):
+            _selected_knowledge(db, scope, sid, p)
             card_context(db, scope, p)
         from .guide_assessment import references as guide_references
 
@@ -270,6 +271,46 @@ def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
     p["automatic_cache_sources"] = len({e["source_id"] for e in references(db, scope, sid)})
 
 
+def _selected_knowledge(db: Any, scope: str, sid: str, p: dict[str, Any]) -> None:
+    """A valid current route must not be displaced by an older cached catalog."""
+    from .reference_overview import choices, references
+    from travel_agent.knowledge.store import Library
+    from travel_agent.knowledge.planning import templates
+
+    selected = choices(references(db, scope, sid, p), p)["selected_reference"]
+    if not selected:
+        return
+    wanted = set(selected["citation_ids"])
+    additions = {}
+    for card in Library(db, scope).search(destination=p["destination"], kind="SOURCE_REFERENCE")[
+        "cards"
+    ]:
+        if card["spatial_status"] == "MISMATCH" or not wanted & {
+            card["card_id"],
+            *card["evidence_links"],
+        }:
+            continue
+        additions.update({a.activity_id: a.model_dump() for a in templates(card)})
+    if not additions:
+        return
+    previous = p["draft"]["activities"]
+    values = {a["activity_id"]: a for a in previous}
+    for key, a in additions.items():
+        values.setdefault(key, a)
+    ranked = sorted(
+        values.values(),
+        key=lambda a: (
+            not (a.get("locked") or a.get("locked_start")),
+            a["activity_id"] not in additions,
+        ),
+    )
+    if any(a.get("locked") or a.get("locked_start") for a in ranked[12:]):
+        raise ValueError("PLANNING_LOCKED_CONSTRAINT")
+    if ranked[:12] != previous:
+        p["automatic_previous_materials"] = previous
+        p["draft"]["activities"] = ranked[:12]
+
+
 def _activities(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
     from .materials import activities, references
 
@@ -315,6 +356,7 @@ class AutomaticService:
 
     def start(self, body: AutomaticStart, key: str) -> dict[str, Any]:
         from .agent_contract import CONSENTS as AGENT_CONSENTS
+
         payload = ["automatic-start", body.model_dump()]
         with self.db.transaction():
             old = self._receipt(key, payload)
@@ -328,6 +370,7 @@ class AutomaticService:
             destination = body.destination
             if body.consent in AGENT_CONSENTS and not destination:
                 from .intake import destination_from_idea
+
                 try:
                     destination = destination_from_idea(body.request)
                 except ValueError:
@@ -341,9 +384,16 @@ class AutomaticService:
                 ),
                 key + "-trip",
             )
-            self._create(v["session_id"], payload, key, body.request,
-                         agent=body.consent in AGENT_CONSENTS, map_consent=bool(body.map_consent),
-                         destination_field=body.destination, agent_consent=body.consent)
+            self._create(
+                v["session_id"],
+                payload,
+                key,
+                body.request,
+                agent=body.consent in AGENT_CONSENTS,
+                map_consent=bool(body.map_consent),
+                destination_field=body.destination,
+                agent_consent=body.consent,
+            )
             return self.plans.get(v["session_id"])
 
     def _receipt(self, key: str, payload: Any) -> Any:
@@ -363,7 +413,13 @@ class AutomaticService:
         return dict(session_id=sid) if sid else None
 
     def _create(
-        self, sid: str, payload: Any, key: str, text: str, *, followup: bool = False,
+        self,
+        sid: str,
+        payload: Any,
+        key: str,
+        text: str,
+        *,
+        followup: bool = False,
         agent: bool = False,
         map_consent: bool = False,
         destination_field: str = "",
@@ -371,10 +427,13 @@ class AutomaticService:
     ) -> None:
         _, state = self.plans.load(sid)
         p = state["planning"]
-        if agent and self.db.connection.execute(
-            "SELECT 1 FROM planning_tasks WHERE account_scope=? AND session_id!=? AND status IN ('QUEUED','RUNNING')",
-            (self.scope,sid),
-        ).fetchone():
+        if (
+            agent
+            and self.db.connection.execute(
+                "SELECT 1 FROM planning_tasks WHERE account_scope=? AND session_id!=? AND status IN ('QUEUED','RUNNING')",
+                (self.scope, sid),
+            ).fetchone()
+        ):
             raise ValueError("AUTOMATIC_ALREADY_RUNNING")
         invalidate(self.db, sid)
         p["automatic_material_source_limit"] = 6
@@ -387,12 +446,17 @@ class AutomaticService:
         from travel_agent.research.advisory_coverage import limits as research_limits
 
         from .agent_contract import CONSENT as AGENT_CONSENT, limits as agent_limits
-        consent_version = agent_consent if agent else "PRIVATE_CONVERSATION_LOOP_V1" if followup else CONSENT
+
+        consent_version = (
+            agent_consent if agent else "PRIVATE_CONVERSATION_LOOP_V1" if followup else CONSENT
+        )
         limits = research_limits(p["draft"].get("days"), p["travel_kind"] == "REGIONAL")
         if followup:
             limits.update(search=1, detail=2, model=5)
         if agent and agent_consent == AGENT_CONSENT:
-            limits = agent_limits(p["draft"].get("days"), p["travel_kind"] == "REGIONAL", followup=followup)
+            limits = agent_limits(
+                p["draft"].get("days"), p["travel_kind"] == "REGIONAL", followup=followup
+            )
         if agent and map_consent:
             limits.update(map_place=2, map_route=1)
         p["automatic_coverage"] = coverage(self.db, self.scope, sid, p)
@@ -429,13 +493,16 @@ class AutomaticService:
             p.pop("agent_browser_metrics", None)
             p.pop("agent_stop_stage", None)
             p.pop("proposed_conversation_conditions", None)
-            p.pop("agent_map_selection",None)
-            p["agent_understanding"] = dict(status="QUEUED", model_executed=False,
-                                           provisional=not followup)
+            p.pop("agent_map_selection", None)
+            p["agent_understanding"] = dict(
+                status="QUEUED", model_executed=False, provisional=not followup
+            )
         status = "QUEUED"
         grant = None
         try:
-            authorization=OperationAuthorization(confirm=True,tasks=["RESEARCH","PLANNING"],hours=1,**limits)
+            authorization = OperationAuthorization(
+                confirm=True, tasks=["RESEARCH", "PLANNING"], hours=1, **limits
+            )
             if agent and map_consent:
                 authorization.tasks.append("MAP")
             authorize(
@@ -492,6 +559,7 @@ class AutomaticService:
                 )
                 return self.plans.get(sid)
             from .agent_contract import CONSENTS as AGENT_CONSENTS
+
             if body.consent not in {CONSENT, *AGENT_CONSENTS}:
                 raise ValueError("OPERATION_NOT_AUTHORIZED")
             if self.db.connection.execute(
@@ -510,7 +578,16 @@ class AutomaticService:
                 if not body.text:
                     raise ValueError("INVALID_INPUT")
                 if body.consent in AGENT_CONSENTS:
-                    self._create(sid, payload, key, body.text, followup=True, agent=True, map_consent=bool(body.map_consent), agent_consent=str(body.consent))
+                    self._create(
+                        sid,
+                        payload,
+                        key,
+                        body.text,
+                        followup=True,
+                        agent=True,
+                        map_consent=bool(body.map_consent),
+                        agent_consent=str(body.consent),
+                    )
                     return self.plans.get(sid)
                 draft = revise(PlanDraft.model_validate(p["draft"]), body.text)
                 old = PlanDraft.model_validate(p["draft"])
@@ -538,12 +615,24 @@ class AutomaticService:
             elif body.action == "research_more":
                 if p.get("automatic_coverage", {}).get("sufficient"):
                     raise ValueError("AUTOMATIC_CLARIFY_CHANGE")
-            agent_text = body.text or (p.get("agent_input",p["request"]) if body.action == "continue" else
-                "继续补充研究" if body.action == "research_more" else "按当前取舍更新建议")
-            agent_followup = p.get("agent_followup",False) if body.action == "continue" else True
-            self._create(sid, payload, key, agent_text if body.consent in AGENT_CONSENTS else body.text or p["request"],
-                         followup=agent_followup if body.consent in AGENT_CONSENTS else followup,
-                         agent=body.consent in AGENT_CONSENTS, map_consent=bool(body.map_consent), agent_consent=str(body.consent))
+            agent_text = body.text or (
+                p.get("agent_input", p["request"])
+                if body.action == "continue"
+                else "继续补充研究"
+                if body.action == "research_more"
+                else "按当前取舍更新建议"
+            )
+            agent_followup = p.get("agent_followup", False) if body.action == "continue" else True
+            self._create(
+                sid,
+                payload,
+                key,
+                agent_text if body.consent in AGENT_CONSENTS else body.text or p["request"],
+                followup=agent_followup if body.consent in AGENT_CONSENTS else followup,
+                agent=body.consent in AGENT_CONSENTS,
+                map_consent=bool(body.map_consent),
+                agent_consent=str(body.consent),
+            )
             return self.plans.get(sid)
 
 
@@ -623,10 +712,13 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
     sources = []
     researches = [research] if research else []
     if p.get("agent_research_job_ids"):
-        researches = [db.connection.execute(
-            "SELECT status,summary_json,research_id FROM preview_jobs WHERE job_id=? AND continuation_id=?",
-            (jid, row["grant_id"]),
-        ).fetchone() for jid in p["agent_research_job_ids"]]
+        researches = [
+            db.connection.execute(
+                "SELECT status,summary_json,research_id FROM preview_jobs WHERE job_id=? AND continuation_id=?",
+                (jid, row["grant_id"]),
+            ).fetchone()
+            for jid in p["agent_research_job_ids"]
+        ]
         researches = [r for r in researches if r]
     seen_sources = set()
     for step in researches:
@@ -661,11 +753,17 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
             candidate_count=sum(s.get("report", {}).get("candidate_count", 0) for s in summaries),
             source_count=sum(s.get("report", {}).get("source_count", 0) for s in summaries),
         )
-        research_summary["unique_candidate_count"] = len({i for s in summaries for i in s.get("candidate_source_ids", [])})
-        research_summary["duplicate_body_count"] = sum(s.get("duplicate_body_count", 0) for s in summaries)
+        research_summary["unique_candidate_count"] = len(
+            {i for s in summaries for i in s.get("candidate_source_ids", [])}
+        )
+        research_summary["duplicate_body_count"] = sum(
+            s.get("duplicate_body_count", 0) for s in summaries
+        )
         research_summary["source_skips"] = [q for s in summaries for q in s.get("source_skips", [])]
-        research_summary["query_progress"] = [dict(q, search_number=n) for n,q in enumerate(
-            (q for s in summaries for q in s.get("query_progress", [])), 1)]
+        research_summary["query_progress"] = [
+            dict(q, search_number=n)
+            for n, q in enumerate((q for s in summaries for q in s.get("query_progress", [])), 1)
+        ]
     if not research:
         from .guide_assessment import references
 
@@ -684,6 +782,7 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
                     )
                 )
     from .intake_values import understanding_view
+
     return dict(
         intent_key=p.get("automatic_last_intent_key", row["idempotency_key"]),
         task_id=row["task_id"],
@@ -697,8 +796,12 @@ def task_view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any
         limits=json.loads(row["request_json"])["limits"],
         budget=budget,
         generated=summary.get("generated", False),
-        changes=p.get("automatic_changes", []),
-        coverage=p.get("automatic_coverage") if p.get("agent_understanding") else research_summary.get("advisory_coverage") or p.get("automatic_coverage"),
+        changes=p.get("automatic_changes", [])
+        if not p.get("agent_understanding") or p["agent_understanding"].get("status") == "COMPLETED"
+        else [],
+        coverage=p.get("automatic_coverage")
+        if p.get("agent_understanding")
+        else research_summary.get("advisory_coverage") or p.get("automatic_coverage"),
         login_state=research_summary.get("login_state", "NOT_CHECKED"),
         search_count=budget["used"]["search"] if budget else 0,
         candidate_count=research_summary.get("report", {}).get("candidate_count", 0),
@@ -723,10 +826,14 @@ def run_task(
 ) -> None:
     """Runner injection is test-only; HTTP cannot choose providers or substitute results."""
     with Database(database) as probe:
-        row = probe.connection.execute("SELECT request_json FROM planning_tasks WHERE task_id=?", (tid,)).fetchone()
+        row = probe.connection.execute(
+            "SELECT request_json FROM planning_tasks WHERE task_id=?", (tid,)
+        ).fetchone()
         from .agent_contract import CONSENTS as AGENT_CONSENTS
+
         if row and json.loads(row[0]).get("consent") in AGENT_CONSENTS:
             from .agent import run
+
             run(database, tid)
             return
     with Database(database) as db:

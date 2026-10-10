@@ -126,7 +126,7 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
             # Task completion and conversation state must be from one snapshot.
             # Otherwise polling can see DONE with the previous conversation version,
             # stop polling, then reject the user's next message as stale.
-            with db.transaction():
+            with db.snapshot():
                 view = PlanningService(db, config.account_scope).get(session_id)
             # Map presentation opens its own connection; keep it outside this lock.
             return present(view)

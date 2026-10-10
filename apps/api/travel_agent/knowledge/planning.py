@@ -46,6 +46,26 @@ def card_references(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def templates(c: dict[str, Any]) -> list[Activity]:
     entries = c.get("activities") or [dict(name=n) for n in c["entities"]]
+    if not entries and c["kind"] == "SOURCE_REFERENCE" and c["tags"][0] == "ROUTE":
+        from travel_agent.planning.materials import activities
+
+        # Old cards can predate a delimiter fix. Project their verified text;
+        # preserve the original card/version/hash and never reopen raw sources.
+        entries = [
+            dict(name=a.name)
+            for a in activities(
+                [
+                    dict(
+                        claim_id=c["card_id"],
+                        topic="ROUTE",
+                        text=c["text"],
+                        conditions=c["conditions"],
+                        reference_kind=c["review_scope"],
+                    )
+                ],
+                c["destination"],
+            )
+        ]
     result = []
     for i, a in enumerate(entries):
         is_mention = c["kind"] != "SOURCE_REFERENCE"

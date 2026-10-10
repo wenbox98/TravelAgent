@@ -103,3 +103,68 @@ def test_child_entry_failure_is_reported_without_model_execution(service, monkey
     assert after["understanding"]["model_executed"] is False
     assert after["understanding"]["failure"]["phase"] == "WORKER_ENTRY"
     assert service.db.connection.execute("SELECT status FROM preview_jobs").fetchone()[0] == "FAILED"
+
+
+def test_transient_exclusive_writer_does_not_interrupt_healthy_worker(service, monkeypatch):
+    import sqlite3
+    import threading
+    from time import sleep
+    from travel_agent.planning import suggestions
+
+    s = service
+    v = s.start(AutomaticStart(request="合成青谷七天", consent=CONSENT), str(uuid4()))
+    tid = v["automatic_task"]["task_id"]
+    locked = threading.Event()
+
+    class Process:
+        returncode = None
+
+        def __init__(self):
+            self.thread = real_thread(target=self.work, daemon=True)
+            self.started = False
+
+        def work(self):
+            con = sqlite3.connect(s.db.path, isolation_level=None)
+            con.execute("BEGIN EXCLUSIVE")
+            con.execute("UPDATE planning_tasks SET status='RUNNING' WHERE task_id=?", (tid,))
+            locked.set()
+            sleep(6)  # Exceed SQLite's existing 5-second busy timeout.
+            con.execute("COMMIT")
+            sleep(2)  # A healthy worker remains active after the transient lock.
+            con.execute("UPDATE planning_tasks SET status='COMPLETED' WHERE task_id=? AND status='RUNNING'", (tid,))
+            con.close()
+            self.returncode = 0
+
+        def poll(self):
+            if not self.started:
+                self.started = True
+                self.thread.start()
+                assert locked.wait(2)
+            return self.returncode
+
+        def wait(self, timeout=None):
+            self.thread.join(timeout)
+            return self.returncode
+
+    real_thread = threading.Thread
+
+    class Monitor:
+        def __init__(self, *, target, daemon):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    # Leave the simulated worker on a real thread, execute the monitor synchronously.
+    processes = []
+    def start_process(*args, **kwargs):
+        process = Process()
+        processes.append(process)
+        return process
+    monkeypatch.setattr(suggestions.subprocess, "Popen", start_process)
+    monkeypatch.setattr(suggestions.threading, "Thread", Monitor)
+    suggestions.launch(s.db.path, tid, automatic=True)
+    processes[0].thread.join(10)
+    monkeypatch.setattr(suggestions.threading, "Thread", real_thread)
+    row = s.db.connection.execute("SELECT status,summary_json FROM planning_tasks WHERE task_id=?", (tid,)).fetchone()
+    assert row["status"] == "COMPLETED", json.loads(row["summary_json"])

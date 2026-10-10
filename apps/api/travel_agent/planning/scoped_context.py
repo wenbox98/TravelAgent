@@ -5,7 +5,7 @@ from typing import Any
 from travel_agent.preview.projection import fingerprint, safe_text
 
 VERSION = "scoped-context-1"
-USE_RULE = "scoped-use-1.1"
+USE_RULE = "scoped-use-1.3"
 REVIEWED = {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED", "LOCAL_REVALIDATION"}
 LIMIT = "仅为来源整体背景与组合线索，不证明每站特色、行政归属、亲历或当前人流/开放/可行性。"
 
@@ -191,6 +191,12 @@ def scope_assertion(text: str) -> bool:
     for clause in re.split(r"[，,；;。！？!?]|但是|然而|不过|而是|但|却", text):
         clause = clause.strip()
         if re.fullmatch(
+            r"(?:不|不能|不得)把(?:整段|片区|来源|整体)?(?:背景|体验|内容|氛围)"
+            r"(?:当成|视为|说成)(?:每(?:一)?站|各站)(?:的)?(?:特色|体验|氛围)",
+            clause,
+        ):
+            continue
+        if re.fullmatch(
             r"(?:不|不能|不可|不得|无法|尚不能|不应)(?:据此)?(?:推断|证明|确认|保证|认定|声称)"
             r"(?:(?:每(?:一)?(?:站|处)|各(?:站|处)|具体地点|行政归属|实际人流|当前人流|人少|特色|氛围|关系|开放|可行性)(?:的)?|或|和|与|及)+",
             clause,
@@ -204,22 +210,33 @@ def scope_assertion(text: str) -> bool:
     return False
 
 
-def validate_uses(proposal: dict[str, Any], data: dict[str, Any]) -> None:
+def validate_uses(proposal: dict[str, Any], data: dict[str, Any]) -> list[dict[str, Any]]:
     from .arrangements import Rejected, _check
+    from travel_agent.research.reference_identity import groups
 
     by_id = {c["context_id"]: c for c in data.get("scoped_context", [])}
+    equivalents = {
+        r["claim_id"]: {v["claim_id"] for v in group}
+        for group in groups(data.get("references", []))
+        for r in group
+    }
     selected = {a["activity_id"] for a in proposal["activities"]}
-    seen = set()
+    seen, audit = set(), []
     for use in proposal.get("context_uses", []):
         c = by_id.get(use["context_id"])
         targets = set(use["activity_ids"])
+        cited = (
+            equivalents.get(c["citation_id"], {c["citation_id"]}) & set(proposal["citation_ids"])
+            if c
+            else set()
+        )
         if (
             not c
             or use["context_id"] in seen
             or len(targets) != len(use["activity_ids"])
             or not targets <= selected
             or not targets <= set(c["activity_ids"])
-            or c["citation_id"] not in proposal["citation_ids"]
+            or not cited
         ):
             raise Rejected("GUIDE_CONTEXT_REFERENCE", "context_uses")
         seen.add(use["context_id"])
@@ -228,3 +245,14 @@ def validate_uses(proposal: dict[str, Any], data: dict[str, Any]) -> None:
             raise Rejected("GUIDE_CONTEXT_SCOPE", "context_uses.reason")
         # Existing fact, transport and fixed-constraint checks apply to rationale too.
         _check(dict(proposal, assumptions=[text]), data)
+        if c["citation_id"] not in proposal["citation_ids"]:
+            audit.append(
+                dict(
+                    rule="PROVEN_CONTEXT_CITATION_ALIAS",
+                    context_id=use["context_id"],
+                    original_citation_id=c["citation_id"],
+                    cited_alias_ids=sorted(cited),
+                    rule_version=USE_RULE,
+                )
+            )
+    return audit

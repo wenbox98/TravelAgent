@@ -267,6 +267,10 @@ def main() -> None:
             reopen(workspace, args.port)
             return
         raise SystemExit("WORKBENCH_ALREADY_RUNNING") from None
+    # Local status snapshots must not starve worker commits. Configure only
+    # after acquiring this workspace's owner lock, never in polling connections.
+    with Database(database) as db:
+        db.enable_concurrent_reads()
     # Keep the server's no-live-import fence. The child inherits this exact owner's
     # permissions, but its role denies all external requests and browser processes.
     import json

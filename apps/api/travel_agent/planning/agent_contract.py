@@ -32,6 +32,8 @@ INTAKE_PROMPT = (
     "not just keywords. QUESTION and HYPOTHETICAL must not update current preferences. "
     "For mixed messages apply only explicitly asserted corrections; hypothetical clauses are not assertions. "
     "For each update include exact quote and zero-based Python character start/end in user_text. "
+    "Copy the quote verbatim from user_text, including negation; offsets refer to that exact string, "
+    "not the summary or current conditions. The program independently checks each quote. "
     "Never invent destinations, departure airports, dates, people, budgets, private addresses or facts. "
     "Unknown stays unknown; absent fields preserve previous confirmed values on follow-up. "
     "Updates are discriminated by field: value MUST match that field's schema. "
@@ -70,6 +72,7 @@ DECISION_PROMPT = (
     "A route reference is not an executable itinerary. No private endpoints, credentials, browser control "
     "or unrestricted APIs. Never retry failed I/O or override program budgets. "
     "Choose query only for RESEARCH_GAP, gap_key from current research_gaps; leg_id only from available tools. "
+    "The program binds a focused public subregion query to the current confirmed destination. "
     "A question/hypothesis permits only CACHE/DECOMPOSE/ANSWER/FINISH. Stop with a truthful reason "
     "and brief audit explanation, not hidden reasoning."
 )
@@ -105,10 +108,17 @@ def understanding(raw: Any, text: str) -> Understanding:
     validate_structured(raw, Understanding.model_json_schema())
     seen = set()
     for item in value.updates:
-        if item.field in seen or text[item.start : item.end] != item.quote:
+        if item.field in seen:
             raise IntakeError("INTAKE_INVALID_EVIDENCE", phase="INTAKE_EVIDENCE", field=item.field, category="EVIDENCE")
-        if item.end <= item.start or item.end > len(text):
-            raise IntakeError("INTAKE_INVALID_EVIDENCE", phase="INTAKE_EVIDENCE", field=item.field, category="EVIDENCE")
+        if item.end <= item.start or item.end > len(text) or text[item.start : item.end] != item.quote:
+            # Only an independently unique, verbatim anchor can repair arithmetic.
+            # Do not edit the quote/value, search approximately, or choose among repeats.
+            if text.count(item.quote) != 1:
+                raise IntakeError("INTAKE_INVALID_EVIDENCE", phase="INTAKE_EVIDENCE", field=item.field, category="EVIDENCE")
+            start = text.index(item.quote)
+            value._normalizations.append(dict(field=item.field, rule="UNIQUE_VERBATIM_QUOTE_OFFSET_V1",
+                received_start=item.start, received_end=item.end, start=start, end=start + len(item.quote)))
+            item.start, item.end = start, start + len(item.quote)
         seen.add(item.field)
     if value.intent in {"QUESTION", "HYPOTHETICAL"} and value.updates:
         raise IntakeError("INTAKE_NONASSERTED_UPDATE", phase="INTAKE_EVIDENCE", category="NONASSERTED")

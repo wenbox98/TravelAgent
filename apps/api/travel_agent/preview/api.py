@@ -163,7 +163,7 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
 
     @app.get("/api/v1/preview", response_model=PreviewIndex)
     def index() -> dict[str, Any]:
-        with Database(config.database) as db, db.transaction():
+        with Database(config.database) as db, db.snapshot():
             service = PreviewService(db, config.account_scope, config.mode)
             latest=service.latest()
             if config.route_check:
@@ -180,7 +180,7 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
 
     @app.get("/api/v1/preview/sessions/{session_id}", response_model=PreviewView)
     def read(session_id: str) -> dict[str, Any]:
-        with Database(config.database) as db, db.transaction():
+        with Database(config.database) as db, db.snapshot():
             return present(PreviewService(db, config.account_scope, config.mode).get(session_id))
 
     @app.post("/api/v1/preview/sessions/{session_id}", response_model=PreviewView)

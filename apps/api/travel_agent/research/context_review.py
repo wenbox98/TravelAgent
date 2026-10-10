@@ -24,7 +24,7 @@ from .store import EvidenceStore
 
 TASK = "review_evidence_context_v2"
 REVIEW_VERSION = 2
-RULE_VERSION = 4
+RULE_VERSION = 5
 REASONS = sorted(
     (CONTEXT_REASONS - {"WORK_CONTEXT_VERIFIED", "DEPENDENCY_INDEPENDENT"})
     | {
@@ -104,7 +104,7 @@ def transport_schema(version: int) -> dict[str, Any]:
 PLAN = re.compile(r"计划|打算|准备|还没出发|尚未出发|还未出发|想.*(?:去|走|自驾)|求建议")
 READER_PLAN = re.compile(
     r"(?:计划|打算|准备|想)[^\n。！？!?；;]{0,24}(?:去|来|玩|游|旅行|出行|自驾)"
-    r"[^\n。！？!?；;]{0,16}的(?:姐妹|朋友|同学|宝子|游客|读者)"
+    r"[^\n。！？!?；;]{0,16}的(?:姐妹|朋友|同学|宝子|游客|读者|小伙伴)"
 )
 PAST = re.compile(r"去年|前年|上次|曾经|曾到|去过|走过|游过|已经.*(?:走|去)|实际.*(?:用|走)")
 QUESTION = re.compile(r"[？?]|是否|会不会|求问|请问|不知道|不确定|听说|据说")

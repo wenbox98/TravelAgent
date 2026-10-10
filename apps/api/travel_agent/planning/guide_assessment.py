@@ -7,10 +7,10 @@ from travel_agent.preview.projection import safe_text
 from .flow_models import PlanDraft
 from .guide_models import GuideDayChoice
 
-VERSION = "advisory-assessment-1"
+VERSION = "advisory-assessment-1.1"
 DAY_LABELS = {
     "ACTIVITIES": "已有项目建议",
-    "REST": "留作休息",
+    "REST": "建议留作休息",
     "SELF_ARRANGED": "建议自行安排",
     "GAP": "资料或安排待补",
 }
@@ -188,7 +188,7 @@ def day_coverage(
                 else ""
                 if items
                 else "尚无项目或有依据的休闲/自行安排取舍；不是已完成的一天。",
-                origin="EXPLICIT_CHOICE" if intentional else "PROGRAM_ASSESSMENT",
+                origin="PROPOSED_CHOICE" if intentional else "PROGRAM_ASSESSMENT",
             )
         )
     missing = [r["day"] for r in rows if r["kind"] == "GAP"]

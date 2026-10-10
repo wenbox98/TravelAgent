@@ -247,9 +247,21 @@ def choices(rows: list[dict[str, Any]], p: dict[str, Any]) -> dict[str, Any]:
             not saved
             or not card
             or saved.get("rule_version") != VERSION
-            or saved.get("bindings") != card["bindings"]
+            or not saved.get("bindings")
         ):
             return None
+        old = saved["bindings"]
+        if any(card["bindings"].get(cid) != binding for cid, binding in old.items()):
+            return None
+        # New identities may only be exact, proven aliases of an unchanged
+        # selected reference, never an additional fact or changed condition.
+        for cid in card["bindings"].keys() - old.keys():
+            if not any(
+                cid in entry.get("citation_ids", [])
+                and old.keys() & set(entry.get("citation_ids", []))
+                for entry in card["entries"]
+            ):
+                return None
         return dict(
             option_id=card["option_id"],
             bindings=card["bindings"],

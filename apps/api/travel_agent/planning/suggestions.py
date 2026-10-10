@@ -757,7 +757,7 @@ def _finish_answer_grant(db: Any, jid: str) -> None:
 
 
 def _worker_finished(db: Database, jid: str, *, automatic: bool, reason: str,
-                     exit_code: int | None = None) -> None:
+                     exit_code: int | None = None, diagnostic: dict[str, Any] | None = None) -> None:
     """Settle only this dispatch; retain completed children, materials and usage."""
     with db.transaction():
         if automatic:
@@ -770,6 +770,8 @@ def _worker_finished(db: Database, jid: str, *, automatic: bool, reason: str,
                 summary.update(reason=reason, failure=dict(
                     reason=reason, phase=task["stage"], category="PROCESS", exit_code=exit_code,
                 ))
+                if diagnostic:
+                    summary["failure"].update(diagnostic, reason=reason)
                 db.connection.execute(
                     "UPDATE planning_tasks SET status='INTERRUPTED',summary_json=?,finished_at=? WHERE task_id=? AND status IN ('QUEUED','RUNNING')",
                     (json.dumps(summary), db.stamp(), jid),
@@ -906,11 +908,14 @@ def launch(
     def guarded() -> None:
         try:
             supervise()
-        except Exception:
+        except Exception as exc:
             # A monitor failure must not silently abandon RUNNING. Invalidate
             # before waiting for the flow to close its own browser resources.
             with Database(database) as db:
-                _worker_finished(db, jid, automatic=automatic, reason="WORKER_MONITOR_FAILED")
+                from travel_agent.preview.worker import failure_diagnostic
+                diagnostic = failure_diagnostic(exc, "WORKER_MONITOR")
+                _worker_finished(db, jid, automatic=automatic, reason="WORKER_MONITOR_FAILED",
+                                 diagnostic=diagnostic)
             process = _workers.get(identity)
             if process is not None and process.poll() is None:
                 try:

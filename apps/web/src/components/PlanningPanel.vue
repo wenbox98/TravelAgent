@@ -67,6 +67,8 @@ function reconcileSubmission(v:PlanView){
 function pendingMatches(v:PlanView|null|undefined):boolean {if(!v)return false;try{const a=JSON.parse(localStorage.getItem('ta-auto-intent')||'null')?.key,c=JSON.parse(localStorage.getItem('ta-conversation-intent')||'null')?.key;return Boolean((a&&a===v.automatic_task?.intent_key)||(c&&c===v.conversation?.intent_key))}catch{return false}}
 function pendingSession():string|undefined {for(const key of ['ta-conversation-intent','ta-auto-intent'])try{const pending=JSON.parse(localStorage.getItem(key)||'null');if(pending?.key){const url=JSON.parse(pending.signature)[0];const match=/^\/api\/v1\/preview\/(?:conversation|automatic-planning)\/([^/]+)$/.exec(url);if(match)return match[1]}}catch{}return undefined}
 let generation = 0, poll: ReturnType<typeof setInterval> | undefined, saveTimer: ReturnType<typeof setTimeout> | undefined
+let polling = false
+let disposed = false
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T
 const edited = computed(() => JSON.stringify(form.value) !== JSON.stringify(data.value?.draft))
 const externalRunning=computed(()=>['QUEUED','RUNNING'].includes(data.value?.automatic_task?.status||'')||['QUEUED','RUNNING'].includes(data.value?.answer_job?.status||'')||['QUEUED','RUNNING','WAITING_LOGIN'].includes(data.value?.research_job?.status||''))
@@ -75,7 +77,7 @@ const readable = (s: string) => (data.value?.draft.activities || []).reduce((tex
 const scopeLabel = (s:string) => ({MATCH:'来源支持范围匹配',MISMATCH:'来源指向当前范围以外',UNKNOWN:'范围待核实'}[s] || '范围待核实')
 const proposalReason = (s:string) => ({PLANNING_LOCKED_TRANSPORT:'违反交通条件',PLANNING_LOCKED_ANCHOR:'改变固定开始时间',PLANNING_LOCKED_CONSTRAINT:'违反预约或硬截止',PLANNING_SCOPE_UNVERIFIED:'活动范围未通过',PLANNING_UNKNOWN_REFERENCE:'活动或引用不受支持',PLANNING_PROPOSAL_SCHEMA:'方案字段不完整',PLANNING_INVALID_TIME:'时间安排无效',PLANNING_UNSUPPORTED_FACT:'触发事实边界检查'}[s] || '未通过检查')
 const deltaLabel = (s: string) => ({activities: '活动顺序或停留', direction: '兴趣方向', inputs: '时间/往返条件', days: '可用天数', transport: '交通意向', driving: '驾驶意愿', return_deadline: '返回硬约束', first_day: '开始日序', first_period: '开始时段', anchor_origin: '开始时间'}[s] || '本行程条件')
-function apply(v: PlanView, submitted?:string) { reconcileSubmission(v); const keep=submitted!==undefined&&JSON.stringify(form.value)!==submitted; if (v.job && !['QUEUED','RUNNING'].includes(v.job.status) && status.value.startsWith('AI正在')) status.value = ''; if (v.research_job && !['QUEUED','RUNNING','WAITING_LOGIN'].includes(v.research_job.status) && status.value.startsWith('正在查找')) status.value = ''; if (data.value?.session_id !== v.session_id) selectedActivities.value = []; data.value = v; if(!keep)form.value = clone(v.draft); localStorage.setItem('ta-current-trip', v.session_id) }
+function apply(v: PlanView, submitted?:string) { reconcileSubmission(v); const keep=submitted!==undefined&&JSON.stringify(form.value)!==submitted; if (v.job && !['QUEUED','RUNNING'].includes(v.job.status) && status.value.startsWith('AI正在')) status.value = ''; if (v.research_job && !['QUEUED','RUNNING','WAITING_LOGIN'].includes(v.research_job.status) && status.value.startsWith('正在查找')) status.value = ''; if (data.value?.session_id !== v.session_id) { selectedActivities.value = []; status.value = '' }; data.value = v; if(!keep)form.value = clone(v.draft); localStorage.setItem('ta-current-trip', v.session_id) }
 async function refreshIndex() { index.value = await request<PlanIndex>('/api/v1/preview/planning') }
 async function load(sid?: string) {
   if(conditionEditing.value){error.value='请先保存或取消未提交的条件草稿，再切换或刷新。';return}
@@ -83,7 +85,7 @@ async function load(sid?: string) {
   if(edited.value&&data.value){pendingTrip.value=sid||data.value.session_id;error.value='当前更改尚未保存，先保存后再切换或刷新。';return}
   const ticket = ++generation
   try {
-    await refreshIndex()
+    if (!sid || !index.value) await refreshIndex()
     const selected = pendingMatches(index.value?.current)?index.value!.current!.session_id:pendingSession() || sid || localStorage.getItem('ta-current-trip')
     const next = selected && index.value?.trips.some(t => t.session_id === selected) ? await request<PlanView>('/api/v1/preview/planning/' + selected) : index.value?.current
     if (ticket === generation) {if(next)apply(next);offerSubmissionRecovery()}
@@ -185,14 +187,18 @@ function protectLeave(e:BeforeUnloadEvent){if(data.value&&(edited.value||conditi
 onMounted(async () => {
   window.addEventListener('beforeunload',protectLeave)
   await load()
+  if (disposed) return
   poll = setInterval(async () => {
-    if (!busy.value && !edited.value && data.value && (['QUEUED','RUNNING'].includes(data.value.answer_job?.status||'') || ['QUEUED','RUNNING'].includes(data.value.automatic_task?.status||'') || (data.value.job && ['QUEUED', 'RUNNING'].includes(data.value.job.status)) || (data.value.research_job && ['QUEUED','RUNNING','WAITING_LOGIN'].includes(data.value.research_job.status)))) {
+    if (!polling && !busy.value && !edited.value && data.value && (['QUEUED','RUNNING'].includes(data.value.answer_job?.status||'') || ['QUEUED','RUNNING'].includes(data.value.automatic_task?.status||'') || (data.value.job && ['QUEUED', 'RUNNING'].includes(data.value.job.status)) || (data.value.research_job && ['QUEUED','RUNNING','WAITING_LOGIN'].includes(data.value.research_job.status)))) {
+      polling = true
       const ticket = generation, sid = data.value.session_id
       try { const next = await request<PlanView>('/api/v1/preview/planning/' + sid); if (ticket === generation && sid === data.value?.session_id&&!edited.value) apply(next) } catch(e) { error.value=e instanceof Error?e.message:'暂时未读到任务进度；任务可能仍在运行，请读取状态，勿重复派发。' }
+      finally { polling = false }
     }
   }, 1000)
 })
-onUnmounted(() => { ++generation; clearInterval(poll); clearTimeout(saveTimer);window.removeEventListener('beforeunload',protectLeave) })
+onUnmounted(() => { disposed = true; ++generation; clearInterval(poll); clearTimeout(saveTimer);window.removeEventListener('beforeunload',protectLeave) })
+const showSavedGuide=ref(false)
 </script>
 <template>
   <section class="planning-flow">
@@ -205,9 +211,9 @@ onUnmounted(() => { ++generation; clearInterval(poll); clearTimeout(saveTimer);w
     <template v-if="data && form && !creating">
       <TripConditions :plan="data" :busy="busy||externalRunning||edited" @editing="conditionEditing=$event" @save="extra=>act('save',extra)" />
       <fieldset class="condition-guard" :disabled="conditionEditing">
-      <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy" :blocked-reason="conditionEditing?'请先保存或取消条件草稿，再发送；消息已保留。':edited?'请先保存当前编辑，再发送；输入已保留。':''" :submitting="submission==='conversation'" :feedback="talkFeedback" :failure="talkFailure" :unconfirmed="talkUnconfirmed||intakeUnconfirmed" :resumable="talkResumable||intakeResumable" :acknowledgment="messageAcknowledgment" @resume="resumeSubmission('conversation')" @recover="load(data.session_id)" @run="automatic" @talk="talk" @export-reference="exportReference" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
+      <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy" :blocked-reason="conditionEditing?'请先保存或取消条件草稿，再发送；消息已保留。':edited?'请先保存当前编辑，再发送；输入已保留。':''" :submitting="submission==='conversation'" :feedback="talkFeedback" :failure="talkFailure" :unconfirmed="talkUnconfirmed||intakeUnconfirmed" :resumable="talkResumable||intakeResumable" :acknowledgment="messageAcknowledgment" @resume="resumeSubmission('conversation')" @recover="load(data.session_id)" @run="automatic" @talk="talk" @browse="showSavedGuide=true" @export-reference="exportReference" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
       <CriticalMap v-if="!data.demo&&data.critical_map" :plan="data" :busy="busy||edited||externalRunning" @updated="apply" @mode="mapMode" />
-      <details v-if="data.guide_view && data.draft.activities.length && (!data.automatic_task || data.proposal_preview_active || data.adopted)" class="card" :open="data.proposal_preview_active"><summary>已保存攻略、修改与导出</summary><AdvisoryGuide :plan="data" :busy="busy" @action="act" /></details>
+      <details v-if="data.guide_view && data.draft.activities.length" class="card" :open="showSavedGuide||data.proposal_preview_active"><summary>已保存攻略、修改与导出</summary><AdvisoryGuide :plan="data" :busy="busy" @action="act" /></details>
       <details class="card"><summary>高级：本地选材、手动操作与详细条件</summary>
       <LocalMaterials v-if="!data.demo" :plan="data" :busy="busy || edited" @action="act" @refresh="load" @newtrip="creating=true" />
       <OperationPanel :plan="data" :busy="busy" @action="act" />

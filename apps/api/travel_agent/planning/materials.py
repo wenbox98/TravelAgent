@@ -7,7 +7,7 @@ from travel_agent.preview.projection import fingerprint
 from travel_agent.preview.service import PreviewService
 from .flow_models import Activity
 
-_SEQUENCE = re.compile(r"\s*(?:→|->|➡|➜|—>|👉)\s*")
+_SEQUENCE = re.compile(r"\s*(?:→|->|➡|➜|➝|➞|➔|—>|👉)\s*")
 _DAY = re.compile(
     r"^\s*(?:Day\s*\d+|D\s*\d+|第[一二三四五六七八九十\d]+天|路线|行程)\s*[：:]?\s*", re.I
 )

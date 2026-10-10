@@ -296,6 +296,47 @@ def test_context_target_tampering_rejects_only_bad_proposal(scoped):
         assert result["accepted_count"] == result["rejected_count"] == 1
 
 
+def test_proven_context_alias_is_accepted_and_audited_without_reply_rewrite(scoped):
+    from travel_agent.planning.advisory import validate
+    from test_advisory_guide import proposal
+
+    s, v = scoped
+    _, data = context(s, v)
+    bg = data["scoped_context"][0]
+    original = next(r for r in data["references"] if r["claim_id"] == bg["citation_id"])
+    alias = dict(original, claim_id="verified-card-alias", knowledge_kind="SOURCE_REFERENCE")
+    data["references"].append(alias)
+    data["allowed_citation_ids"].append(alias["claim_id"])
+    raw = proposal(data)
+    p = raw["proposals"][0]
+    p["citation_ids"] = [
+        alias["claim_id"] if i == original["claim_id"] else i for i in p["citation_ids"]
+    ]
+    p["context_uses"] = [
+        dict(
+            context_id=bg["context_id"],
+            activity_ids=bg["activity_ids"],
+            use="COMPARE",
+            reason="建议按兴趣少选项目。",
+        )
+    ]
+    before = deepcopy(raw)
+    result = validate(raw, data)
+    assert result["accepted_count"] == 1
+    audit = result["proposals"][0]["normalizations"]
+    assert any(a["rule"] == "PROVEN_CONTEXT_CITATION_ALIAS" for a in audit)
+    assert raw == before
+    for changed in (
+        dict(source_id="other"),
+        dict(locator="other"),
+        dict(conditions=["冬季"]),
+        dict(reference_kind="AUTHOR_PROPOSED_PLAN"),
+    ):
+        bad = deepcopy(data)
+        bad["references"][-1].update(changed)
+        assert validate(raw, bad)["accepted_count"] == 0
+
+
 def test_removal_keeps_history_and_drops_unrelated_context(scoped):
     from travel_agent.planning.scoped_context import view
 
@@ -506,6 +547,8 @@ def test_repeated_background_text_cannot_bypass_source_limit():
         ("我不知道，但这些项目属于同一片区", True),
         ("各处都有人少的优势", True),
         ("不必每一站停留，可减少项目", False),
+        ("不把整段背景当成每站特色", False),
+        ("不把整段背景当成每站特色，但各站都有独特氛围", True),
     ],
 )
 def test_context_scope_distinguishes_disclaimer_from_assertion(text, blocked):

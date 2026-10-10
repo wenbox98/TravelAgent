@@ -47,7 +47,13 @@ def failure_diagnostic(exc: Exception, phase: str) -> dict[str, Any]:
         r"(?:CONFIGURED_|BOUNDED_|GATE_|ROUTE_CHOICES_)[A-Z0-9_]+", str(exc)
     ):
         reason = str(exc)
-    return dict(reason=reason, phase=phase, exception_type=type(exc).__name__, frames=frames[-5:])
+    result: dict[str, Any] = dict(reason=reason, phase=phase, exception_type=type(exc).__name__, frames=frames[-5:])
+    import sqlite3
+    if isinstance(exc, sqlite3.Error):
+        result["sqlite_errorcode"] = getattr(exc, "sqlite_errorcode", None)
+        name = getattr(exc, "sqlite_errorname", "")
+        result["sqlite_errorname"] = name if re.fullmatch(r"SQLITE_[A-Z_]+", name) else None
+    return result
 
 
 def configured_provider() -> OpenAICompatibleProvider:
