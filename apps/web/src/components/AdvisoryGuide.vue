@@ -63,6 +63,7 @@ function stay(i:number,key:'stay_min'|'stay_max',e:Event){form.value.activities[
       <p>整体背景参考来自 {{guide.context.source_count}} 个来源；不按项目数量重复计数，来源独立性未确认。</p>
     </details>
     <section v-if="guide.assumptions.length" aria-label="本次安排与取舍"><h3>本次安排与取舍</h3><p v-for="note in guide.assumptions" :key="note">{{note}}</p></section>
+    <section v-if="guide.connections?.length" aria-label="项目之间怎么衔接"><h3>项目之间怎么衔接</h3><p>按当前草稿顺序列出待安排的移动，不是已核实路线或固定时刻。可在“先核实一段关键移动”中选择关键公共段。</p><p v-for="(c,i) in guide.connections" :key="i">{{c.label}} · {{c.names.join(' → ')}}；{{c.mode}}。{{c.note}}</p></section>
     <article v-for="(a,i) in guide.activities" :key="a.activity_id" class="activity"><h4>第 {{a.day}} 天 · {{a.period}} · {{a.name}}</h4><p v-if="!a.content_references?.length">{{a.highlight}}</p><p>{{a.stay}}；{{a.rest}}。{{a.locked_start?'预约锁定 '+a.locked_start+'。':''}}</p>
       <details><summary>修改停留、日段或预约</summary><fieldset :disabled="busy"><div class="grid">
         <label>第几天<input v-model.number="form.activities[i].day" type="number" min="1" max="90" @change="save" /></label>

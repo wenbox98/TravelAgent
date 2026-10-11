@@ -95,7 +95,7 @@ def main():
             value["security"] = [{"PreviewMapSession": []}]
         if operation in {'checkExplicitKeyLeg', 'exportLocalRouteReference'}:
             value['security'] = [{'PreviewMapSession': []}]
-            value['summary'] = ('显式单段许可：公共地点最多2次、路径最多1次；实际POI需确认，无自动重试，刷新重启零派发' if operation == 'checkExplicitKeyLeg' else '当前有效引用的版本化本地路线参考导出；不是已采用攻略或新模型生成，零外部调用')
+            value['summary'] = ('显式相邻单段许可（含跨日移动窗口）：公共地点最多2次、路径最多1次；不代表同日直达或住宿安排，实际POI需确认，无自动重试，刷新重启零派发' if operation == 'checkExplicitKeyLeg' else '当前有效引用的版本化本地路线参考导出；不是已采用攻略或新模型生成，零外部调用')
         if operation == 'invokeAuthorizedAgentMap':
             value['security'] = [{'PreviewMapSession': []}]
             value['summary'] = 'V3业务工具：只用当前显式MAP许可和同一账本；公共候选需确认，模型仅接收状态，地图返回只在服务内存'

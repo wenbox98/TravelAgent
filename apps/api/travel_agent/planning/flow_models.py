@@ -248,11 +248,11 @@ class RevisionResponse(StrictModel):
 
 class PlanView(StrictModel):
     answer_job: dict[str, Any] | None = None
-    critical_map: dict[str, Any] | None = None
+    critical_map: dict[str, Any] | None = Field(default=None, description="pairs includes day and end_day; cross-day adjacent public places require explicit key-leg consent and are only a movement-window reference, not a same-day itinerary or lodging plan.")
     reference_overview: dict[str, Any] | None = None
     conversation: dict[str, Any] | None = None
     automatic_task: dict[str, Any] | None = None
-    guide_view: dict[str, Any] | None = None
+    guide_view: dict[str, Any] | None = Field(default=None, description="connections lists current draft adjacent activities with day/end_day, mode, CURRENT_DRAFT_ORDER origin and UNVERIFIED status; export projects the adopted version only, never transient map results.")
     local_guide_review: dict[str, Any] | None = None
     combination_candidates: list[Activity] = Field(default_factory=list)
     session_id: str

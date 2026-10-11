@@ -94,9 +94,10 @@ def view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
             place_ids=[a.activity_id.lower(), b.activity_id.lower()],
             names=[a.name, b.name],
             day=a.day,
+            end_day=b.day,
         )
         for a, b in zip(draft.activities, draft.activities[1:])
-        if a.day == b.day and a.activity_id in supported and b.activity_id in supported
+        if a.day <= b.day and a.activity_id in supported and b.activity_id in supported
     ]
     allowed = {"PUBLIC_TRANSIT": "TRANSIT", "WALKING": "WALKING", "SELF_DRIVE": "DRIVING"}.get(
         draft.transport
@@ -111,7 +112,7 @@ def view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
     if not daily(p) or p.get("demo"):
         gaps.append("仅在普通私人旅行中核实公共路段。")
     if not pairs:
-        gaps.append("需要同一天至少两个有来源依据的公共地点；路线概述不会自动拆成景点。")
+        gaps.append("需要当前顺序中两个相邻、有来源依据的公共地点；路线概述不会自动拆成景点。")
     if not mode_valid:
         if allowed:
             label = {"DRIVING": "自驾", "TRANSIT": "公共交通", "WALKING": "步行"}[allowed]
@@ -150,7 +151,7 @@ def view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
         active=active,
         task=task,
         remaining=remaining,
-        meaning="一次只核实你确认的一段，最多两个地点查询和一次路径查询；结果是临时估算，接驳、班次与未来可行性仍未知。",
+        meaning="一次只核实你确认的一段，最多两个地点查询和一次路径查询；跨日段只核实两地移动参考，不代表当天直达、途中无住宿或已经排定出发时间。接驳、班次与未来可行性仍未知。",
     )
 
 

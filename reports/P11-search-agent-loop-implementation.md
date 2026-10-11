@@ -175,3 +175,13 @@ debefb2部署后，普通页面一次明确缓存生成：理解、监督、规�
 修改：`planning/scoped_context.py::validate_uses`、`planning/advisory.py::PROMPT/VERSION`；`preview/api.py`补上AUTOMATIC_ALREADY_RUNNING可执行中文提示；架构与任务书同步。合成测试覆盖备选不插入、背景不转移、非COMPARE不放行、虚构/目录外目标、范围断言、缺引用拒绝及不改写原答复。
 
 验证：隔离主机临时目录运行test_scoped_context.py、test_advisory_guide.py、test_guide_lodging_revalidation.py，93 passed，22.59秒；两条既有依赖弃用警告，Ruff通过。第一条测试命令误写不存在的test_guide_revalidation.py，未运行任何测试，已纠正。直接传入API目录扩大mypy范围产生220项历史模块错误；项目标准`mypy --no-incremental`112源文件通过，未修改无关历史模块。保存的武汉原始答复按新规则只读复核接纳1，外部调用0，原失败/采用版/用量不改写。私人证据`.local/root-p11-review/B-context-recheck.json`，真实答复不提交Git。湖北缓存分析仍运行，部署须等其结束；页面本地复核、下载和两轮最终内容/恢复验收尚未完成。本批差异7文件、72新增/5删除（提交前文档补充可能调整），没有数据库迁移或新业务外部请求。
+
+## 2026-10-11 跨日关键移动与衔接呈现批次
+
+A在b8b247b运行版真实完成SUFFICIENT：仅3次模型、零新来源请求，六项具体玩法均CONTENT_REFERENCE，木鱼镇仅住宿，两住宿片区；普通预览取消后旧采用v1未改，累计7搜索/21正文尝试/71模型。尚未完成整轮验收。
+
+修复critical_map.view与PrivateFlowMapService跨日关键段漏选；只放行显式绑定的相邻跨日段，有限2地点/1路径、当前模式、身份确认、版本与幂等保持。guide_view.project/export新增逐段移动窗口，UNKNOWN不伪称驾车可用，导出仍只用采用版；AdvisoryGuide/CriticalMap及前端类型同步。兼容契约字段说明同步domain.schema/OpenAPI/导出工具，无数据库迁移。
+
+实际验证：Ruff通过；mypy 112文件通过；全13组网页交互脚本及vue-tsc/Vite构建通过。Python首轮37通过/1断言失败（内容相同、会话revision正常递增；修正断言排除revision），最终结果接续记录。生成契约说明首次命令因未配置导入路径失败，改为指定apps/api的本地脚本成功，仅变两字段说明。合成测试无业务外部请求。部署与真实地图/采用导出仍待执行，不能以此批代码宣布完成。
+
+最终Python回归38通过（16.81秒），两项第三方弃用警告；Ruff与mypy112文件通过。网页13组测试、构建通过。导出衔接段明确写“本采用版顺序”，页面写当前草稿，避免混淆。

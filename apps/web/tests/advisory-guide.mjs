@@ -65,3 +65,9 @@ assert(walkingHtml.indexOf('本次只步行，不安排骑行')<walkingHtml.inde
 assert.equal(walkingHtml.split('适合慢慢骑行').length-1,1)
 assert(walkingHtml.includes('非当前核实）：适合慢慢骑行'))
 console.log('PASS AdvisoryGuide: current walking choice is visible before separately labelled source cycling advice')
+
+const connected=await renderToString(createSSRApp({ssrRender,data:()=>({guide:{...guide,connections:[{names:['甲园','乙馆'],day:1,end_day:2,label:'第 1 天→第 2 天（跨日衔接）',mode:'当地交通未定',note:'途中是否住宿、中转点和实际耗时待确认。',origin:'CURRENT_DRAFT_ORDER',status:'UNVERIFIED'}]},form,plan,busy:false,editing:false,composing:false,selected:[],error:'',money:()=> '未知'})}))
+assert(connected.includes('项目之间怎么衔接') && connected.includes('跨日衔接'))
+assert(connected.includes('当地交通未定') && connected.includes('途中是否住宿'))
+assert(connected.includes('甲园') && connected.includes('乙馆'))
+console.log('PASS AdvisoryGuide: cross-day window and unknown transport remain explicit')

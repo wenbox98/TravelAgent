@@ -198,6 +198,30 @@ def test_combination_cancel_adopt_locks_and_unknown_costs(normal):
         act(s, v, "preview_combination", activity_ids=["guide-a", "guide-b", "guide-d"])
 
 
+def test_cross_day_connection_is_unknown_and_export_keeps_adopted_order(normal):
+    s, _ = normal
+    v = synthetic(s)
+    d = PlanDraft.model_validate(v["draft"])
+    d.activities = d.activities[:2]
+    d.activities[0].day, d.activities[1].day = 1, 2
+    d.transport, d.driving, d.rental = "UNKNOWN", "NO", "NO"
+    v = act(s, v, "save", draft=d)
+    v = act(s, v, "adopt")
+    connection = v["guide_view"]["connections"][0]
+    assert connection["names"] == [a.name for a in d.activities]
+    assert connection["end_day"] == 2 and connection["status"] == "UNVERIFIED"
+    assert connection["mode"] == "当地交通未定"
+    before = export(s.db, s.scope, v["session_id"])
+    assert "跨日衔接" in str(before) and "途中是否住宿" in str(before)
+    d.activities[1].day = 1
+    v = act(s, v, "save", draft=d)
+    assert v["guide_view"]["connections"][0]["end_day"] == 1
+    after = export(s.db, s.scope, v["session_id"])
+    assert {k: value for k, value in after.items() if k != "revision"} == {
+        k: value for k, value in before.items() if k != "revision"
+    }
+
+
 def test_model_quote_forgery_rejected_but_budget_proposal_allowed(normal):
     s, _ = normal
     v = synthetic(s)

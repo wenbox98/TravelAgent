@@ -138,6 +138,16 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
         )
         + " · "
         + ("往返自行安排" if d.inputs.planning_scope == "ACTIVITY_WINDOW" else "门到门范围待核实"),
+        connections=[dict(
+            names=[a.name, b.name], day=a.day, end_day=b.day,
+            label=f"第 {a.day} 天" + (f"→第 {b.day} 天（跨日衔接）" if a.day != b.day else ""),
+            mode={"SELF_DRIVE": "自驾意向", "PUBLIC_TRANSIT": "公共交通优先",
+                  "WALKING": "步行意向", "LOCAL_SERVICE": "当地服务待核实",
+                  "UNKNOWN": "当地交通未定"}[d.transport],
+            note=("前一项目结束至后一项目前的移动窗口；途中是否住宿、中转点和实际耗时待确认。"
+                  if a.day != b.day else "依当前项目顺序衔接；具体路线、接驳、班次和耗时待核实。"),
+            origin="CURRENT_DRAFT_ORDER", status="UNVERIFIED",
+        ) for a, b in zip(d.activities, d.activities[1:]) if a.day <= b.day],
         source_contexts=contexts,
         unlinked_source_conditions=unlinked_conditions,
         activities=[
@@ -277,6 +287,10 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
     if guide["assumptions"]:
         lines += ["", "## 本次安排与取舍", ""]
         lines += ["- " + escaped(v) for v in guide["assumptions"]]
+    if guide["connections"]:
+        lines += ["", "## 项目之间怎么衔接", "", "以下按本采用版顺序列出待安排的移动，不是已核实路线或固定时刻。"]
+        lines += ["- " + escaped(v["label"] + " · " + " → ".join(v["names"]) + "；"
+                  + v["mode"] + "。" + v["note"]) for v in guide["connections"]]
     for a in guide["activities"]:
         lines += [
             "",

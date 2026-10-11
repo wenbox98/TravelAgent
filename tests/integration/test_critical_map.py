@@ -81,11 +81,20 @@ def send(s, maps, sid, kind, key=None, **fields):
     return s.plans.get(sid)
 
 
-def test_explicit_key_leg_resolve_confirm_route_and_restart_are_bounded(key_leg):
+@pytest.mark.parametrize("cross_day", [False, True])
+def test_explicit_key_leg_resolve_confirm_route_and_restart_are_bounded(key_leg, cross_day):
     s, v, maps, adapter = key_leg
     sid = v["session_id"]
+    if cross_day:
+        draft = PlanDraft.model_validate(v["draft"])
+        draft.days = max(draft.days or 0, 2)
+        for a in draft.activities[1:]:
+            a.day = 2
+        v = s.plans.mutate(sid, PlanAction(action="save", expected_revision=v["revision"],
+            draft=draft), str(uuid4()))
     assert not adapter.calls
     pair = v["critical_map"]["pairs"][0]
+    assert pair["end_day"] == (2 if cross_day else 1)
     with pytest.raises(ValueError, match="OPERATION_NOT_AUTHORIZED"):
         send(s, maps, sid, "start", leg_id=pair["leg_id"])
     key = str(uuid4())

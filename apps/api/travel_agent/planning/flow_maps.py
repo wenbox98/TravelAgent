@@ -255,7 +255,10 @@ class PrivateFlowMapService(FlowMapService):
             pairs = {
                 a.activity_id.lower() + "--" + b.activity_id.lower()
                 for a, b in zip(draft.activities, draft.activities[1:])
-                if a.day == b.day
+                if a.day == b.day or (
+                    (state["planning"].get("critical_map_task") or {}).get("leg_id")
+                    == a.activity_id.lower() + "--" + b.activity_id.lower() and a.day <= b.day
+                )
             }
             view["legs"] = [leg for leg in view["legs"] if leg["leg_id"] in pairs]
             from .time_check import check_time
@@ -306,6 +309,7 @@ class PrivateFlowMapService(FlowMapService):
             draft = PlanDraft.model_validate(p["draft"])
             from .workbench import daily
 
+            critical = None
             if daily(p):
                 b = PrivatePlanningBudget.for_trip(db, action.session_id)
                 b.task("MAP")
@@ -383,7 +387,8 @@ class PrivateFlowMapService(FlowMapService):
                 pairs = {
                     a.activity_id.lower() + "--" + b.activity_id.lower()
                     for a, b in zip(draft.activities, draft.activities[1:])
-                    if a.day == b.day
+                    if a.day == b.day or (critical and a.day <= b.day
+                        and critical["leg_id"] == a.activity_id.lower() + "--" + b.activity_id.lower())
                 }
                 if action.leg_id not in pairs:
                     raise ValueError("INVALID_INPUT")

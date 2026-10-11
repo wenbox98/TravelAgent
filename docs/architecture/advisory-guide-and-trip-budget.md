@@ -114,3 +114,9 @@ advisory-guide-1.6 沿用协议 v4，新增可缺省的 GuideContextUse：受控
 `advisory.schema_errors/reference_diagnostic/shape_diagnostic` 仅保存预定义字段路径、错误码、结构和引用数量，不保存错误值、未知字段名或验证器自由消息。`revision_diagnostics.retain` 即使原回复不可安全回放也保留该结构摘要；原回复仍为 null，不把摘要当原文或可回放依据。历史丢失回复不能凭新诊断恢复。
 
 `materials.activities` 在十二项页面上限之前优先考虑具有明确命名动作的已审核体验；这是选材排序，不升级身份、范围、事实或内容标签。自动选材先枚举全部本地候选、保护当前有效锁定项，再执行原十二活动/六来源上限；路线成员关联也不因展示上限漏掉明确成员。没有增加抓取或调用额度。未采信的体验、无证明的住宿片区和未核实的非自驾衔接继续保留缺口。
+
+### 跨日衔接与显式关键路段
+
+`guide_view.connections`由当前草稿相邻项目投影，标记CURRENT_DRAFT_ORDER/UNVERIFIED；day/end_day不同表示跨日移动窗口，途中住宿、中转与实际耗时均未知。交通说明使用当前交通条件，UNKNOWN不沿用旧驾车估算。采用版Markdown只投影采用版顺序，不受未采用草稿改变影响，也不包含仅内存地图响应。
+
+关键地图pairs兼容新增end_day。跨日段只有与当前显式critical_leg一致、相邻且日序非递减才允许查询；普通广泛地图权限不扩大。许可仍为2地点/1路径，身份确认、当前模式、版本绑定和不自动重试不变。新字段在PlanView契约说明、OpenAPI及导出工具同步，无SQL迁移。

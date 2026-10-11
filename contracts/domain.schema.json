@@ -7162,7 +7162,8 @@
             }
           ],
           "default": null,
-          "title": "Critical Map"
+          "title": "Critical Map",
+          "description": "pairs includes day and end_day; cross-day adjacent public places require explicit key-leg consent and are only a movement-window reference, not a same-day itinerary or lodging plan."
         },
         "reference_overview": {
           "anyOf": [
@@ -7214,7 +7215,8 @@
             }
           ],
           "default": null,
-          "title": "Guide View"
+          "title": "Guide View",
+          "description": "connections lists current draft adjacent activities with day/end_day, mode, CURRENT_DRAFT_ORDER origin and UNVERIFIED status; export projects the adopted version only, never transient map results."
         },
         "local_guide_review": {
           "anyOf": [
