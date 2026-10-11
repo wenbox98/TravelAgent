@@ -9,7 +9,7 @@ from travel_agent.persistence.database import Database
 from travel_agent.preview.projection import fingerprint
 from travel_agent.providers.llm import OpenAICompatibleProvider, validate_structured
 from travel_agent.domain.source_policy import SENSITIVE_RESEARCH_TEXT
-from .agent_contract import Understanding, Decision
+from .agent_contract import Understanding, Decision, reference_policy
 from .flow import PlanningService
 from .workbench import DailyBudget
 
@@ -90,10 +90,9 @@ def run(database: Path, jid: str, provider: Any = None) -> None:
             if "references" in request["payload"]:
                 from .questions import payload
 
-                from .agent_contract import CONSENT, CURRENT_CONSENT
-                v4 = request["task"] == "travel_supervisor_v1" and budget.state()["gate"].get("consent") in {CONSENT, CURRENT_CONSENT}
+                source_limit, prefer_new = reference_policy(request["task"], budget.state()["gate"].get("consent"))
                 fresh = payload(db, row["account_scope"], row["session_id"], p, p["agent_input"],
-                                source_limit=20 if budget.state()["gate"].get("consent") == CURRENT_CONSENT else 6 if v4 else 2, prefer_new=v4)
+                                source_limit=source_limit, prefer_new=prefer_new)
                 if fresh["references"] != request["payload"]["references"]:
                     raise ValueError("AGENT_MATERIAL_CHANGED")
 

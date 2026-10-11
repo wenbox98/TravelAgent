@@ -12,6 +12,15 @@ CURRENT_CONSENT = "PRIVATE_GOAL_AGENT_V5"
 CONSENTS = {LEGACY_CONSENT, CONSENT, CURRENT_CONSENT}
 MAX_ROUNDS = 6
 COMPLETION_RESERVE = 2  # One feedback decision + one planning request.
+QUESTION_SOURCE_LIMIT = 2
+
+
+def reference_policy(purpose: str, consent: str | None) -> tuple[int, bool]:
+    """Use identical selection at dispatch and both late-result fences."""
+    supervisor = purpose == "travel_supervisor_v1" and consent in {CONSENT, CURRENT_CONSENT}
+    if supervisor:
+        return (20 if consent == CURRENT_CONSENT else 6), True
+    return QUESTION_SOURCE_LIMIT, False
 
 
 def cached_body_reprocess_requested(text: str) -> bool:

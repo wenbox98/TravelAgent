@@ -13,6 +13,7 @@ from travel_agent.persistence.database import Database
 from travel_agent.providers.llm import OpenAICompatibleProvider, validate_structured
 from travel_agent.domain.source_policy import SENSITIVE_RESEARCH_TEXT
 from .flow_models import OperationAuthorization
+from .agent_contract import QUESTION_SOURCE_LIMIT
 
 CONSENT = "PRIVATE_CACHED_QUESTION_V1"
 
@@ -36,7 +37,7 @@ class Answer(StrictModel):
     proposed_conditions: Interpretation
 
 
-def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str, *, source_limit: int = 2, prefer_new: bool = False) -> dict[str, Any]:
+def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str, *, source_limit: int = QUESTION_SOURCE_LIMIT, prefer_new: bool = False) -> dict[str, Any]:
     from .conversation import model_context
     from .reference_overview import references, choices, project
     from travel_agent.research.canonical import body_blocks
@@ -134,7 +135,7 @@ def payload(db: Any, scope: str, sid: str, p: dict[str, Any], question: str, *, 
     result = dict(
         protocol="CACHED_QUESTION_V1",
         question=safe_question,
-        conditions={k: p["draft"][k] for k in ("days", "driving", "transport", "pace")},
+        conditions={k: p["draft"][k] for k in ("days", "driving", "transport", "arrival_transport", "rental", "pace")},
         budget_conditions={
             k: p["draft"]["trip_budget"][k]
             for k in ("people", "rooms", "nights", "target_fen", "lodging_scope")

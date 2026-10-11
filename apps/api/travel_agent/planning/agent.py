@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from travel_agent.persistence.database import Database
 from travel_agent.preview.projection import fingerprint
 from travel_agent.domain.source_policy import SENSITIVE_RESEARCH_TEXT
-from .agent_contract import MAX_ROUNDS, COMPLETION_RESERVE, CONSENT, CURRENT_CONSENT, Understanding, cache_only_requested
+from .agent_contract import MAX_ROUNDS, COMPLETION_RESERVE, CONSENT, CURRENT_CONSENT, Understanding, cache_only_requested, reference_policy
 from travel_agent.research.bounded import has_capacity
 from .flow import PlanningService
 from .flow_models import PlanDraft
@@ -294,8 +294,8 @@ def decision_payload(
     from .questions import payload
     from .automatic import coverage
 
-    v4 = budget.state()["gate"].get("consent") in {CONSENT, CURRENT_CONSENT}
-    data = payload(db, scope, sid, p, p["agent_input"], source_limit=20 if budget.state()["gate"].get("consent") == CURRENT_CONSENT else 6 if v4 else 2, prefer_new=v4)
+    source_limit, prefer_new = reference_policy("travel_supervisor_v1", budget.state()["gate"].get("consent"))
+    data = payload(db, scope, sid, p, p["agent_input"], source_limit=source_limit, prefer_new=prefer_new)
     material_coverage = coverage(db, scope, sid, p)
     material_coverage["gaps"] = list(material_coverage["gaps"])
     for gap in p.get("agent_proposal_gaps", []):

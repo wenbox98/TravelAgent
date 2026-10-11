@@ -4,6 +4,11 @@
 
 ## 问题与实现
 
+- 2026-10-11：577f600部署后，A五天真实回复经页面明确标示的LOCAL_REVALIDATION接纳1；实际预览、取消恢复、重新预览采用v3，五天/AIR/UNKNOWN/NO/NO与草稿、采用hash一致，旧七天v2及原生导出保留。参考条目排除再恢复只改变选择版本，不改变草稿、采用版或业务用量；B当前v3原生32735字节再次与生产导出精确一致。
+- 随后三天假设实测FAIL：`automatic-a35047c40c1a44c69312e74248a13c9c`在ANSWER误报`AGENT_MATERIAL_CHANGED`。V5问答派发选2篇来源，预检误按20篇重选，实际资料没有变化；理解与监督2次真实HTTP、模型预留3次，回答HTTP未发出。A采用v3与草稿hash仍一致且未改，历史失败和预留全部保留。
+- 本批修复符号：`agent_contract.reference_policy/QUESTION_SOURCE_LIMIT`统一按用途选材；`agent.decision_payload`和`agent_model.run.current`共用此规则；`questions.payload`传入arrival_transport与rental当前条件。资料真实过期、版本、范围和引用绑定检查保留。无公开domain/OpenAPI/SQL变更，无正文再读取或再外发。
+- 实际测试：首次新增合成用例2失败，原因是问答条件误加不存在的charter键；删除该键后，目标2项通过13秒。完整运行`pytest tests/integration/test_goal_research_budget.py tests/integration/test_search_agent_loop.py tests/integration/test_goal_agent.py tests/integration/test_cached_questions_and_overview.py tests/integration/test_route_direction_iteration.py -q --basetemp=<独立临时目录>`，96通过120.22秒、2项依赖弃用警告；Ruff通过，`mypy --no-incremental`112文件通过，`git diff --check`通过。以上为离线合成回归；尚待部署后的真实假设复验，不冒充真实回答。
+
 - 2026-10-11新真实A生成仅用已审核资料，实际来源0、模型3，HTTP200/67.58秒、接纳2方案，说明d690255范围修复已真实生效。根会话实看首案仍有大坝路线候选、住宿镇被排两小时游玩和旧本地复核标签，已取消预览，revision51、采用v1哈希不变；不能算完整攻略PASS。
 - 本批修复：`activity_content.preceding_subject/heading_subject`区分动作前缀与精确地名；`knowledge.planning.templates`保留旧动态模板索引再追加新主语，`automatic.material_pool`仅在同卡、未锁定且新主体有审核玩法时去重旧动作名前缀。生产只读快照曾暴露KNOWLEDGE_BINDING_CHANGED，现已保留旧模板修正，预检大坝正确为CONTENT_REFERENCE；不改卡hash、原文、旧采用版。`advisory-guide-1.12`强调玩法同名候选优先、住宿基点不得凑成定时游玩及返程只是AI可选建议。
 - `guide_revalidation.view/check_adoption`与`guide_view.project/export`绑定当前作业/草稿身份：新模型预览不继承旧复核标签，取消恢复原标签；导出始终展示采用版自身性质，新正常采用清除旧复核标记。原作业历史保留；内部state标记增加draft_hash，domain/OpenAPI/SQL无变更。

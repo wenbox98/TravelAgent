@@ -307,6 +307,54 @@ def test_multi_source_feedback_contains_current_selection_exclusion_and_bound_re
     assert final["adopted"] is None
 
 
+@pytest.mark.parametrize("expires_during_answer", [False, True])
+def test_v5_hypothesis_answers_with_two_sources_from_larger_cache_and_keeps_fences(conversation, monkeypatch, expires_during_answer):
+    from copy import deepcopy
+    from travel_agent.planning.agent_contract import CURRENT_CONSENT
+    from travel_agent.planning.flow_models import PlanAction, PlanDraft
+    from travel_agent.planning.questions import payload
+    s, v, _, _ = conversation
+    v = send(s, v, "submit", text="合成青谷补充玩法资料", consent=CONSENT)
+    wire = Wire(monkeypatch, lambda *_: None)
+    v = research_then_plan(wire, s, v, MultiReader())
+    draft = PlanDraft.model_validate(v["draft"])
+    draft.days, draft.arrival_transport = 5, "AIR"
+    draft.transport, draft.driving, draft.rental = "UNKNOWN", "NO", "NO"
+    v = s.plans.mutate(v["session_id"], PlanAction(action="save", expected_revision=v["revision"], draft=draft), str(uuid4()))
+    v = s.plans.mutate(v["session_id"], PlanAction(action="adopt", expected_revision=v["revision"]), str(uuid4()))
+    _, state = s.plans.load(v["session_id"])
+    broad = payload(s.db, "owner", v["session_id"], state["planning"], "如果只有3天呢", source_limit=20)
+    minimal = payload(s.db, "owner", v["session_id"], state["planning"], "如果只有3天呢")
+    assert len({r["source_ref"] for r in broad["references"]}) > 2
+    assert len({r["source_ref"] for r in minimal["references"]}) == 2
+    before = deepcopy(v["draft"]), deepcopy(v["adopted"])
+    def respond(task, data):
+        if task == "travel_intake_v1":
+            return intake(data["user_text"], [], "HYPOTHETICAL")
+        if task == "travel_supervisor_v1":
+            assert not data["available_tools"]["RESEARCH_GAP"]["allowed"]
+            return choose("ANSWER")
+        assert task == "cached_travel_question_v1"
+        assert data["conditions"]["arrival_transport"] == "AIR"
+        assert data["conditions"]["rental"] == "NO"
+        assert data["conditions"]["days"] == 5
+        assert data["references"] == minimal["references"]
+        if expires_during_answer:
+            s.db.connection.execute("UPDATE source_contents SET expires_at='2000-01-01T00:00:00+00:00'")
+        return dict(advice="三天可只讨论一个片区；当前五天采用版保持。", citation_ids=[data["references"][0]["citation_id"]], gaps=["当地交通未知"], intent="QUESTION", proposed_conditions={})
+    wire.respond = respond
+    wire.sent.clear()
+    v = send(s, v, "submit", text="如果只有3天呢", consent=CURRENT_CONSENT)
+    reader = Reader()
+    run(s.db.path, v["automatic_task"]["task_id"], provider=config(), reader=reader)
+    final = s.plans.get(v["session_id"])
+    assert not wire.errors and [r["task"] for r in wire.sent] == ["travel_intake_v1", "travel_supervisor_v1", "cached_travel_question_v1"]
+    assert reader.calls == [] and final["draft"] == before[0] and final["adopted"] == before[1]
+    expected = "AGENT_MATERIAL_CHANGED" if expires_during_answer else "QUESTION_ANSWERED"
+    assert final["automatic_task"]["reason"] == expected
+    assert final["automatic_task"]["budget"]["used"]["model"] == 3
+
+
 def test_empty_failed_candidate_is_skipped_when_later_search_observes_it_again(service, monkeypatch):
     class RepeatedList(MultiReader):
         def search(self, query):
