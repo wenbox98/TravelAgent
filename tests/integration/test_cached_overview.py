@@ -232,6 +232,36 @@ def test_source_snapshot_reuse_preserves_write_invalidation(tmp_path, clock, mon
             assert len(calls) == 2
 
 
+def test_entry_index_reuses_checks_without_cross_request_staleness(tmp_path, clock, monkeypatch):
+    from fastapi.testclient import TestClient
+    from travel_agent.main import create_app
+    from travel_agent.preview.api import PreviewConfig
+    from travel_agent.persistence.repositories import EvidenceRepository
+
+    path = tmp_path / "entry-reuse.sqlite3"
+    with Database(path, clock=clock) as db:
+        seed(db, clock)
+        service(db).open("partial", "", "entry-reuse-open")
+    calls = []
+    original = EvidenceRepository.get
+    def counted(self, source_id, scope):
+        calls.append(source_id)
+        return original(self, source_id, scope)
+    monkeypatch.setattr(EvidenceRepository, "get", counted)
+    config = PreviewConfig(path, "owner", "CACHED_PRIVATE_PREVIEW", b"a" * 32)
+    with TestClient(create_app(preview=config), base_url="http://127.0.0.1:8765") as client:
+        client.get("/bootstrap?ticket=" + config.ticket, follow_redirects=False)
+        first = client.get("/api/v1/preview").json()
+        assert first["researches"] and first["session"]["options"]
+        assert len(calls) == 1  # latest session and catalog use the same checked source
+        client.get("/api/v1/preview")
+        assert len(calls) == 2  # never reuse a prior request's source validation
+        with Database(path, clock=clock) as db:
+            db.connection.execute("UPDATE claims SET deleted_at=?", (db.stamp(),))
+        changed = client.get("/api/v1/preview").json()
+        assert not changed["researches"] and not changed["session"]["options"]
+
+
 def test_unknown_choice_saved_and_idempotency_body_conflict(tmp_path, clock):
     with Database(tmp_path / "cache.sqlite3", clock=clock) as db:
         seed(db, clock)

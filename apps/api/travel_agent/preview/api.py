@@ -169,7 +169,8 @@ def install(app: FastAPI, config: PreviewConfig, port: int) -> None:
 
     @app.get("/api/v1/preview", response_model=PreviewIndex)
     def index() -> dict[str, Any]:
-        with Database(config.database) as db, db.snapshot():
+        from .service import view_cache
+        with Database(config.database) as db, db.snapshot(), view_cache():
             service = PreviewService(db, config.account_scope, config.mode)
             latest=service.latest()
             if config.route_check:
