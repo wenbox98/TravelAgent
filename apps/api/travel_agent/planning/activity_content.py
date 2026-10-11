@@ -9,7 +9,7 @@ PLAY = r"散步|观赏|欣赏|参观|徒步|品尝|看展|漫步|拍照|体验|�
 _PUBLIC_END = r"(?:公园|街区|景区|风景区|保护区|古镇|小镇|湿地|步道|广场|博物馆|纪念馆|大坝|画廊|洞|湖|寺|山|谷|街|路|桥|码头|大学|门|坊|林|坛|家|河|台|滩|园|馆)$"
 
 
-def preceding_subject(text: str) -> str | None:
+def preceding_subject(text: str, *, legacy_prefix: bool = False) -> str | None:
     """One exact destination after an action in an audited same-parent premise.
 
     Source clocks and trailing icons are formatting, never an adopted appointment.
@@ -19,41 +19,46 @@ def preceding_subject(text: str) -> str | None:
 
     if re.search(r"不|没|未|如果|假设|→|➡|->|\+|(?:公园|景区|馆)(?:和|与|及|、)|Day\s*\d|D\s*\d|第.{1,3}天", text, re.I):
         return None
+    action = r"(?:前往|打卡|出发|到|去|在|沿)" if legacy_prefix else r"(?:前往|打卡|出发(?:前往|去)?|到|去|在|沿)"
     match = re.search(
-        r"(?:前往|打卡|出发|到|去|在|沿)(?:免费的)?([\u4e00-\u9fffA-Za-z·]{2,24})"
+        action + r"(?:免费的)?([\u4e00-\u9fffA-Za-z·]{2,24})"
         r"[\s，。；📍]*$", text,
     )
     name = place_name(match[1]) if match else None
     return name if name and activity_subject(name) and re.search(_PUBLIC_END, name) else None
 
 
-def heading_subject(text: str) -> str | None:
+def heading_subject(text: str, *, legacy_prefix: bool = False) -> str | None:
     """Exact single public subject before a heading separator, without route inference."""
     from .materials import place_name, activity_subject
 
     text = re.sub(r"^[^\u4e00-\u9fffA-Za-z]*", "", text)
+    # An action prefix is not part of the exact public noun in a heading.
+    # Keep the original source/card untouched; only project its named subject.
+    if not legacy_prefix:
+        text = re.sub(r"^(?:前往|打卡|去)(?=[\u4e00-\u9fffA-Za-z·]{2,30}[：:｜|])", "", text)
     match = re.match(r"^([\u4e00-\u9fffA-Za-z·]{2,30})[：:｜|]", text)
     name = place_name(match[1]) if match else None
     return name if name and activity_subject(name) and re.search(_PUBLIC_END, name) and not re.search(
-        r"不|没|未|如果|假设|Day\s*\d|D\s*\d|第.{1,3}天", name, re.I
+        r"不|没|未|如果|假设|和|与|及|Day\s*\d|D\s*\d|第.{1,3}天", name, re.I
     ) else None
 
 
-def reviewed_subject_names(row: dict[str, Any]) -> list[str]:
+def reviewed_subject_names(row: dict[str, Any], *, legacy_prefix: bool = False) -> list[str]:
     """Exact nouns from audited preceding subject premises, never day headers."""
     if row.get("review_status") not in REVIEWED:
         return []
-    own = heading_subject(row["text"])
+    own = heading_subject(row["text"], legacy_prefix=legacy_prefix)
     names = [own] if own and explicit_subject(own, row["text"]) else []
     if not re.search(PLAY, row["text"]):
         return names
     for clause in row.get("clause_context", []):
         if re.search(r"不|没|未|如果|假设|→|➡|->|Day\s*\d|D\s*\d|第.{1,3}天", clause, re.I):
             continue
-        header = heading_subject(clause)
+        header = heading_subject(clause, legacy_prefix=legacy_prefix)
         if header:
             names.append(header)
-        name = preceding_subject(clause)
+        name = preceding_subject(clause, legacy_prefix=legacy_prefix)
         if name:
             names.append(name)
     return list(dict.fromkeys(names))
@@ -72,6 +77,7 @@ def explicit_subject(name: str, text: str) -> bool:
         return False
     return bool(
         named == {name} or short_action or heading_subject(text) == name
+        or heading_subject(text, legacy_prefix=True) == name
         or re.match(
             r"^(?:在|我(?:们)?(?:计划|想)?在)"
             + re.escape(name)
@@ -111,7 +117,8 @@ def content_references(
     by_id = {r["claim_id"]: r for r in refs}
     bound = [by_id[i] for i in ids(activity) if i in by_id]
     other_subjects = {a.name for a in activities(refs, "", limit=None)
-                      if activity_subject(a.name) and a.name not in activity["name"]}
+                      if activity_subject(a.name) and a.name not in activity["name"]
+                      and not re.fullmatch(r"(?:前往|打卡|去)" + re.escape(activity["name"]), a.name)}
     return [
         r
         for r in refs

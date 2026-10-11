@@ -86,7 +86,7 @@ def checked(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any]:
 
 def view(db: Any, scope: str, sid: str, p: dict[str, Any]) -> dict[str, Any] | None:
     value = current_record(p)
-    if not value:
+    if not value or value["source_job"] != p.get("job_id"):
         return None
     result = deepcopy(value)
     try:
@@ -115,6 +115,10 @@ def preview(db: Any, scope: str, sid: str, p: dict[str, Any], revision: int, ind
 def check_adoption(db: Any, scope: str, sid: str, p: dict[str, Any], revision: int) -> None:
     marker = p.get("local_guide_preview")
     if not marker:
+        if p.get("adopted") != p["draft"] or any(
+            p.get(k) for k in ("knowledge_preview", "revision_preview", "combination_preview")
+        ):
+            p.pop("last_guide_revalidation_adoption", None)
         return
     if marker["preview_revision"] != revision or marker["draft_hash"] != fingerprint(p["draft"]):
         raise ValueError("STALE_PROPOSAL")
@@ -124,6 +128,7 @@ def check_adoption(db: Any, scope: str, sid: str, p: dict[str, Any], revision: i
     if chosen["revalidation_id"] != marker["record_id"]:
         raise ValueError("STALE_PROPOSAL")
     p["last_guide_revalidation_adoption"] = dict(
-        kind="LOCAL_REVALIDATION", record_id=marker["record_id"], index=marker["index"]
+        kind="LOCAL_REVALIDATION", record_id=marker["record_id"], index=marker["index"],
+        draft_hash=marker["draft_hash"],
     )
     p.pop("local_guide_preview", None)

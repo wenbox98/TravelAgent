@@ -10,7 +10,7 @@ from .guide_models import GuideProposal, GuideContent, BudgetLine
 from .arrangements import Rejected, _safety, _check, required_citation_ids
 from .guide_context import walking, budget_context
 
-VERSION = "advisory-guide-1.11"
+VERSION = "advisory-guide-1.12"
 SYNTHETIC = "GUIDE_MULTI_DAY"
 PROMPT = (
     "Return JSON only, protocol_version 4, Simplified Chinese, matching the supplied schema. "
@@ -59,6 +59,9 @@ PROMPT = (
     "Reorganize supplied activities across these days for a relaxed trip, without inventing places or filling every hour. "
     "Read material_support separately: NAME_ONLY supports a tentative named stop and pacing, never highlights; "
     "ROUTE_CONTEXT supports source combination only; CONTENT_REFERENCE supports only its provided reviewed text. "
+    "Prefer supplied CONTENT_REFERENCE candidates for actual visits over a ROUTE_CONTEXT namesake. "
+    "A town supplied only as an overnight base belongs in lodging strategy, not a timed sightseeing activity "
+    "unless separate reviewed play content supports a visit. Do not inflate coverage with hotel/transfer stops. "
     "Do not claim that quantity of references or selected names makes a useful full guide. "
     "For a day intentionally without activities, use day_choices with kind REST or SELF_ARRANGED and a concrete "
     "reason explaining the tradeoff. These are your modifiable suggestions, never inferred user consent. "

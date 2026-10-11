@@ -182,6 +182,7 @@ def test_preceding_reviewed_subject_creates_play_candidate_without_later_stop():
 @pytest.mark.parametrize("premise,play,name", [
     ("上午 8 点出发合成青谷景区📍，", "登顶后群山云海尽收眼底，", "合成青谷景区"),
     ("上午 8 点打卡合成青谷自然保护区，", "走进古树参天的原始森林，", "合成青谷自然保护区"),
+    ("8点左右出发去合成青谷大坝，", "重点看开放区域的江面景色；", "合成青谷大坝"),
 ])
 def test_audited_action_premise_projects_exact_public_subject_without_adopting_clock(premise, play, name):
     from travel_agent.planning.materials import activities
@@ -206,11 +207,40 @@ def test_audited_action_premise_projects_exact_public_subject_without_adopting_c
         conditions=[premise], review_scope="GUIDE_SUGGESTION", review_method="MODEL_CONTEXT_REVIEWED",
         evidence_links=[row["claim_id"]], scoped_references=[row],
         sources=[dict(source_id="synthetic:timed-play")])
-    assert [a.name for a in templates(card)] == [name]
+    assert templates(card)[-1].name == name
+    if "出发去" in premise:
+        assert [a.name for a in templates(card)] == ["去" + name, name]
     for context in [[], ["如果" + premise], ["未" + premise],
                     ["Day1 " + premise], ["去合成青谷景区与合成南馆，"]]:
         assert not activities([dict(row, clause_context=context)], "合成区域", limit=None)
     assert not activities([dict(row, review_status="PENDING")], "合成区域", limit=None)
+
+
+def test_reviewed_action_heading_projects_canonical_noun_preserving_old_card_entry():
+    from travel_agent.planning.activity_content import reviewed_subject_names, content_references
+    from travel_agent.planning.materials import activities
+    from travel_agent.knowledge.planning import templates
+    row = dict(claim_id="authored-heading", source_id="synthetic:heading", source_version="v1",
+        locator="v1:chars:1-35", text="去合成青谷大坝：观赏江面船舶和两岸景色。", topic="EXPERIENCE",
+        conditions=["作者拟定路线，当前开放未核实"], clause_context=[],
+        reference_kind="AUTHOR_PROPOSED_PLAN", review_status="MODEL_CONTEXT_REVIEWED")
+    assert reviewed_subject_names(row) == ["合成青谷大坝"]
+    selected = next(a for a in activities([row], "合成区域", limit=None) if a.name == "合成青谷大坝")
+    assert content_references(selected.model_dump(), [row]) == [row]
+    card = dict(card_id="card-" + "b" * 28, version=1, card_hash="b" * 64,
+        kind="SOURCE_REFERENCE", tags=["EXPERIENCE"], text=row["text"],
+        destination="合成区域", spatial_status="UNKNOWN", entities=[],
+        activities=[dict(name="去合成青谷大坝")], conditions=row["conditions"],
+        review_scope="AUTHOR_PROPOSED_PLAN", review_method="MODEL_CONTEXT_REVIEWED",
+        evidence_links=[row["claim_id"]], scoped_references=[row],
+        sources=[dict(source_id=row["source_id"])])
+    original = deepcopy(card)
+    candidates = templates(card)
+    assert [a.name for a in candidates] == ["去合成青谷大坝", "合成青谷大坝"]
+    assert card == original and candidates[0].knowledge_refs == candidates[1].knowledge_refs
+    for text in ["不去合成青谷大坝：观赏两岸景色。", "如果去合成青谷大坝：观赏两岸景色。",
+                 "去合成青谷大坝与合成南馆：观赏两岸景色。"]:
+        assert not reviewed_subject_names(dict(row, text=text))
 
 
 def test_program_union_second_occurrence_persistence_and_zero_access_recovery(tmp_path,clock):

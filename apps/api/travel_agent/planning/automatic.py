@@ -35,6 +35,13 @@ def material_pool(items: list[dict[str, Any]], library: Any, source_limit: int) 
     sources: set[str] = set()
     cards = {r["card_id"]: library.get(r) for a in items for r in a["knowledge_refs"]}
     refs = card_references([c for c in cards.values() if c.get("kind") == "SOURCE_REFERENCE"])
+    # Retain legacy card templates for verification/history, but prefer the
+    # exact noun projected from the same reviewed binding in new selections.
+    items = [a for a in items if a.get("locked") or a.get("locked_start") or not any(
+        b["name"] == re.sub(r"^(?:前往|打卡|去)", "", a["name"])
+        and b["name"] != a["name"] and b["knowledge_refs"] == a["knowledge_refs"]
+        and content_references(b, refs) for b in items
+    )]
     # A route-only card from an earlier query must not take a duplicate name's
     # slot before a later independently reviewed play reference can enter.
     priorities = {id(a): (not (a.get("locked") or a.get("locked_start")),

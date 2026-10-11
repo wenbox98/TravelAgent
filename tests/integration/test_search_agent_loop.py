@@ -273,6 +273,21 @@ def test_later_play_card_wins_duplicate_name_without_cross_source_attribution(mo
     assert [a["activity_id"] for a in selected] == ["play"]
 
 
+@pytest.mark.parametrize("locked", [False, True])
+def test_same_card_action_prefix_is_preserved_only_when_locked(monkeypatch, locked):
+    from travel_agent.planning.automatic import material_pool
+    monkeypatch.setattr("travel_agent.knowledge.planning.card_references", lambda cards: [])
+    monkeypatch.setattr("travel_agent.planning.activity_content.content_references", lambda a, refs: ["reviewed"])
+    class Cards:
+        def get(self, ref):
+            return dict(kind="SOURCE_REFERENCE", sources=[dict(source_id="synthetic:one")])
+    old = dict(name="去合成青谷大坝", activity_id="old", locked=locked,
+               knowledge_refs=[dict(card_id="same")])
+    current = dict(old, name="合成青谷大坝", activity_id="current", locked=False)
+    selected = material_pool([old, current], Cards(), 20)
+    assert [a["activity_id"] for a in selected] == (["old", "current"] if locked else ["current"])
+
+
 def test_generated_day_play_and_lodging_gaps_are_goal_feedback():
     from travel_agent.planning.search_strategy import proposal_gaps
     draft = dict(days=7, trip_budget=dict(lodging_scope="AUTO", nights=None))

@@ -3,7 +3,7 @@
 from copy import deepcopy
 import re
 from typing import Any
-from travel_agent.preview.projection import safe_text
+from travel_agent.preview.projection import safe_text, fingerprint
 from .flow_models import PlanDraft
 from .guide_context import walking, budget_context
 from .trip_budget import calculate, defaults
@@ -92,6 +92,12 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
     contexts = source_contexts(activity_rows, refs or [])
     represented = {c for r in contexts for c in r['conditions']}
     unlinked_conditions = list(dict.fromkeys(c for a in d.activities for c in a.conditions if c not in represented))
+    local_adoption = p.get("last_guide_revalidation_adoption") or {}
+    local_adoption_matches = (
+        local_adoption.get("draft_hash") == fingerprint(p["draft"])
+        if local_adoption.get("draft_hash")
+        else bool(local_adoption and p.get("adopted") == p["draft"])
+    )
     return dict(
         context=context_background,
         assessment=assessment,
@@ -100,7 +106,9 @@ def project(p: dict[str, Any], refs: list[dict[str, Any]] | None = None) -> dict
         origin=d.guide.origin,
         local_reuse=bool(p.get("local_reuse") and not p.get("job_id")),
         local_revalidation=bool(
-            p.get("local_guide_preview") or p.get("last_guide_revalidation_adoption")
+            p.get("local_guide_preview") or (local_adoption_matches and not any(
+                p.get(k) for k in ("knowledge_preview", "revision_preview", "combination_preview")
+            ))
         ),
         walking=walk,
         walking_suggestion=(
@@ -217,7 +225,11 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
     verify_current(db, scope, sid, p)
     from .guide_assessment import references
 
-    guide = project(p, references(db, scope, sid, p))
+    # Pending preview provenance belongs to the unsaved draft, never the export
+    # of the separately retained adopted version.
+    export_p = dict(p, local_guide_preview=None, knowledge_preview=None,
+                    revision_preview=None, combination_preview=None)
+    guide = project(export_p, references(db, scope, sid, p))
     lines = [
         "# " + escaped(p["destination"]) + " · 建议攻略",
         "",

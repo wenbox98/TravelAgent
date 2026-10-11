@@ -53,7 +53,10 @@ def templates(c: dict[str, Any]) -> list[Activity]:
         # subjects already bound to this independently reviewed evidence.
         names = {a["name"] for a in entries}
         for row in card_references([c]):
-            for name in reviewed_subject_names(row):
+            # Preserve pre-fix dynamic template indices as well as stored ones.
+            # New exact nouns append; old draft/adoption bindings still verify.
+            for name in [*reviewed_subject_names(row, legacy_prefix=True),
+                         *reviewed_subject_names(row)]:
                 if name not in names:
                     entries.append(dict(name=name))
                     names.add(name)

@@ -4,6 +4,11 @@
 
 ## 问题与实现
 
+- 2026-10-11新真实A生成仅用已审核资料，实际来源0、模型3，HTTP200/67.58秒、接纳2方案，说明d690255范围修复已真实生效。根会话实看首案仍有大坝路线候选、住宿镇被排两小时游玩和旧本地复核标签，已取消预览，revision51、采用v1哈希不变；不能算完整攻略PASS。
+- 本批修复：`activity_content.preceding_subject/heading_subject`区分动作前缀与精确地名；`knowledge.planning.templates`保留旧动态模板索引再追加新主语，`automatic.material_pool`仅在同卡、未锁定且新主体有审核玩法时去重旧动作名前缀。生产只读快照曾暴露KNOWLEDGE_BINDING_CHANGED，现已保留旧模板修正，预检大坝正确为CONTENT_REFERENCE；不改卡hash、原文、旧采用版。`advisory-guide-1.12`强调玩法同名候选优先、住宿基点不得凑成定时游玩及返程只是AI可选建议。
+- `guide_revalidation.view/check_adoption`与`guide_view.project/export`绑定当前作业/草稿身份：新模型预览不继承旧复核标签，取消恢复原标签；导出始终展示采用版自身性质，新正常采用清除旧复核标记。原作业历史保留；内部state标记增加draft_hash，domain/OpenAPI/SQL无变更。
+- 实际验证：四组相关合成回归94项通过93.17秒；新增同卡去重/锁定两例2项通过0.38秒（独立新增，不重复计入94）。Ruff通过、mypy112文件通过。首轮沙盒临时目录WinError5；主机测试先50通过1失败（预览影响旧导出，补修），再80通过1失败（测试误读未公开adopted_version，改读持久状态），最终全部通过。全为离线合成和只读生产预检，无新外部请求；真实新规划与A后段验收仍待执行。
+
 - 2026-10-11真实普通页面又发现权限收窄缺陷：请求明确“仅用当前已经审核通过的资料……不再搜索、不读取新正文”，模型理解正确，但`cache_only_requested`旧正则只识别“不再搜索或读取新正文”，未覆盖顿号和重复否定；新许可错误保留5/20，程序目标守卫将GENERATE改派RESEARCH_GAP。根会话发现后立即页面停止；实际新增CONNECT1/SEARCH1/MODEL2，DETAIL0，采用版未改，A累计7/21/65，错误账本不删除。修复识别普通已审核资料指令及重复否定，在`agent.tools`再阻止来源调用，受限时改为已有资料生成并说明缺口；不依赖模型自觉遵守。此项是实测FAIL及修复，不冒充成功，后续须部署并真实验证零来源流程。
 - 权限修复验证：`test_goal_agent.py / test_cached_material_permission.py / test_cached_body_reprocess.py`最终85项通过70.11秒，覆盖实际重复否定写法、假设/引用不当授权、零来源许可、监督模型选GENERATE或错误RESEARCH_GAP均完成缓存生成且来源调用0。Ruff通过，标准mypy112文件通过。编写时静态检查发现局部导入不可用于run作用域，已移到模块导入并重新验证；前次83项运行也通过，最终增加两种错误研究决策回归后85项。全为合成离线，不代表真实新答复已完成。
 

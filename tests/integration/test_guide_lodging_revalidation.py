@@ -234,6 +234,25 @@ def test_explicit_local_revalidation_preview_cancel_adopt(normal, monkeypatch, o
         == old_job
     )
     assert v["operation"]["cumulative_used"]["model"] == 1
+    if obstacle == "none":
+        adopted = deepcopy(v["adopted"])
+        v = act(s, permit(s, v, 1), "suggest")
+        new_job = v["job"]["job_id"]
+        run_worker(s.db.path, new_job, Saved())
+        v = s.get(v["session_id"])
+        assert v["local_guide_review"] is None
+        assert v["guide_view"]["local_revalidation"]
+        v = act(s, v, "use_proposal")
+        assert not v["guide_view"]["local_revalidation"]
+        assert v["adopted"] == adopted
+        assert "LOCAL_REVALIDATION" in export(s.db, s.scope, v["session_id"])["markdown"]
+        v = act(s, v, "cancel")
+        assert v["guide_view"]["local_revalidation"] and v["draft"] == adopted
+        v = act(s, v, "use_proposal")
+        v = act(s, v, "adopt")
+        assert not v["guide_view"]["local_revalidation"]
+        assert "LOCAL_REVALIDATION" not in export(s.db, s.scope, v["session_id"])["markdown"]
+        assert s.load(v["session_id"])[1]["planning"]["adopted_version"] == 2
 
 
 def test_fixed_request_retains_known_conditions_without_old_defaults(normal):
