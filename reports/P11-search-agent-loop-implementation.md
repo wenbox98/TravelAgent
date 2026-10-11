@@ -4,6 +4,10 @@
 
 ## 问题与实现
 
+- 2026-10-11真实C11通过：0873b70普通页面精确输入“如果只有3天呢”，任务`automatic-0b86eb36668841d88a061ec0b206ef0a`QUESTION_ANSWERED，ANSWER轮COMPLETED。已可见真实引用问答，模型3次、搜索/正文/地图0；A revision84，当前5/AIR/UNKNOWN/NO/NO、草稿和采用v3哈希24c9e44…保持。旧失败未重发，原预算和预留未重置，A历史MODEL89 SEARCH7 DETAIL21 CONNECT5 MAP2/1完整保留。
+- 独立页面又发现成功问答仍显示“读取或审核问题停止”：`agent.finish`只以新攻略判断COMPLETED；页面!ready把QUESTION_ANSWERED误当研究失败。本批成功问题终态COMPLETED、成功文案不再说停止，页面兼容旧PARTIAL/QUESTION_ANSWERED而不改写旧状态；仍失败的任务不走成功展示。问答提示补充不在正文显示内部claim_id/协议键，当前已保存真实回复中的技术词不伪称已经模型重答。
+- 本批实际验证：`pytest tests/integration/test_goal_research_budget.py tests/integration/test_goal_context.py tests/unit/test_cached_question_validation.py -q --basetemp=<独立临时目录>`33通过38.12秒、2依赖警告；`pnpm --dir apps/web test`全部13组通过（新增旧PARTIAL与新COMPLETED成功问答展示回归）；`pnpm --dir apps/web build`成功67模块，JS index-CUvPPzxm.js/CSS index-DTPaZT7J.css；Ruff和mypy112通过。尚待新网页刷新确认成功状态与最终导出。
+
 - 有限拒绝证据批实际验证：`pytest tests/unit/test_cached_question_validation.py tests/integration/test_cached_questions_and_overview.py tests/integration/test_goal_research_budget.py -q --basetemp=<独立临时目录>`40通过44.65秒、2依赖弃用警告；Ruff通过、mypy112文件通过。生产工作线程合成拒绝证据绑定job_id，片段与预期一致；成功问答/过期拒绝/采用隔离均保留。代码和合成测试通过，真实C11尚未通过。
 
 - 2026-10-11：bb1fb5a专用问答提示已真实部署且wire提示hash有记录；三天假设任务`automatic-930ae37de4024a8c841606191a4b0f93`实际HTTP3次均200，回答16.6605秒、1050字符、单次无重试，又被拦截。新增诊断确认advice/GUARANTEED_FACT，不再泛称网络、预算或读取失败；来源/地图0，A累计MODEL86、旧采用版未改。仍未保存具体片段，不能断言是正/负保证。补充“不是现实交通可行性保证”“无法做任何保证”等有限否定谓语回归，同句肯定保证仍拒绝；仅在排除敏感/URL/私址后在本机保留至多约126字的生成文本拒绝证据，不保留整条答案或源正文，不再发给模型。

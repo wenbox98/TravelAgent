@@ -27,6 +27,7 @@ PROMPT = (
     "Do not include URLs, addresses, credentials, guaranteed availability, guaranteed feasibility, prices, "
     "opening claims or invented journey times. Clearly state what is only a conditional AI suggestion. "
     "Always list the actual gaps; limited cached references do not prove all other choices impossible."
+    " Do not put protocol keys, internal claim IDs or diagnostic names in the prose; citation_ids carry references."
 )
 
 

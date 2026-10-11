@@ -94,3 +94,10 @@ assert(terminated.includes('本步骤未完成，任务已停止')&&!terminated.
 const deadline=await render({status:'INTERRUPTED',reason:'TASK_DEADLINE'})
 assert(deadline.includes('总等待时限'))
 console.log('PASS lifecycle UI: disconnected progress is unknown; stopped rounds are not running; timeout is distinct')
+
+for(const status of ['PARTIAL','COMPLETED']){
+ const answered=await render({protocol:'PRIVATE_GOAL_AGENT_V5',status,stage:'RESULT',reason:'QUESTION_ANSWERED',generated:false,agent_rounds:[{round:1,tool:'ANSWER',status:'COMPLETED',result:{status:'ANSWERED'}}]}, {references:[{citation_id:'fixture'}],adopted:{days:5,activities:[{activity_id:'fixture'}]}})
+ assert(answered.includes('这次问题或假设已回答，当前条件与采用版保持不变'))
+ assert(!answered.includes('因后续读取或审核问题停止')&&!answered.includes('不是本轮失败后新生成的结果'))
+}
+console.log('PASS answered hypothesis: historical partial and current complete do not display research failure')

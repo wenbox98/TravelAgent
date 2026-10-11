@@ -84,6 +84,10 @@ const problem=computed(()=>{
   <template v-else-if="task.status==='WAITING_CONFIGURATION'"><p>在本机用户环境变量配置 LLM_BASE_URL、LLM_MODEL 和 LLM_API_KEY，再正常重启工作台。密钥只在服务端读取，不填入本页面或聊天；无需额外测连接。</p><p>配置完成后仅需继续这一次任务，未产生任何外部调用。</p><button :disabled="busy" @click="emit('run','continue')">配置完成，继续本次任务</button></template>
   <template v-else-if="connectionLost"><p role="status">连接恢复前不确认任务仍在运行；已保存资料和输入保留，不自动重新发送。</p></template>
   <template v-else-if="active"><p role="status">{{stage}}。页面可以刷新，任务不会重复派发。</p><p v-if="['LOGIN','LOGIN_REQUIRED'].includes(task.stage)">如果官方登录页面需要扫码，请在打开的小红书官方页面完成正常登录；完成后会继续同一个任务。</p><button class="quiet" :disabled="busy" @click="emit('run','cancel')">停止本次任务</button></template>
+  <div v-else-if="answered&&task.reason==='QUESTION_ANSWERED'" role="status">
+   <p>这次问题或假设已回答，当前条件与采用版保持不变。回答和来源依据见上方；仍待核实的交通、开放等缺口保留。</p>
+   <button v-if="plan.adopted?.activities.length||plan.draft.activities.length" type="button" class="quiet" :disabled="busy" @click="emit('browse')">{{plan.adopted?.activities.length?'查看当前采用版（本地）':'查看已有草稿（本地）'}}</button>
+  </div>
   <div v-else-if="!ready" class="warning" role="status">
    <p>{{problem}}</p>
    <p v-if="plan.adopted?.activities.length">当前采用版：{{plan.adopted.days?`${plan.adopted.days}天`:'天数未定'}}、{{plan.adopted.activities.length}}个项目。不是本轮失败后新生成的结果。</p>

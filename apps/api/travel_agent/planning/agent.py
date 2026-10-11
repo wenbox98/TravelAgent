@@ -512,16 +512,17 @@ def run(
                 p["automatic_coverage"] = material
                 status = (
                     "COMPLETED"
-                    if has_proposal and material["sufficient"] and reason == "SUFFICIENT"
+                    if reason == "QUESTION_ANSWERED" or has_proposal and material["sufficient"] and reason == "SUFFICIENT"
                     else "PARTIAL"
                 )
-                if not has_proposal and not material["unique_fact_count"]:
+                if reason != "QUESTION_ANSWERED" and not has_proposal and not material["unique_fact_count"]:
                     status = "BLOCKED"
                 message(
                     p,
                     "ASSISTANT",
-                    "本次循环已停止；已有建议、有效资料和缺口已保存，采用版没有改变。原因："
-                    + reason,
+                    "这次问题或假设已回答；当前条件、草稿和采用版均保持不变。"
+                    if reason == "QUESTION_ANSWERED" else
+                    "本次循环已停止；已有建议、有效资料和缺口已保存，采用版没有改变。原因：" + reason,
                     origin="AGENT_STOP",
                 )
                 save(db, sid, state, bump=False)

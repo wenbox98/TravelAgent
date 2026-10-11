@@ -352,6 +352,7 @@ def test_v5_hypothesis_answers_with_two_sources_from_larger_cache_and_keeps_fenc
     assert reader.calls == [] and final["draft"] == before[0] and final["adopted"] == before[1]
     expected = {"NONE": "QUESTION_ANSWERED", "EXPIRED": "AGENT_MATERIAL_CHANGED", "GUARANTEE": "QUESTION_UNSUPPORTED_OR_SENSITIVE_OUTPUT"}[defect]
     assert final["automatic_task"]["reason"] == expected
+    assert final["automatic_task"]["status"] == ("COMPLETED" if defect == "NONE" else "BLOCKED")
     assert final["automatic_task"]["budget"]["used"]["model"] == 3
     if defect == "GUARANTEE":
         import json
