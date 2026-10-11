@@ -51,7 +51,7 @@ def cache_only_requested(text: str) -> bool:
         if re.search(r"(?:不想|不要|并非|不是|不能).{0,8}(?:只|仅)(?:使用|用)", clause):
             continue
         if re.search(
-            r"(?:本次|这次|本轮)(?:只|仅)(?:使用|用)(?:已缓存(?:的)?资料|缓存(?:资料)?|现有资料)(?:[，,]|$)",
+            r"(?:(?:本次|这次|本轮)|请)?(?:只|仅)(?:使用|用)(?:当前)?(?:已经审核通过的资料|已审核(?:的)?资料|已缓存(?:的)?资料|缓存(?:资料)?|现有资料)(?:[，,、]|重新|生成|$)",
             clause,
         ):
             return True
@@ -59,7 +59,7 @@ def cache_only_requested(text: str) -> bool:
         # This combined prohibition forbids both fresh search and fresh bodies;
         # detect it before creating a grant, independently of model decisions.
         if re.search(
-            r"(?:不要|不再|禁止|无需)(?:新增|重新|再)?(?:搜索|检索)(?:或|和|及|、)(?:读取|阅读|抓取|采集)(?:新的?|新增)?正文",
+            r"(?:不要|不再|禁止|无需)(?:新增|重新|再)?(?:搜索|检索)\s*(?:或|和|及|、|，|,)\s*(?:(?:不|不要|不再|无需)(?:再)?)?(?:读取|阅读|抓取|采集)(?:新的?|新增)?正文",
             clause,
         ):
             return True

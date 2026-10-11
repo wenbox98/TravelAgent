@@ -393,6 +393,7 @@ def test_budget_gate_denies_tools_without_reset_and_stop_is_not_success(service,
 @pytest.mark.parametrize("consent,text", [
     (CONSENT, "去合成青谷5天。本次只用已缓存资料，不搜索、不读取新正文。"),
     ("PRIVATE_GOAL_AGENT_V5", "去合成青谷5天。用已审核的缓存玩法重新生成，不再搜索或读取新正文。"),
+    ("PRIVATE_GOAL_AGENT_V5", "去合成青谷5天。请仅用当前已经审核通过的资料生成预览，不再搜索、不读取新正文、不重新分析缓存正文、不调用地图。"),
 ])
 def test_explicit_cache_only_request_reserves_zero_site_budget(service, monkeypatch, consent, text):
     wire = Wire(monkeypatch, lambda task, data: (
@@ -417,6 +418,12 @@ def test_explicit_cache_only_request_reserves_zero_site_budget(service, monkeypa
     ("本轮只用缓存", True),
     ("用已审核的缓存玩法重新生成七天攻略，不再搜索或读取新正文。", True),
     ("不要搜索和阅读新的正文", True),
+    ("不再搜索、不读取新正文、不重新分析缓存正文、不调用地图。", True),
+    ("请仅用当前已经审核通过的资料生成攻略预览。", True),
+    ("请仅用已审核资料重新生成。", True),
+    ("不再搜索，不读取新正文。", True),
+    ("如果只用当前已经审核通过的资料生成呢？", False),
+    ('来源说“仅用当前已经审核通过的资料生成”', False),
     ("如果不再搜索或读取新正文会怎样？", False),
     ('来源说“不再搜索或读取新正文”', False),
     ("先用缓存，不足再查资料", False),

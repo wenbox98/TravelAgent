@@ -20,7 +20,7 @@ from travel_agent.planning.workbench import DailyBudget
 from travel_agent.planning.suggestions import payload_for
 
 
-def setup_refresh(cached_trip):
+def setup_refresh(cached_trip, text="请仅用已审核资料重新生成，不再搜索或读取新正文。"):
     service, view, wire, oracle = cached_trip
     db, sid = service.db, view["session_id"]
     prepared = prepare(db, "owner", sid, False)
@@ -35,7 +35,7 @@ def setup_refresh(cached_trip):
     save(db, sid, state)
     view = service.plans.get(sid)
     created = action(db, "owner", sid, ConversationAction(action="submit",
-        text="请仅用已审核资料重新生成，不再搜索或读取新正文。", consent=CURRENT_CONSENT,
+        text=text, consent=CURRENT_CONSENT,
         expected_revision=view["revision"], expected_conversation_version=view["conversation"]["version"]), str(uuid4()))
     tid = created["automatic_task"]["task_id"]
     gid = db.connection.execute("SELECT grant_id FROM planning_tasks WHERE task_id=?", (tid,)).fetchone()[0]
@@ -45,8 +45,16 @@ def setup_refresh(cached_trip):
     return service, sid, tid, gid, wire
 
 
-def test_cache_refresh_generates_with_new_bindings_and_zero_source_operations(cached_trip):
-    service, sid, tid, gid, wire = setup_refresh(cached_trip)
+@pytest.mark.parametrize("text", [
+    "请仅用已审核资料重新生成，不再搜索或读取新正文。",
+    "请仅用当前已经审核通过的资料生成预览，不再搜索、不读取新正文、不重新分析缓存正文、不调用地图。",
+])
+@pytest.mark.parametrize("supervisor_tool", ["GENERATE", "RESEARCH_GAP"])
+def test_cache_refresh_generates_with_new_bindings_and_zero_source_operations(cached_trip, text, supervisor_tool):
+    service, sid, tid, gid, wire = setup_refresh(cached_trip, text)
+    generate_response = wire.respond
+    wire.respond = lambda task, data: (choose("RESEARCH_GAP", query="合成青谷 玩法", gap_key="PLAY")
+        if task == "travel_supervisor_v1" and supervisor_tool == "RESEARCH_GAP" else generate_response(task, data))
     db = service.db
     old_grants = {r["continuation_id"]: tuple(r) for r in db.connection.execute("SELECT * FROM research_continuations") if r["continuation_id"] != gid}
     before = dict(db.connection.execute("SELECT * FROM research_continuations WHERE continuation_id=?", (gid,)).fetchone())

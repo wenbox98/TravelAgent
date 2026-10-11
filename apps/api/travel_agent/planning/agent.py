@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from travel_agent.persistence.database import Database
 from travel_agent.preview.projection import fingerprint
 from travel_agent.domain.source_policy import SENSITIVE_RESEARCH_TEXT
-from .agent_contract import MAX_ROUNDS, COMPLETION_RESERVE, CONSENT, CURRENT_CONSENT, Understanding
+from .agent_contract import MAX_ROUNDS, COMPLETION_RESERVE, CONSENT, CURRENT_CONSENT, Understanding, cache_only_requested
 from travel_agent.research.bounded import has_capacity
 from .flow import PlanningService
 from .flow_models import PlanDraft
@@ -231,6 +231,7 @@ def tools(
     answer_material = bool(references(db, scope, sid, p))
     can_research = (
         not questions_only
+        and not cache_only_requested(p.get("agent_input", ""))
         and (not p.get("agent_generated") or p.get("agent_needs_revision"))
         and p.get("agent_destination_confirmed")
         and remaining["search"] > 0
@@ -696,7 +697,9 @@ def run(
                         correction = "已有可用资料，先生成有依据的局部攻略，明确剩余缺口。"
                         choice = choice.model_copy(update=dict(tool="GENERATE", stop=None, reason=correction))
                 if current_loop and choice.tool == "RESEARCH_GAP" and not available["RESEARCH_GAP"]["allowed"] and available["GENERATE"]["allowed"] and not p.get("agent_research_blocked"):
-                    correction = "本次搜索或正文范围已用完，利用有效资料形成攻略，缺口明确保留。"
+                    correction = ("本次明确只用已审核资料，利用有效资料形成攻略，缺口明确保留。"
+                                  if cache_only_requested(p.get("agent_input", "")) else
+                                  "本次搜索或正文范围已用完，利用有效资料形成攻略，缺口明确保留。")
                     choice = choice.model_copy(update=dict(tool="GENERATE", stop=None, reason=correction))
                 tool = choice.tool
                 event: dict[str, Any] = dict(
