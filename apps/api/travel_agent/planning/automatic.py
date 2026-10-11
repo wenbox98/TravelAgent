@@ -379,6 +379,38 @@ def _refresh_scoped_knowledge(db: Any, scope: str, sid: str, p: dict[str, Any]) 
         verify(db, scope, p)
 
 
+def _bind_cached_knowledge(db: Any, scope: str, sid: str, p: dict[str, Any], *,
+                           discovered: set[str] | None = None) -> None:
+    """Bind this running V5 intent's reviewed cache; never renew its permission."""
+    from .materials import references
+    from travel_agent.knowledge.planning import verify
+    from travel_agent.knowledge.store import Library, binding
+
+    if p.get("automatic_material_source_limit") != 20 or not p.get("automatic_task_id"):
+        return
+    budget = DailyBudget(db, p["operation_grant"])
+    grant = budget.check_trip(scope, sid)
+    gate = grant["gate"]
+    if ("RESEARCH" not in gate["tasks"] or gate.get("automatic_task_id") != p["automatic_task_id"]
+            or gate.get("automatic_generation") != p.get("automatic_generation")):
+        raise ValueError("OPERATION_SCOPE_MISMATCH")
+    library = Library(db, scope)
+    original = gate.get("knowledge_bindings", [])
+    original_sources = {s["source_id"] for ref in original for s in library.get(ref)["sources"]}
+    attached = {r["claim_id"] for r in references(db, scope, sid)}
+    cards = verify(db, scope, p)
+    for card in cards:
+        if not (binding(card) in original
+                or card["card_id"] in (discovered or set())
+                or bool(card["evidence_links"]) and set(card["evidence_links"]) <= attached
+                or bool(card["sources"]) and {s["source_id"] for s in card["sources"]} <= original_sources):
+            raise ValueError("OPERATION_MATERIAL_CHANGED")
+    db.connection.execute(
+        "UPDATE research_continuations SET gate_json=json_set(gate_json,'$.knowledge_bindings',json(?)) WHERE continuation_id=?",
+        (json.dumps([binding(c) for c in cards]), grant["continuation_id"]),
+    )
+
+
 def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
     """Select currently valid minimal references, never copy historical preferences."""
     p = state["planning"]
@@ -387,6 +419,7 @@ def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
             _refresh_scoped_knowledge(db, scope, sid, p)
             _selected_knowledge(db, scope, sid, p)
             card_context(db, scope, p, sid=sid)
+            _bind_cached_knowledge(db, scope, sid, p)
         from .guide_assessment import references as guide_references
 
         p["automatic_cache_sources"] = len(
@@ -424,6 +457,7 @@ def _cached(db: Any, scope: str, sid: str, state: dict[str, Any]) -> None:
         p["draft"]["activities"] = [a.model_dump() for a in selected]
         verify(db, scope, p)
         card_context(db, scope, p)
+        _bind_cached_knowledge(db, scope, sid, p, discovered={c["card_id"] for c in catalog})
         p["automatic_cache_sources"] = len(sources)
         return
     # Use raw evidence only through the existing reviewed/versioned projection.

@@ -130,3 +130,13 @@ B普通页面一次提交正常结束PARTIAL：CONNECT1/SEARCH5/DETAIL20/MODEL34
 只读实际数据核对：B候选12项都有具体引用，住宿江汉路步行街/黄鹤楼周边/江汉路；A候选4项具体引用、宜昌住宿带与恩施市区。无新业务请求、DB写入或模型回答，不能算真实复验。初次回归发现合成card_id格式、来源标题遗漏与伪造claim_id不满足真实证明链，修正fixture；一次误指定不存在测试文件未执行。验收继续由普通页面零新增搜索/正文生成、预览取消采用下载与恢复完成，仍保留A/B内容FAIL。
 
 执行content_pipeline、guide_lodging_revalidation、scoped_context、knowledge_library、search_agent_loop、automatic_planning组合：146通过，1个新增测试错误地漏计原有合法卡而失败（76.54秒）；修正断言为完整集合后该项实际通过0.89秒。未降验证规则。Ruff通过、mypy112文件通过。改动8个实现/测试文件268行新增18行删除，另同步任务书和本报告；未改外部契约或SQLite结构。业务外部请求0，后续仅Git功能分支同步。
+
+### 缓存资料刷新后授权快照不一致
+
+8bb9d91已部署，PID8756/启动器29672、静态index-DydIdkRa.js、schema19。B普通页面仅缓存生成实际在GENERATE阶段BLOCKED，原因为PLANNING_UNAVAILABLE；新增2次模型用于理解与监督，规划模型未派发，新增搜索/正文/地图0，累计5/20/36。独立只读核对payload合法，但含46个新知识绑定，grant冻结于刷新之前，DailyBudget.check_payload正确拒绝超快照资料。不是模型预算耗尽，不重试原失败任务。
+
+automatic._bind_cached_knowledge在明确V5缓存选择后同步当前运行任务的资料绑定。验证同scope/session/task/generation及有效未关闭许可；仅允许原卡、本次附属已审核证据、原卡同源背景或当前明确发现的本地候选。Library与verify继续验证原文、权限、哈希、撤回、版本。更新仅knowledge_bindings，原limits、过期时间、已用账本和旧许可完全不改，不更改DailyBudget.check_payload守卫。无数据库或外部契约变化。
+
+新增test_cached_material_permission使用真实生产资料整理、普通对话、新许可、worker和合成HTTP回包串联，验证旧快照确实拒绝、显式刷新后生成可选方案、来源调用0、旧许可逐字段不变，以及关闭/错scope/错generation拒绝。专项5通过9.64秒；随后与search_agent_loop、automatic_planning、knowledge_library、cached_body_reprocess合计101通过141.73秒。首次沙盒临时目录WinError5，改为主机独立禁网测试目录；Ruff通过、mypy112文件通过，git diff --check通过。部署前已确认活动任务/子任务均0并备份当前数据库，quick_check=ok、外键异常0。真实B重新生成待验，A/B仍未完整通过。
+
+A原生下载实际文件28,090字节；独立以保存的采用版重新导出，SHA256均0ea94ee3ef1bb7d3e9500dd04333f6c1daf298942a72fc0bd3610ab695e5f95f。下载文件内容一致，不代表内容质量通过；原始文件与私有证明留本机，不提交Git。
