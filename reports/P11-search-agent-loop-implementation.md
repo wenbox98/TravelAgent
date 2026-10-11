@@ -4,6 +4,10 @@
 
 ## 问题与实现
 
+- 有限拒绝证据批实际验证：`pytest tests/unit/test_cached_question_validation.py tests/integration/test_cached_questions_and_overview.py tests/integration/test_goal_research_budget.py -q --basetemp=<独立临时目录>`40通过44.65秒、2依赖弃用警告；Ruff通过、mypy112文件通过。生产工作线程合成拒绝证据绑定job_id，片段与预期一致；成功问答/过期拒绝/采用隔离均保留。代码和合成测试通过，真实C11尚未通过。
+
+- 2026-10-11：bb1fb5a专用问答提示已真实部署且wire提示hash有记录；三天假设任务`automatic-930ae37de4024a8c841606191a4b0f93`实际HTTP3次均200，回答16.6605秒、1050字符、单次无重试，又被拦截。新增诊断确认advice/GUARANTEED_FACT，不再泛称网络、预算或读取失败；来源/地图0，A累计MODEL86、旧采用版未改。仍未保存具体片段，不能断言是正/负保证。补充“不是现实交通可行性保证”“无法做任何保证”等有限否定谓语回归，同句肯定保证仍拒绝；仅在排除敏感/URL/私址后在本机保留至多约126字的生成文本拒绝证据，不保留整条答案或源正文，不再发给模型。
+
 - 问答提示批验证实际执行：`pytest tests/unit/test_llm_provider.py tests/unit/test_cached_question_validation.py tests/integration/test_cached_questions_and_overview.py tests/integration/test_goal_context.py tests/integration/test_goal_research_budget.py -q --basetemp=<独立临时目录>`，66通过45.98秒、2项依赖弃用警告；Ruff通过、mypy112文件通过。新增测试在真实生产工作线程合成HTTP路径核对：多来源问答正常、资料中途过期仍拒绝、肯定保证拒绝且诊断持久化；专用提示在实际wire请求中存在。未发外部模型/站点请求。
 
 - 2026-10-11：cccc9ce真实假设复验不再误报资料变化，进入回答HTTP；任务`automatic-2da6d5a9408e4d9f8556accbd126b3dc`又被`QUESTION_UNSUPPORTED_OR_SENSITIVE_OUTPUT`拦截。实际模型3次、来源/地图0，五天采用v3未改。旧诊断未保存命中字段或类别，不能猜测具体触发句，未自动重试。代码检查确认问答任务漏配专用提示，实际沿用正文提取提示；本批补充专用问答提示、字段/规则类别/版本的非原文诊断，并回归窄范围否定保证与同句肯定保证。敏感内容、URL、私址与肯定保证仍拒绝，未关闭校验或提交私有回复。

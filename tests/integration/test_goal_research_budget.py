@@ -357,6 +357,10 @@ def test_v5_hypothesis_answers_with_two_sources_from_larger_cache_and_keeps_fenc
         import json
         summary = json.loads(s.db.connection.execute("SELECT summary_json FROM preview_jobs WHERE session_id=? ORDER BY created_at DESC LIMIT 1", (v["session_id"],)).fetchone()[0])
         assert summary["failure"] == dict(field="advice", category="GUARANTEED_FACT", rule_version="cached-question-1.1")
+        from pathlib import Path
+        row = s.db.connection.execute("SELECT job_id FROM preview_jobs WHERE session_id=? ORDER BY created_at DESC LIMIT 1", (v["session_id"],)).fetchone()
+        diagnostic = json.loads((Path(s.db.path).parent / "question-diagnostics" / (row[0] + ".json")).read_text("utf8"))
+        assert diagnostic["excerpt"] == "保证交通可行。" and diagnostic["job_id"] == row[0]
 
 
 def test_empty_failed_candidate_is_skipped_when_later_search_observes_it_again(service, monkeypatch):

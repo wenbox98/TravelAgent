@@ -147,6 +147,9 @@ def run(database: Path, jid: str, provider: Any = None) -> None:
             summary = dict(reason=code, purpose=request["task"], model_executed=response_received)
             if isinstance(exc, (IntakeError, AnswerRejected)):
                 summary["failure"] = exc.failure
+            if isinstance(exc, AnswerRejected):
+                from .questions import retain_rejection
+                retain_rejection(db, jid, exc)
             if isinstance(provider, OpenAICompatibleProvider) and provider.last_diagnostic:
                 summary["diagnostic"] = provider.last_diagnostic.safe_dict()
                 summary["model_executed"] = bool(provider.last_diagnostic.http_attempts)

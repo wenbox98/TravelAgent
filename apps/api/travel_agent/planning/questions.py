@@ -31,9 +31,22 @@ PROMPT = (
 
 
 class AnswerRejected(ValueError):
-    def __init__(self, field: str, category: str):
+    def __init__(self, field: str, category: str, excerpt: str | None = None):
         super().__init__("QUESTION_UNSUPPORTED_OR_SENSITIVE_OUTPUT")
         self.failure = dict(field=field, category=category, rule_version="cached-question-1.1")
+        self.excerpt = excerpt
+
+
+def retain_rejection(db: Any, jid: str, error: AnswerRejected) -> None:
+    """Local-only bounded generated wording, never sensitive or address failures."""
+    if error.excerpt is None or not re.fullmatch(r"(?:agent|question)-[a-f0-9]{32}", jid):
+        return
+    from datetime import timedelta
+    directory = Path(db.path).parent / "question-diagnostics"
+    directory.mkdir(exist_ok=True)
+    with (directory / (jid + ".json")).open("x", encoding="utf8") as stream:
+        json.dump(dict(job_id=jid, failure=error.failure, excerpt=error.excerpt,
+                       expires_at=(db.clock() + timedelta(days=7)).isoformat()), stream, ensure_ascii=False)
 
 
 class Interpretation(StrictModel):
@@ -276,8 +289,15 @@ def validate(raw: Any, data: dict[str, Any]) -> Answer:
         # A positive guarantee elsewhere in that clause must still be rejected.
         asserted = re.sub(r"(?:不能|无法|不)(?:据此|完全|直接|因此|作出)?(?:作出)?保证", "", text)
         asserted = re.sub(r"(?:不作|不做|不构成|不提供)(?:当前|未来|实际)?(?:交通|开放|价格|可行性|安全)(?:的)?保证", "", asserted)
-        if re.search(r"保证|一定不会|肯定不会", asserted):
-            raise AnswerRejected(field, "GUARANTEED_FACT")
+        asserted = re.sub(
+            r"(?:不作|不做|不构成|不提供|不代表|不是|并非)(?:任何|当前|未来|实际|现实)?"
+            r"(?:交通|开放|价格|可行性|安全|运营|衔接){0,2}(?:的)?保证", "", asserted)
+        asserted = re.sub(r"(?:不能|无法)(?:作|做|作出|做出)(?:任何)?保证", "", asserted)
+        match = re.search(r"保证|一定不会|肯定不会", asserted)
+        if match:
+            # Earlier guards excluded all sensitive/URL/address output in this field.
+            start, end = max(0, match.start() - 60), min(len(asserted), match.end() + 60)
+            raise AnswerRejected(field, "GUARANTEED_FACT", asserted[start:end])
     return value
 
 
@@ -382,6 +402,8 @@ def run(database: Path, jid: str, provider: Any = None) -> None:
                 else "QUESTION_FAILED"
             )
             failure = exc.failure if isinstance(exc, AnswerRejected) else None
+            if isinstance(exc, AnswerRejected):
+                retain_rejection(db, jid, exc)
             db.connection.execute(
                 "UPDATE preview_jobs SET status='FAILED',summary_json=?,finished_at=? WHERE job_id=? AND status='RUNNING'",
                 (json.dumps(dict(reason=reason, **(dict(failure=failure) if failure else {}))), db.stamp(), jid),

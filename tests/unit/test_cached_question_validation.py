@@ -11,6 +11,7 @@ def answer(advice):
 @pytest.mark.parametrize("advice", [
     "不能完全保证交通衔接。", "无法据此保证当前开放。", "不构成未来可行性的保证。",
     "不保证开放；这里只比较两个片区。",
+    "这不是现实交通可行性保证。", "无法做任何保证。", "不提供任何开放的保证。",
 ])
 def test_precise_negative_guarantees_are_valid_disclaimers(advice):
     assert validate(answer(advice), {"references": []}).advice == advice
@@ -22,6 +23,7 @@ def test_precise_negative_guarantees_are_valid_disclaimers(advice):
     ("详见https://example.invalid", "URL"),
     ("从合成路123号出发。", "PRIVATE_ADDRESS"),
     ("api_key=SECRET", "SENSITIVE"),
+    ("这不是交通保证，但保证开放。", "GUARANTEED_FACT"),
 ])
 def test_rejection_diagnostic_names_field_and_rule_without_echoing_content(advice, category):
     with pytest.raises(AnswerRejected) as caught:
