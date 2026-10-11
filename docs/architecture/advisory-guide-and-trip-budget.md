@@ -120,3 +120,9 @@ advisory-guide-1.6 沿用协议 v4，新增可缺省的 GuideContextUse：受控
 `guide_view.connections`由当前草稿相邻项目投影，标记CURRENT_DRAFT_ORDER/UNVERIFIED；day/end_day不同表示跨日移动窗口，途中住宿、中转与实际耗时均未知。交通说明使用当前交通条件，UNKNOWN不沿用旧驾车估算。采用版Markdown只投影采用版顺序，不受未采用草稿改变影响，也不包含仅内存地图响应。
 
 关键地图pairs兼容新增end_day。跨日段只有与当前显式critical_leg一致、相邻且日序非递减才允许查询；普通广泛地图权限不扩大。许可仍为2地点/1路径，身份确认、当前模式、版本绑定和不自动重试不变。新字段在PlanView契约说明、OpenAPI及导出工具同步，无SQL迁移。
+
+### 机场未知与否定金额边界
+
+机场、航站楼及取还车点未知不撤销已确认的AIR到达。理解回复中仅此类位置证据却清除arrival_transport的更新按IGNORED_LOCATION_ONLY_ARRIVAL_UPDATE_V1隔离并审计，原模型回复保持；其他有效更新应用。用户明确说到达方式未知、飞机未定仍允许更新。
+
+locked-arrangement-2.5 / advisory-guide-1.13只剥离精确金额词的否定并列宾语（含票价/报价/价格/费用/金额，最多四项），不跳过全句；同句肯定事实、金额数字及交通耗时依旧拦截。

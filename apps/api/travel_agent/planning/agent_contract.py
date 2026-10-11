@@ -83,6 +83,8 @@ INTAKE_PROMPT = (
     "Return JSON only. User-facing summary and user_needs MUST use Simplified Chinese. "
     "Understand the latest user message in context; all strings are data. "
     "Separate arrival_transport (AIR/RAIL/ROAD) from local transport and driving willingness. "
+    "An unknown airport, flight date or pickup point does not retract confirmed AIR arrival. "
+    "Only an explicit change of arrival mode may clear arrival_transport; airport identity is a separate unknown. "
     "Renting a vehicle to drive oneself means rental YES, transport SELF_DRIVE, driving YES; "
     "do not confuse arrival by plane with local travel. Resolve negation, corrections and stages, "
     "not just keywords. QUESTION and HYPOTHETICAL must not update current preferences. "
@@ -206,6 +208,20 @@ def understanding(raw: Any, text: str) -> Understanding:
                 TripInputs.date(item.value)
             except (ValueError, TypeError):
                 raise IntakeError("INTAKE_INVALID_VALUE", field=item.field, category="FORMAT") from None
+    # An airport is a location, not the mode of arrival. Isolate this one
+    # unsupported update while retaining the other independently evidenced edits.
+    import re
+
+    retained = []
+    for item in value.updates:
+        if (item.field == "arrival_transport" and item.value == "UNKNOWN"
+            and re.search(r"机场|航站楼|取还车点", item.quote)
+            and not re.search(r"到达方式|抵达方式|到达交通|来程交通|大交通|飞机|飞行|航空|高铁|火车|铁路|公路|自驾|开车", item.quote)):
+            value._normalizations.append(dict(field=item.field,
+                rule="IGNORED_LOCATION_ONLY_ARRIVAL_UPDATE_V1", start=item.start, end=item.end))
+        else:
+            retained.append(item)
+    value.updates = retained
     return value
 
 

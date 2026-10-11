@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from travel_agent.preview.projection import fingerprint, safe_text
 from .flow_models import Arrangement, GroundedActivity
 
-VERSION = "locked-arrangement-2.4"
+VERSION = "locked-arrangement-2.5"
 
 
 def envelope_schema() -> dict[str, Any]:
@@ -172,7 +172,8 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
         # that exact object, never a whole clause that may also assert a fact.
         factual = re.sub(
             r"(?:不是|并非|不代表|不表示|不构成)(?:实际|当前|实时)?"
-            r"(?:报价|价格|费用)(?:或|和|及|、)已核实(?:的)?(?:票价|报价|价格|费用)",
+            r"(?:票价|报价|价格|费用|金额)(?:(?:或|和|及|、)(?:票价|报价|价格|费用|金额)){0,3}"
+            r"(?:或|和|及|、)已核实(?:的)?(?:票价|报价|价格|费用|金额)",
             "",
             factual,
         )

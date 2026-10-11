@@ -126,6 +126,8 @@ def test_narrow_unverified_disclaimer_is_not_a_fact_assertion(normal, text):
     "仅为预留额度，不是报价或已核实票价",
     "金额仅是预算，并非当前价格和已核实的费用",
     "预算不构成实时报价及已核实价格",
+    "仅为AI预算预留，不是票价、报价或已核实金额。",
+    "不是当前票价、价格及已核实的费用",
 ])
 def test_coordinated_negative_price_object_preserves_other_assertion_guards(normal, text):
     s, _ = normal

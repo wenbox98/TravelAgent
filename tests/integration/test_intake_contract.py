@@ -45,6 +45,28 @@ def test_quote_repair_does_not_apply_hypothetical():
         understanding(raw, "如果五天呢")
 
 
+def test_airport_unknown_preserves_air_arrival_and_applies_non_driving_update():
+    text = "改成5天，不自驾，不租车，机场、当地交通方式先未知。"
+    raw = intake(text, [("days", 5, "5天"), ("driving", "NO", "不自驾"),
+        ("rental", "NO", "不租车"), ("arrival_transport", "UNKNOWN", "机场、当地交通方式先未知")])
+    p = dict(draft=PlanDraft(planning_mode="ADVISORY", days=7, arrival_transport="AIR",
+             driving="YES", rental="YES", transport="SELF_DRIVE").model_dump(),
+             destination="合成区域", agent_followup=True, agent_input=text, request="原想法")
+    value = understanding(raw, text)
+    apply_intake(p, value)
+    assert p["draft"]["arrival_transport"] == "AIR"
+    assert p["draft"]["days"] == 5 and p["draft"]["transport"] == "UNKNOWN"
+    assert p["draft"]["driving"] == p["draft"]["rental"] == "NO"
+    assert value._normalizations[0]["rule"] == "IGNORED_LOCATION_ONLY_ARRIVAL_UPDATE_V1"
+    assert raw["updates"][-1]["field"] == "arrival_transport"  # original model answer retained
+
+
+@pytest.mark.parametrize("quote", ["到达方式和机场未定", "飞机未定，机场未定", "机场和来程交通未定"])
+def test_explicit_unknown_arrival_mode_is_not_ignored(quote):
+    value = understanding(intake(quote, [("arrival_transport", "UNKNOWN", quote)]), quote)
+    assert len(value.updates) == 1 and value.updates[0].value == "UNKNOWN"
+
+
 def test_evidenced_boolean_driving_lands_as_enum_without_new_research(service, monkeypatch):
     text = "合成松海七天，两个人，自驾"
     response = intake(text, [("destination", "合成松海", "合成松海"),
