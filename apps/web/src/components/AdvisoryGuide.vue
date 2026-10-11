@@ -1,14 +1,30 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { request } from '../api'
 import type { PlanView, Draft, BudgetLine, GuideView, GuideDayChoice } from '../planning-api'
 const props = defineProps<{plan:PlanView;busy:boolean}>()
 const emit = defineEmits<{action:[action:string,extra:Record<string,unknown>]}>()
 const copy=<T,>(v:T):T=>JSON.parse(JSON.stringify(v)) as T
 const editing=ref(false),composing=ref(false),selected=ref<string[]>([]),error=ref('')
+const exportPending=ref(false),exportNotice=ref(''),exportError=ref('')
 const form=ref<Draft>(copy(props.plan.draft))
 const guide=computed(()=>props.plan.guide_view as GuideView)
 watch(()=>props.plan,(v)=>{form.value=copy(v.draft);selected.value=v.draft.activities.map(a=>a.activity_id)},{deep:true,immediate:true})
-watch(()=>props.plan.session_id,()=>{editing.value=false;composing.value=false;error.value=''})
+watch(()=>props.plan.session_id,()=>{editing.value=false;composing.value=false;error.value='';exportNotice.value='';exportError.value=''})
+async function exportGuide(){
+  if(props.busy||exportPending.value||!props.plan.adopted)return
+  const session=props.plan.session_id,adopted=JSON.stringify(props.plan.adopted)
+  exportPending.value=true;exportNotice.value='正在核对采用版和来源，准备下载…';exportError.value=''
+  try{
+    const value=await request<{filename:string;markdown:string;revision:number;adopted_version:number}>(`/api/v1/preview/planning/${session}/guide-export`,undefined,undefined,{timeoutMs:60000})
+    if(props.plan.session_id!==session||JSON.stringify(props.plan.adopted)!==adopted||props.plan.revision!==value.revision)throw new Error('旅行或保存状态已变化，本次没有下载。请查看当前采用版后再导出。')
+    if(typeof value.markdown!=='string'||!value.markdown.trim()||typeof value.filename!=='string'||!value.filename||/[\\/]/.test(value.filename))throw new Error('导出内容不完整，本次没有下载。原采用版仍保留。')
+    const url=URL.createObjectURL(new Blob([value.markdown],{type:'text/markdown;charset=utf-8'}))
+    try{const link=document.createElement('a');link.href=url;link.download=value.filename;link.click()}finally{setTimeout(()=>URL.revokeObjectURL(url),60000)}
+    exportNotice.value='采用版文件已交给浏览器下载。请查看浏览器下载提示确认保存；这里不代表磁盘保存已完成。'
+  }catch(e){exportNotice.value='';exportError.value=e instanceof Error?e.message:'未能导出；原采用版保留，请检查本机连接。'}
+  finally{exportPending.value=false}
+}
 const money=(v:{min_fen:number|null;max_fen:number|null})=>v.min_fen===null?'未知':`${(v.min_fen/100).toFixed(2)}–${((v.max_fen??v.min_fen)/100).toFixed(2)} 元`
 const sign=(v:number)=>`${v>0?'+':''}${(v/100).toFixed(2)}`
 const number=(e:Event)=>{const s=(e.target as HTMLInputElement).value;return s===''?null:Number(s)}
@@ -110,8 +126,9 @@ function stay(i:number,key:'stay_min'|'stay_max',e:Event){form.value.activities[
     </fieldset></details>
     <details><summary>可选详细时间视图</summary><p>只有已知的假设参与计算；后续移动未知时，具体到达时间保持未知。</p><p v-for="r in plan.timeline" :key="r.activity_id">第 {{r.day}} 天 {{r.name}}：{{r.display_start}} → {{r.display_end}}</p></details>
     <details><summary>还需留意的事项与来源</summary><p v-for="v in [...guide.tradeoffs,...guide.unknowns,...plan.gaps]" :key="v">{{v}}</p><p>来源知识、地点提及、用户选择与AI停留建议保持各自含义；具体卡片可在资料库展开。</p><p v-for="d in plan.job?.decisions.filter(d=>d.status==='REJECTED')||[]" :key="d.proposal_id">提议未采用：{{d.reason}}</p></details>
-    <p v-if="plan.differences.length">草稿有修改，原采用版保留。</p><div class="actions"><button :disabled="busy||!guide.available" @click="emit('action','adopt',{})">采用这版建议攻略</button><button class="quiet" :disabled="busy||(!plan.adopted&&!plan.proposal_preview_active)" @click="emit('action','cancel',{})">取消修改，恢复原版</button><a v-if="!busy&&plan.adopted" class="quiet action-link" :href="`/api/v1/preview/planning/${plan.session_id}/guide-download`" download>导出采用版 Markdown</a><button v-else class="quiet" disabled>导出采用版 Markdown</button></div>
+    <p v-if="plan.differences.length">草稿有修改，原采用版保留。</p><div class="actions"><button :disabled="busy||!guide.available" @click="emit('action','adopt',{})">采用这版建议攻略</button><button class="quiet" :disabled="busy||(!plan.adopted&&!plan.proposal_preview_active)" @click="emit('action','cancel',{})">取消修改，恢复原版</button><button class="quiet" :disabled="busy||exportPending||!plan.adopted" @click="exportGuide">{{exportPending?'正在准备下载…':'导出采用版 Markdown'}}</button></div>
     <p v-if="plan.adopted" class="muted">下载当前采用版；生成文件前会再次核对来源。下载是否完成请查看浏览器提示。</p><p v-if="error" class="warning" role="alert">{{error}}</p>
+    <p v-if="exportNotice" role="status">{{exportNotice}}</p><p v-if="exportError" role="alert" class="warning">{{exportError}}</p>
   </section>
 </template>
 <style scoped>

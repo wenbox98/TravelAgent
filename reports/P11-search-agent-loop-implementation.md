@@ -4,6 +4,9 @@
 
 ## 问题与实现
 
+- 2026-10-11导出末端复核：af8af8b实际静态index-CUvPPzxm.js部署后，成功假设不再显示研究失败，当前5/AIR/UNKNOWN/NO/NO不变。A/B正常重启完整planning对象与460条continuation_operations逐行不变，quick_check=ok/外键0/活动作业0；B当前原生下载32735字节再次等于生产导出，A7历史25179字节与历史v2 hash保留。A5生产导出实际23416字节，但浏览器直接链接与下载事件没有取得新文件，不能把点击当保存；浏览器拒绝下载诊断页面，未绕过。尚不能确定浏览器未下载的底层原因，不能把它归因于模型或额度。
+- 本批`AdvisoryGuide.exportGuide`使用现有同源认证只读guide-export，经返回revision、当前旅行与采用状态核对后交给浏览器；单次等待60秒、执行中禁止重复、错误可见、延迟释放本地Blob，不改变服务器权限或请求外部业务。页面明确浏览器接收不代表磁盘保存。`guide-export.mjs`实际组件回归覆盖重复点击、连接错误、切换旅行、采用变化、版本不符与空导出不下载；SSR回归同步按钮。全部14组网页测试通过，vue-tsc和67模块生产构建通过（沙箱首轮EPERM，使用已有依赖的主机构建成功）；未运行与纯前端变更无关的新后端测试。新构建index-DdYKUe31.js/index-Dc0D8xEJ.css，待部署实际下载；零新模型/来源/地图请求。修改范围为该组件、两网页测试、package测试入口、任务书、本报告、V5架构说明，无数据或API字段迁移。
+
 - 2026-10-11真实C11通过：0873b70普通页面精确输入“如果只有3天呢”，任务`automatic-0b86eb36668841d88a061ec0b206ef0a`QUESTION_ANSWERED，ANSWER轮COMPLETED。已可见真实引用问答，模型3次、搜索/正文/地图0；A revision84，当前5/AIR/UNKNOWN/NO/NO、草稿和采用v3哈希24c9e44…保持。旧失败未重发，原预算和预留未重置，A历史MODEL89 SEARCH7 DETAIL21 CONNECT5 MAP2/1完整保留。
 - 独立页面又发现成功问答仍显示“读取或审核问题停止”：`agent.finish`只以新攻略判断COMPLETED；页面!ready把QUESTION_ANSWERED误当研究失败。本批成功问题终态COMPLETED、成功文案不再说停止，页面兼容旧PARTIAL/QUESTION_ANSWERED而不改写旧状态；仍失败的任务不走成功展示。问答提示补充不在正文显示内部claim_id/协议键，当前已保存真实回复中的技术词不伪称已经模型重答。
 - 本批实际验证：`pytest tests/integration/test_goal_research_budget.py tests/integration/test_goal_context.py tests/unit/test_cached_question_validation.py -q --basetemp=<独立临时目录>`33通过38.12秒、2依赖警告；`pnpm --dir apps/web test`全部13组通过（新增旧PARTIAL与新COMPLETED成功问答展示回归）；`pnpm --dir apps/web build`成功67模块，JS index-CUvPPzxm.js/CSS index-DTPaZT7J.css；Ruff和mypy112通过。尚待新网页刷新确认成功状态与最终导出。
