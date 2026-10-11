@@ -10,7 +10,7 @@ from .guide_models import GuideProposal, GuideContent, BudgetLine
 from .arrangements import Rejected, _safety, _check, required_citation_ids
 from .guide_context import walking, budget_context
 
-VERSION = "advisory-guide-1.9"
+VERSION = "advisory-guide-1.10"
 SYNTHETIC = "GUIDE_MULTI_DAY"
 PROMPT = (
     "Return JSON only, protocol_version 4, Simplified Chinese, matching the supplied schema. "
@@ -71,6 +71,8 @@ PROMPT = (
     "Read scoped_context: these are reviewed source-object backgrounds, not features of every member place. "
     "Use context_uses to select context_id, a subset of its activity_ids, use COMPARE/SELECT/RELAXED_PACING, "
     "and a brief suggestion explaining how this background helps compare interests or pacing. Include its citation_id. "
+    "COMPARE may refer to a supplied alternative omitted from this proposal, without scheduling it. "
+    "SELECT and RELAXED_PACING may refer only to activities actually scheduled in this proposal. "
     "Code displays the original text, subject, role, conditions and limitations; DO NOT recopy or paraphrase source facts "
     "in free text. Never turn a group atmosphere, author opinion, negation or seasonal condition into each stop's feature, "
     "current crowd guarantee or verified geographic membership. Direct place content and group background stay separate. "

@@ -5,7 +5,7 @@ from typing import Any
 from travel_agent.preview.projection import fingerprint, safe_text
 
 VERSION = "scoped-context-1"
-USE_RULE = "scoped-use-1.4"
+USE_RULE = "scoped-use-1.5"
 REVIEWED = {"WORK_REVIEWED", "MODEL_CONTEXT_REVIEWED", "LOCAL_REVALIDATION"}
 LIMIT = "仅为来源整体背景与组合线索，不证明每站特色、行政归属、亲历或当前人流/开放/可行性。"
 
@@ -222,6 +222,7 @@ def validate_uses(proposal: dict[str, Any], data: dict[str, Any]) -> list[dict[s
         for r in group
     }
     selected = {a["activity_id"] for a in proposal["activities"]}
+    available = {a["activity_id"] for a in data["activities"]}
     seen, audit = set(), []
     for use in proposal.get("context_uses", []):
         c = by_id.get(use["context_id"])
@@ -235,7 +236,8 @@ def validate_uses(proposal: dict[str, Any], data: dict[str, Any]) -> list[dict[s
             not c
             or use["context_id"] in seen
             or len(targets) != len(use["activity_ids"])
-            or not targets <= selected
+            or not targets <= available
+            or (use["use"] != "COMPARE" and not targets <= selected)
             or not targets <= set(c["activity_ids"])
             or not cited
         ):
@@ -246,6 +248,17 @@ def validate_uses(proposal: dict[str, Any], data: dict[str, Any]) -> list[dict[s
             raise Rejected("GUIDE_CONTEXT_SCOPE", "context_uses.reason")
         # Existing fact, transport and fixed-constraint checks apply to rationale too.
         _check(dict(proposal, assumptions=[text]), data)
+        if targets - selected:
+            # Comparing a supplied alternative must not insert it into the plan or
+            # convert its background into support for a different selected place.
+            audit.append(
+                dict(
+                    rule="UNSELECTED_CONTEXT_COMPARISON",
+                    context_id=use["context_id"],
+                    activity_ids=sorted(targets - selected),
+                    rule_version=USE_RULE,
+                )
+            )
         if c["citation_id"] not in proposal["citation_ids"]:
             audit.append(
                 dict(

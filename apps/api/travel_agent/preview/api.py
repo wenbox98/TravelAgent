@@ -44,6 +44,7 @@ def error(code: str, status: int) -> JSONResponse:
                 'DESTINATION_REQUIRED':'请先确认要研究的目的区域。','DESTINATION_CONFLICT':'已有研究的目的区域与输入不一致，请保留原研究或新建本地需求。',
                 'NEW_MATERIAL_UNAVAILABLE':'本任务没有可采用的新合格材料；原选择保留。','JOB_UNAVAILABLE':'当前范围没有此研究任务。'}
     messages.update({
+        'AUTOMATIC_ALREADY_RUNNING': '另一份旅行的任务仍在运行。请先等待它结束或在对应旅行中停止，再发送本条；文字已保留，本次没有新建任务或消耗额度。',
         'CACHE_BODY_NO_ELIGIBLE_OR_NEW_SNAPSHOT': '当前旅行没有可重新分析的有效缓存正文，或相同版本与缺口已处理。未重新访问来源，也未调用模型。',
         'CACHE_BODY_NO_CURRENT_GAP': '当前没有适用的资料缺口，未启动重新分析。',
         'CACHE_BODY_INSUFFICIENT_MODEL_PERMISSION': '本次明确的模型上限不足以完成理解、一次提取、独立审核与后续建议；未发起模型请求。',

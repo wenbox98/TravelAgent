@@ -364,6 +364,46 @@ def test_proven_context_alias_is_accepted_and_audited_without_reply_rewrite(scop
         assert validate(raw, bad)["accepted_count"] == 0
 
 
+def test_comparing_omitted_alternative_never_schedules_or_transfers_its_context(scoped):
+    from travel_agent.planning.advisory import validate, apply
+    from travel_agent.planning.scoped_context import view
+    from test_advisory_guide import proposal
+
+    s, v = scoped
+    p, data = context(s, v)
+    raw = proposal(data)
+    chosen = raw["proposals"][0]
+    omitted = chosen["activities"].pop()
+    bg = data["scoped_context"][0]
+    chosen["context_uses"] = [dict(
+        context_id=bg["context_id"], activity_ids=[omitted["activity_id"]],
+        use="COMPARE", reason="仅比较这个备选，条件待确认前不安排。",
+    )]
+    before = deepcopy(raw)
+    result = validate(raw, data)
+    assert result["accepted_count"] == 1
+    accepted = result["proposals"][0]
+    assert any(a["rule"] == "UNSELECTED_CONTEXT_COMPARISON" for a in accepted["normalizations"])
+    draft = apply(p, accepted)
+    assert omitted["activity_id"] not in {a["activity_id"] for a in draft["activities"]}
+    assert not view(draft["activities"], data["references"], draft["guide"]["context_uses"])["uses"]
+    assert raw == before
+    for change in (
+        dict(use="SELECT"), dict(use="RELAXED_PACING"),
+        dict(activity_ids=["invented"]), dict(context_id="invented"),
+        dict(reason="每一站都有相同特色"),
+    ):
+        bad = deepcopy(raw)
+        bad["proposals"][0]["context_uses"][0].update(change)
+        assert validate(bad, data)["accepted_count"] == 0
+    bad_data = deepcopy(data)
+    bad_data["activities"] = [a for a in data["activities"] if a["activity_id"] != omitted["activity_id"]]
+    assert validate(raw, bad_data)["accepted_count"] == 0
+    missing_citation = deepcopy(raw)
+    missing_citation["proposals"][0]["citation_ids"].remove(bg["citation_id"])
+    assert validate(missing_citation, data)["accepted_count"] == 0
+
+
 def test_removal_keeps_history_and_drops_unrelated_context(scoped):
     from travel_agent.planning.scoped_context import view
 

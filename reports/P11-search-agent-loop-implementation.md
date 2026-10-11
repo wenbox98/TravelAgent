@@ -156,3 +156,10 @@ debefb2部署后，普通页面一次明确缓存生成：理解、监督、规�
 本次呈现修复：advisory_guide/content_pipeline共54通过17.55秒，Ruff通过；全部npm test通过，新增SSR证明“本次只步行”在项目之前且骑行原文只出现于来源标签。npm run build初次沙盒spawn EPERM，主机重跑通过，产物index-BxQxkswY.js/index-BX5EKmRk.css。B预览、下一版采用下载、地图与A内容仍接续，不宣称任务完成。
 
 执行cached_overview/reference_selection/private_source_content/planning_conversation/goal_agent/cached_material_permission合成回归112通过23.28秒；mypy112文件、Ruff通过。新住宿覆盖与读取/引用57通过3.58秒（重叠，不累计成独立总数），Ruff通过。首次沙盒临时目录WinError5导致fixture与清理错误，主机独立临时目录运行通过。只读cProfile B读取7.376秒→4.516秒，前后会话状态有变化，不作为同状态精确性能基准。原本页超时与改后普通提交效果仍须真实复验。本批不发新的业务请求，后续Git同步、空闲备份部署和B内容修订接续。
+# 2026-10-11：备选比较误拒修复（尚未完成两轮验收）
+
+武汉真实修订要求将开放未确认的地点移出必去，仅作备选。模型HTTP200、结构有效，返回7项正式安排及1项COMPARE备选；`scoped_context.validate_uses`却要求COMPARE目标必须在正式安排中，触发GUIDE_CONTEXT_REFERENCE。此前采用v2未改变。修复为只有COMPARE允许当前输入目录内、原背景绑定范围内的未安排备选，留下审计，不插入活动或把背景转移为其他地点特色。SELECT/RELAXED_PACING、来源等价、引用、范围及事实校验继续执行。规则与提示升级advisory-guide-1.10/scoped-use-1.5，无数据格式迁移。
+
+修改：`planning/scoped_context.py::validate_uses`、`planning/advisory.py::PROMPT/VERSION`；`preview/api.py`补上AUTOMATIC_ALREADY_RUNNING可执行中文提示；架构与任务书同步。合成测试覆盖备选不插入、背景不转移、非COMPARE不放行、虚构/目录外目标、范围断言、缺引用拒绝及不改写原答复。
+
+验证：隔离主机临时目录运行test_scoped_context.py、test_advisory_guide.py、test_guide_lodging_revalidation.py，93 passed，22.59秒；两条既有依赖弃用警告，Ruff通过。第一条测试命令误写不存在的test_guide_revalidation.py，未运行任何测试，已纠正。直接传入API目录扩大mypy范围产生220项历史模块错误；项目标准`mypy --no-incremental`112源文件通过，未修改无关历史模块。保存的武汉原始答复按新规则只读复核接纳1，外部调用0，原失败/采用版/用量不改写。私人证据`.local/root-p11-review/B-context-recheck.json`，真实答复不提交Git。湖北缓存分析仍运行，部署须等其结束；页面本地复核、下载和两轮最终内容/恢复验收尚未完成。本批差异7文件、72新增/5删除（提交前文档补充可能调整），没有数据库迁移或新业务外部请求。

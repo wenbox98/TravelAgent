@@ -101,6 +101,8 @@ advisory-guide-1.6 沿用协议 v4，新增可缺省的 GuideContextUse：受控
 
 范围用途检查 scoped-use-1.1 / advisory-guide-1.6.1 对明确否定关系的受限句型按分句判断：“不能推断每站特色”不是肯定断言。只识别有限的否定谓语和范围对象；转折后重新检查，不因包含“不”就放过整句。原事实检查与逐方案隔离保留，历史 1.6 判定不回写；可经既有 LOCAL_REVALIDATION 页面对原输入/保存回复显式复核。
 
+2026-10-11，`advisory-guide-1.10` / `scoped-use-1.5`：`COMPARE` 可比较当前输入目录中、与该背景明确绑定但未排入本方案的备选。`SELECT` / `RELAXED_PACING` 仍只可用于实际安排的项目。背景身份、目标绑定、引用及其同源等价证明、重复对象和事实检查继续执行；目录之外的目标仍拒绝。未安排目标留下 `UNSELECTED_CONTEXT_COMPARISON` 审计，不自动加入行程，不把其背景转成已安排地点特色或完整性证据。展示层仅保留当前安排能重新推导的背景；备选解释仍以原方案的建议理由与未知项呈现。原失败不改写；保留输入与答复可通过既有显式本地复核入口生成版本化结果，这不属于新的模型回答。
+
 ## 当前输出契约与有界选材（advisory-guide-1.7）
 
 `arrangements.required_citation_ids` 同时供输入提示和本地审核使用：选择一个活动就须列全其 evidence/discovery/knowledge 引用的并集，不是从允许列表任选一个。供应商序列化时增加仅含活动 ID 和必需引用 ID 的 `citation_requirements`；冻结的原 payload 不改写。`suggestions.run_worker` 根据本次实际 payload 生成输出 schema，限定活动、引用、背景和住宿片区 ID。必要引用依赖仍由逐方案语义检查执行，不能从模型缺失引用中自动补签、替换或推断事实。
