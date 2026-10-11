@@ -147,4 +147,8 @@ debefb2部署后，普通页面一次明确缓存生成：理解、监督、规�
 
 本次提交前端15秒等待超时，后台随后接收并完成，未再次发送。定位planning.conversation._action启动V5提交前先运行整页plans.get但结果无用；移到V5早返回之后。preview.service._load_cache同请求复用来源包与内容快照，沿用total_changes/data_version失效；content_store.audit_grounding只复用由实际原文/DOM/完整度/内容身份和引用版本组成的目录，各条定位、上下文、manifest、哈希仍逐条核对。原文或绑定或statement范围篡改仍拒绝。advisory_coverage.assess在V5具体内容覆盖时复用researched_areas的精确已审住宿标题关联，过滤冲突；旧coverage行为保持。无外部契约或数据库变更。
 
+0640170已推送且完整远端SHA核对一致；部署前活动任务0、备份before-read-coverage.sqlite3、完整性ok/外键0，运行PID36784/启动器24584，静态DydIdkRa。普通页面重启恢复B采用v1与AIR/PUBLIC_TRANSIT/NO/NO，A采用v1/AIR/SELF_DRIVE/YES/YES均精确不变。B新自由修订一次接收并完成SUFFICIENT，3新真实模型，搜索/正文/地图0；累计5/20/42。8项具体内容、三天分配和住宿引用完整，东湖仅步行、楚河汉街备选、第三天下午返程余量写入建议，未覆盖旧采用。原文“骑行”仍被AdvisoryGuide和Markdown无标签重复作主说明，容易与本次选择混淆；删除已有content_references时的重复highlight，本次assumptions在活动之前展开，原文和完整条件仍保留在清晰标记的来源参考内。无业务数据或契约变化，没有新模型重发。
+
+本次呈现修复：advisory_guide/content_pipeline共54通过17.55秒，Ruff通过；全部npm test通过，新增SSR证明“本次只步行”在项目之前且骑行原文只出现于来源标签。npm run build初次沙盒spawn EPERM，主机重跑通过，产物index-BxQxkswY.js/index-BX5EKmRk.css。B预览、下一版采用下载、地图与A内容仍接续，不宣称任务完成。
+
 执行cached_overview/reference_selection/private_source_content/planning_conversation/goal_agent/cached_material_permission合成回归112通过23.28秒；mypy112文件、Ruff通过。新住宿覆盖与读取/引用57通过3.58秒（重叠，不累计成独立总数），Ruff通过。首次沙盒临时目录WinError5导致fixture与清理错误，主机独立临时目录运行通过。只读cProfile B读取7.376秒→4.516秒，前后会话状态有变化，不作为同状态精确性能基准。原本页超时与改后普通提交效果仍须真实复验。本批不发新的业务请求，后续Git同步、空闲备份部署和B内容修订接续。

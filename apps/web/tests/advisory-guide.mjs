@@ -58,3 +58,10 @@ assert(linked.includes('本站来源限制') && linked.includes('相关来源引
 assert.equal(linked.split(mixed).length-1,1)
 assert(linked.includes('其他对象的介绍不等于当前每站的特色或适用条件'))
 console.log('PASS AdvisoryGuide: direct reviewed subject and deduplicated full source premises stay distinct')
+
+const walkingPlan={...linkedGuide,assumptions:['本次只步行，不安排骑行'],activities:[{...linkedGuide.activities[0],highlight:'适合慢慢骑行',content_references:[{...direct,text:'适合慢慢骑行'}]}]}
+const walkingHtml=await renderToString(createSSRApp({ssrRender,data:()=>({guide:walkingPlan,form,plan,busy:false,editing:false,composing:false,selected:[],error:'',money:()=> '未知'})}))
+assert(walkingHtml.indexOf('本次只步行，不安排骑行')<walkingHtml.indexOf('class="activity"'))
+assert.equal(walkingHtml.split('适合慢慢骑行').length-1,1)
+assert(walkingHtml.includes('非当前核实）：适合慢慢骑行'))
+console.log('PASS AdvisoryGuide: current walking choice is visible before separately labelled source cycling advice')

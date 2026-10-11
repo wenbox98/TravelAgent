@@ -62,7 +62,8 @@ function stay(i:number,key:'stay_min'|'stay_max',e:Event){form.value.activities[
       <article v-for="s in guide.context.supplements" :key="s.citation_id"><h4>未关联的来源补充</h4><p>{{s.text}}（{{s.reference_kind}}）</p><p>{{s.conditions.join('；')}}</p><p>{{s.reason}}</p></article>
       <p>整体背景参考来自 {{guide.context.source_count}} 个来源；不按项目数量重复计数，来源独立性未确认。</p>
     </details>
-    <article v-for="(a,i) in guide.activities" :key="a.activity_id" class="activity"><h4>第 {{a.day}} 天 · {{a.period}} · {{a.name}}</h4><p>{{a.highlight}}</p><p>{{a.stay}}；{{a.rest}}。{{a.locked_start?'预约锁定 '+a.locked_start+'。':''}}</p>
+    <section v-if="guide.assumptions.length" aria-label="本次安排与取舍"><h3>本次安排与取舍</h3><p v-for="note in guide.assumptions" :key="note">{{note}}</p></section>
+    <article v-for="(a,i) in guide.activities" :key="a.activity_id" class="activity"><h4>第 {{a.day}} 天 · {{a.period}} · {{a.name}}</h4><p v-if="!a.content_references?.length">{{a.highlight}}</p><p>{{a.stay}}；{{a.rest}}。{{a.locked_start?'预约锁定 '+a.locked_start+'。':''}}</p>
       <details><summary>修改停留、日段或预约</summary><fieldset :disabled="busy"><div class="grid">
         <label>第几天<input v-model.number="form.activities[i].day" type="number" min="1" max="90" @change="save" /></label>
         <label>建议日段<select v-model="form.activities[i].period" @change="save"><option value="UNDECIDED">自定</option><option value="MORNING">上午</option><option value="AFTERNOON">午后</option><option value="EVENING">傍晚</option></select></label>
@@ -107,7 +108,7 @@ function stay(i:number,key:'stay_min'|'stay_max',e:Event){form.value.activities[
       <label>计价口径<select v-model="line.unit" :disabled="line.locked||line.paid_fen>0" @change="save"><option value="ONCE">一次性</option><option value="PER_PERSON">每人</option><option value="PER_PERSON_DAY">每人每天</option><option value="PER_ROOM_NIGHT">每间每晚</option><option value="PER_DAY">每天</option></select></label><label v-if="line.optional" class="check"><input v-model="line.include_optional" type="checkbox" @change="save" />纳入本次预留</label></div></article>
     </fieldset></details>
     <details><summary>可选详细时间视图</summary><p>只有已知的假设参与计算；后续移动未知时，具体到达时间保持未知。</p><p v-for="r in plan.timeline" :key="r.activity_id">第 {{r.day}} 天 {{r.name}}：{{r.display_start}} → {{r.display_end}}</p></details>
-    <details><summary>还需留意的事项与来源</summary><p v-for="v in [...guide.assumptions,...guide.tradeoffs,...guide.unknowns,...plan.gaps]" :key="v">{{v}}</p><p>来源知识、地点提及、用户选择与AI停留建议保持各自含义；具体卡片可在资料库展开。</p><p v-for="d in plan.job?.decisions.filter(d=>d.status==='REJECTED')||[]" :key="d.proposal_id">提议未采用：{{d.reason}}</p></details>
+    <details><summary>还需留意的事项与来源</summary><p v-for="v in [...guide.tradeoffs,...guide.unknowns,...plan.gaps]" :key="v">{{v}}</p><p>来源知识、地点提及、用户选择与AI停留建议保持各自含义；具体卡片可在资料库展开。</p><p v-for="d in plan.job?.decisions.filter(d=>d.status==='REJECTED')||[]" :key="d.proposal_id">提议未采用：{{d.reason}}</p></details>
     <p v-if="plan.differences.length">草稿有修改，原采用版保留。</p><div class="actions"><button :disabled="busy||!guide.available" @click="emit('action','adopt',{})">采用这版建议攻略</button><button class="quiet" :disabled="busy||(!plan.adopted&&!plan.proposal_preview_active)" @click="emit('action','cancel',{})">取消修改，恢复原版</button><a v-if="!busy&&plan.adopted" class="quiet action-link" :href="`/api/v1/preview/planning/${plan.session_id}/guide-download`" download>导出采用版 Markdown</a><button v-else class="quiet" disabled>导出采用版 Markdown</button></div>
     <p v-if="plan.adopted" class="muted">下载当前采用版；生成文件前会再次核对来源。下载是否完成请查看浏览器提示。</p><p v-if="error" class="warning" role="alert">{{error}}</p>
   </section>

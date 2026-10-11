@@ -262,12 +262,15 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
             + ("（节选）" if e["truncated"] else "")
             for e in support["excerpts"]
         ]
+    if guide["assumptions"]:
+        lines += ["", "## 本次安排与取舍", ""]
+        lines += ["- " + escaped(v) for v in guide["assumptions"]]
     for a in guide["activities"]:
         lines += [
             "",
             f"### 第 {a['day']} 天 · {escaped(a['period'])} · {escaped(a['name'])}",
             "",
-            escaped(a["highlight"]),
+            escaped(a["highlight"]) if not a["content_references"] else "",
             escaped(a["stay"]) + "；" + escaped(a["rest"]) + "（建议，不是实测）。",
         ]
         if a["locked_start"]:
@@ -358,7 +361,7 @@ def export(db: Any, scope: str, sid: str) -> dict[str, Any]:
     ]
     lines += ["", "## 假设、取舍与尚待核实", ""]
     lines += [
-        "- " + escaped(v) for v in [*guide["assumptions"], *guide["tradeoffs"], *guide["unknowns"]]
+        "- " + escaped(v) for v in [*guide["tradeoffs"], *guide["unknowns"]]
     ]
     lines += ["", "## 来源依据", ""]
     if p.get("knowledge_mode"):
