@@ -109,6 +109,28 @@ def test_saved_v1_snapshot_still_builds_independent_review_and_audits(clock):
         assert data["candidates"]
 
 
+@pytest.mark.parametrize("damage", ["raw", "binding", "statement"])
+def test_reused_directory_does_not_hide_changed_bytes_binding_or_quote(clock, damage):
+    with Database(Path(':memory:'), clock=clock) as db:
+        store, _, out = execute(db, clock, lambda s: [choice(s)], reference_version=1)
+        review_candidates(store, attempt_id=out["attempt_id"], account_scope="owner", decisions={
+            0: accept(reference_scope="AUTHOR_PROPOSED_PLAN", dependency_resolution="INDEPENDENT")})
+        bundle = store.lookup("partial", "合成青谷", "owner")[0].to_dict()
+        content, = store.contents.load(bundle["source_id"], "owner")
+        directories = {}
+        assert audit_grounding(bundle, (content,), directories=directories)["unsupported"] == 0
+        changed, body = deepcopy(bundle), deepcopy(content)
+        if damage == "raw":
+            body["raw_text"] = body["raw_text"].replace("我", "你")
+            assert body["raw_text"] != content["raw_text"]
+        elif damage == "binding":
+            body["content_id"] += "-different"
+        else:
+            ref = changed["claim_metadata"][changed["claims"][0]["claim_id"]]["reference_selection"]
+            ref["statement"]["start"] += 1
+        assert audit_grounding(changed, (body,), directories=directories)["unsupported"] == 1
+
+
 def test_clause_subject_projection_excludes_other_paragraph_and_ambiguous_lengths():
     from travel_agent.research.references import clause_context
     body = "下午去合成青谷公园，沿湖散步观赏林间花草。\n另一天去合成南馆，参观展览。"

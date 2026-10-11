@@ -210,6 +210,28 @@ def test_projection_deduplicates_opinions_and_keeps_source_lineage(tmp_path, clo
         assert all(e["locator"] and e["block_locators"] and e["conditions"] for o in p["options"] for e in o["evidence"])
 
 
+def test_source_snapshot_reuse_preserves_write_invalidation(tmp_path, clock, monkeypatch):
+    from travel_agent.preview.service import view_cache
+    from travel_agent.persistence.repositories import EvidenceRepository
+    calls = []
+    original = EvidenceRepository.get
+    def counted(self, source_id, scope):
+        calls.append(source_id)
+        return original(self, source_id, scope)
+    monkeypatch.setattr(EvidenceRepository, "get", counted)
+    with Database(tmp_path / "source-reuse.sqlite3", clock=clock) as db:
+        seed(db, clock)
+        calls.clear()
+        with view_cache():
+            first = service(db)._load_cache("partial")[1]
+            assert first
+            assert service(db)._load_cache("partial")[1] == first
+            assert len(calls) == 1
+            db.connection.execute("UPDATE claims SET deleted_at=?", (db.stamp(),))
+            assert not service(db)._load_cache("partial")[1]
+            assert len(calls) == 2
+
+
 def test_unknown_choice_saved_and_idempotency_body_conflict(tmp_path, clock):
     with Database(tmp_path / "cache.sqlite3", clock=clock) as db:
         seed(db, clock)

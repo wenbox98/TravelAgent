@@ -122,6 +122,20 @@ def assess(
             and re.search(r"住宿|住在|入住|酒店|民宿|落脚", r["text"])
             and len(normalize_claim(r["text"])) >= 12
         ]
+        if require_activity_content:
+            from travel_agent.planning.lodging import researched_areas
+
+            area_claims = {
+                cid
+                for area in researched_areas(
+                    [r for r in rows if r["claim_id"] not in conflicted]
+                )
+                for cid in area["citation_ids"]
+            }
+            lodging = [
+                r for r in rows
+                if r["claim_id"] in area_claims or r in lodging
+            ]
         specs.append(("LODGING", "住宿片区与落脚取舍参考", bool(lodging), lodging))
     dimensions: list[dict[str, Any]] = [
         dict(

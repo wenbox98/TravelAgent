@@ -171,9 +171,12 @@ class SourceContentStore:
         return tuple(result)
 
 
-def audit_grounding(bundle: Mapping[str, Any], contents: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+def audit_grounding(bundle: Mapping[str, Any], contents: tuple[dict[str, Any], ...], *,
+                    directories: dict[tuple[Any, ...], Any] | None = None) -> dict[str, Any]:
     """Recheck persisted exact quotes and conditions against their versioned blocks."""
     checked = unsupported = 0
+    if directories is None:
+        directories = {}
     for claim in bundle["claims"]:
         meta = bundle.get("claim_metadata", {}).get(claim["claim_id"], {})
         supported = False
@@ -197,9 +200,15 @@ def audit_grounding(bundle: Mapping[str, Any], contents: tuple[dict[str, Any], .
                 ref = meta.get("reference_selection")
                 if supported and ref:
                     from .references import catalog
-                    view = canonicalize(content["raw_text"], content["dom_text"], completeness=content["content_completeness"])
-                    directory = catalog(view, content["source_id"], content["content_id"], content["content_hash"],
-                                        version=ref["reference_version"])
+                    # A directory is immutable for these exact bytes/bindings.
+                    # Each claim still checks its quote, manifest and conditions.
+                    key = tuple(content[k] for k in ("raw_text", "dom_text", "content_completeness",
+                                                     "source_id", "content_id", "content_hash")) + (ref["reference_version"],)
+                    if key not in directories:
+                        view = canonicalize(content["raw_text"], content["dom_text"], completeness=content["content_completeness"])
+                        directories[key] = (view, catalog(view, content["source_id"], content["content_id"], content["content_hash"],
+                                                         version=ref["reference_version"]))
+                    view, directory = directories[key]
                     selected = [ref["statement"], *ref["conditions"]]
                     supported = bool(
                         all(ref[k] == v for k, v in directory["binding"].items())

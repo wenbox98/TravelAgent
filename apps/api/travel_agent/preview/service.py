@@ -69,8 +69,10 @@ class PreviewService:
         sources, claims = json.loads(report["source_handles_json"]), set(json.loads(report["claim_handles_json"]))
         repo, contents = EvidenceRepository(self.db), SourceContentStore(self.db)
         evidence = []
+        directories: dict[tuple[Any, ...], Any] = {}
         for source_id in sources:
-            bundle = repo.get(source_id, self.scope)
+            bundle = cached_view(self.db, ("source_bundle", self.scope, source_id),
+                                 lambda: repo.get(source_id, self.scope))
             if bundle is None:
                 continue
             # DomainModel decodes its immutable JSON on every keyed read. Decode
@@ -82,7 +84,8 @@ class PreviewService:
             policy = SourcePolicy(json.loads(p[0])) if p else None
             if policy is None or not repo.permitted(policy) or not scope_allowed(policy, self.scope):
                 continue
-            cached = contents.load(source_id, self.scope, purge=False)
+            cached = cached_view(self.db, ("source_contents", self.scope, source_id),
+                                 lambda: contents.load(source_id, self.scope, purge=False))
             accepted, metadata = [], {}
             for claim in b["claims"]:
                 meta = b.get("claim_metadata", {}).get(claim["claim_id"], {})
@@ -106,7 +109,7 @@ class PreviewService:
                 # exact stored claim without schema-validating the same source
                 # envelope once again for every claim.
                 singleton = b | {"claims": [claim], "claim_metadata": {claim["claim_id"]: meta}}
-                if audit_grounding(singleton, cached)["unsupported"]:
+                if audit_grounding(singleton, cached, directories=directories)["unsupported"]:
                     continue
                 try:
                     for text in [claim["text"], b["source_title"] or "", *meta.get("applicable_conditions", [])]:

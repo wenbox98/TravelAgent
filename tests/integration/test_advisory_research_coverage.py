@@ -98,6 +98,27 @@ def test_conflicting_transport_is_retained_as_gap():
     assert "CONFLICT" in {g["key"] for g in c["gaps"]}
 
 
+@pytest.mark.parametrize(
+    "text,conditions,review,expected",
+    [
+        ("🌟首选合成江路，", ["🏨住宿推荐", "步行可达合成江滩"], "MODEL_CONTEXT_REVIEWED", True),
+        ("🌟首选合成江路，", ["散步推荐"], "MODEL_CONTEXT_REVIEWED", False),
+        ("🌟首选合成江路，", ["🏨住宿推荐"], "PENDING", False),
+        ("不要住合成江路，", ["🏨住宿推荐"], "MODEL_CONTEXT_REVIEWED", False),
+    ],
+)
+def test_v5_lodging_coverage_uses_reviewed_named_heading(text, conditions, review, expected):
+    row = dict(rows()[5], text=text, conditions=conditions, review_status=review,
+               reference_kind="GUIDE_SUGGESTION")
+    request = ResearchRequest(destination="合成城", days=3)
+    coverage = assess([row], request, require_activity_content=True)
+    lodging = next(d for d in coverage["dimensions"] if d["key"] == "LODGING")
+    assert (lodging["status"] == "SUPPORTED_REFERENCE") is expected
+    assert lodging["citation_ids"] == ([row["claim_id"]] if expected else [])
+    # Historical coverage semantics remain unchanged.
+    assert "LODGING" in {g["key"] for g in assess([row], request)["gaps"]}
+
+
 class ReviewedExtractor(StubExtractor):
     def extract(self, **args):
         result = super().extract(**args)

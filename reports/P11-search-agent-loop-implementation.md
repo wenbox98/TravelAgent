@@ -140,3 +140,11 @@ automatic._bind_cached_knowledge在明确V5缓存选择后同步当前运行任�
 新增test_cached_material_permission使用真实生产资料整理、普通对话、新许可、worker和合成HTTP回包串联，验证旧快照确实拒绝、显式刷新后生成可选方案、来源调用0、旧许可逐字段不变，以及关闭/错scope/错generation拒绝。专项5通过9.64秒；随后与search_agent_loop、automatic_planning、knowledge_library、cached_body_reprocess合计101通过141.73秒。首次沙盒临时目录WinError5，改为主机独立禁网测试目录；Ruff通过、mypy112文件通过，git diff --check通过。部署前已确认活动任务/子任务均0并备份当前数据库，quick_check=ok、外键异常0。真实B重新生成待验，A/B仍未完整通过。
 
 A原生下载实际文件28,090字节；独立以保存的采用版重新导出，SHA256均0ea94ee3ef1bb7d3e9500dd04333f6c1daf298942a72fc0bd3610ab695e5f95f。下载文件内容一致，不代表内容质量通过；原始文件与私有证明留本机，不提交Git。
+
+### B真实生成、采用与提交等待修复
+
+debefb2部署后，普通页面一次明确缓存生成：理解、监督、规划3次真实模型，新增站点/地图0，B累计搜索5/正文20尝试/模型39。生成1份合法三天9项方案，每项有CONTENT_REFERENCE，住宿江汉路与黄鹤楼周边，东湖只安排一次。页面预览后取消，DB确认原12项草稿恢复、采用为空、账本不变；再采用后revision19、采用v1、draft/adopted哈希一致，AIR/PUBLIC_TRANSIT/NO/NO保留。私有证据B-reviewed-generation-result.json、B-after-preview-cancel.json、B-adopted-nine-verified.json。不算完整通过：东湖源引用仍建议骑行，本次要求步行；第三天下午返程余量、地图、原生下载、重启恢复仍待核对，A内容仍FAIL。
+
+本次提交前端15秒等待超时，后台随后接收并完成，未再次发送。定位planning.conversation._action启动V5提交前先运行整页plans.get但结果无用；移到V5早返回之后。preview.service._load_cache同请求复用来源包与内容快照，沿用total_changes/data_version失效；content_store.audit_grounding只复用由实际原文/DOM/完整度/内容身份和引用版本组成的目录，各条定位、上下文、manifest、哈希仍逐条核对。原文或绑定或statement范围篡改仍拒绝。advisory_coverage.assess在V5具体内容覆盖时复用researched_areas的精确已审住宿标题关联，过滤冲突；旧coverage行为保持。无外部契约或数据库变更。
+
+执行cached_overview/reference_selection/private_source_content/planning_conversation/goal_agent/cached_material_permission合成回归112通过23.28秒；mypy112文件、Ruff通过。新住宿覆盖与读取/引用57通过3.58秒（重叠，不累计成独立总数），Ruff通过。首次沙盒临时目录WinError5导致fixture与清理错误，主机独立临时目录运行通过。只读cProfile B读取7.376秒→4.516秒，前后会话状态有变化，不作为同状态精确性能基准。原本页超时与改后普通提交效果仍须真实复验。本批不发新的业务请求，后续Git同步、空闲备份部署和B内容修订接续。

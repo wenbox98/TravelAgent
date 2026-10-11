@@ -262,7 +262,6 @@ def _action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) -
         p = container["planning"]
         if row["revision"] != body.expected_revision:
             raise ValueError("STALE_REVISION")
-        current = service.plans.get(sid)
         c = p.setdefault(
             "conversation",
             dict(version=0, messages=[], selected=None, excluded=[], excluded_activities=[]),
@@ -279,6 +278,7 @@ def _action(db: Any, scope: str, sid: str, body: ConversationAction, key: str) -
             service._create(sid, payload, key, body.text, followup=True, agent=True,
                             agent_consent=str(body.consent))
             return service.plans.get(sid)
+        current = service.plans.get(sid)
         dispatch: Literal["refine", "revise", "research_more"] | None = None
         local_changed = False
         answer_job = None
