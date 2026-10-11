@@ -126,3 +126,5 @@ advisory-guide-1.6 沿用协议 v4，新增可缺省的 GuideContextUse：受控
 机场、航站楼及取还车点未知不撤销已确认的AIR到达。理解回复中仅此类位置证据却清除arrival_transport的更新按IGNORED_LOCATION_ONLY_ARRIVAL_UPDATE_V1隔离并审计，原模型回复保持；其他有效更新应用。用户明确说到达方式未知、飞机未定仍允许更新。
 
 locked-arrangement-2.5 / advisory-guide-1.13只剥离精确金额词的否定并列宾语（含票价/报价/价格/费用/金额，最多四项），不跳过全句；同句肯定事实、金额数字及交通耗时依旧拦截。
+
+locked-arrangement-2.6 / advisory-guide-1.14补充明确否定谓语＋当作/视为/认定为/认为是＋已核实的精确跨度。“不能当作已核实玩法”是证据缺口；只剥离该谓语，不跳过整个分句，紧随的肯定已核实、保证、金额和交通耗时仍拒绝。此确定性语义防护仍有限，不宣称理解任意自然语言；原失败不可回写，显式本地复核须标注LOCAL_REVALIDATION。

@@ -195,3 +195,9 @@ A在b8b247b运行版真实完成SUFFICIENT：仅3次模型、零新来源请求�
 修改agent_contract.INTAKE_PROMPT/understanding：机场/航站楼/取还车点只是位置，UNKNOWN引用无到达方式或交通方式证据时隔离该一项并记录IGNORED_LOCATION_ONLY_ARRIVAL_UPDATE_V1；其他真实更新正常应用，不修写原回复。显式到达方式未知仍可清除。arrangements._check精确支持最多四个金额名词组成的否定并列宾语，仍逐句拦截价格数字、肯定核实、保证和交通时间；规则locked-arrangement-2.5/advisory-guide-1.13。无数据或API结构迁移。
 
 实际执行test_intake_contract/test_advisory_guide/test_goal_agent：172 passed，24.61秒，两项依赖弃用警告；Ruff、mypy112文件通过。原五天回复只读规则复核接纳2（一个局部/一个支持充分），网络0，不能称新模型回答；新真实五天条件修正/生成/保存及三天假设仍待验。实际下载工具先等待198秒后838秒才返回文件，文件已存在并独立字节校验；不能把工具等待当应用任务运行时长。
+
+## 2026-10-11 明确否定已核实玩法的误拒
+
+8c9d892已授权推送并核对远端完整SHA，部署PID22136/launcher26520，A/B正常恢复hash与账本不变。普通页面新五天请求只3次真实模型、来源/地图0，HTTP200/34.874秒/无重试；AIR到达、5天、当地UNKNOWN、不驾不租正确。唯一提议因“只有名称与组合线索，不能当作已核实玩法”再次PLANNING_UNSUPPORTED_FACT，旧七天采用v2未改，失败如实保留。
+
+locked-arrangement-2.6/advisory-guide-1.14新增明确否定谓语不能/不可/不得/不要/不应＋当作/视为/认定为/认为是＋已核实，仅删除此精确跨度，不豁免整句或后续肯定断言。5组合成回归逐例追加同句肯定已核实、保证、交通耗时与金额，均仍拒绝；攻略与agent回归80 passed/12.49秒，两条依赖弃用警告。Ruff、标准mypy112文件通过。原五天新答复只读复核接纳1份ADVISORY_SUPPORTED，尚未页面预览采用，不称新模型回答。空闲备份before-negative-reference.sqlite3，quick_check=ok/外键0/448操作，A67与B34采用hash不变。

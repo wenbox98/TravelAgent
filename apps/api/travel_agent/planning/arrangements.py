@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from travel_agent.preview.projection import fingerprint, safe_text
 from .flow_models import Arrangement, GroundedActivity
 
-VERSION = "locked-arrangement-2.5"
+VERSION = "locked-arrangement-2.6"
 
 
 def envelope_schema() -> dict[str, Any]:
@@ -174,6 +174,14 @@ def _check(p: dict[str, Any], data: dict[str, Any]) -> None:
             r"(?:不是|并非|不代表|不表示|不构成)(?:实际|当前|实时)?"
             r"(?:票价|报价|价格|费用|金额)(?:(?:或|和|及|、)(?:票价|报价|价格|费用|金额)){0,3}"
             r"(?:或|和|及|、)已核实(?:的)?(?:票价|报价|价格|费用|金额)",
+            "",
+            factual,
+        )
+        # Explicitly denying that a reference counts as verified is also a
+        # negative predicate. Strip its exact span, not its trailing object or
+        # any separate assertion, so mixed positive statements remain checked.
+        factual = re.sub(
+            r"(?:不能|不可|不得|不要|不应)(?:当作|视为|认定为|认为是)已核实",
             "",
             factual,
         )

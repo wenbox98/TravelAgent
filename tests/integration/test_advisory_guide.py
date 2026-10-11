@@ -145,6 +145,28 @@ def test_coordinated_negative_price_object_preserves_other_assertion_guards(norm
 
 
 @pytest.mark.parametrize("text", [
+    "只有名称与组合线索，不能当作已核实玩法。",
+    "此引用不可视为已核实开放。",
+    "资料不得认定为已核实路线。",
+    "不要认为是已核实费用。",
+    "此片区不应当作已核实住宿。",
+])
+def test_negative_verified_reference_does_not_hide_other_facts(normal, text):
+    s, _ = normal
+    v = synthetic(s)
+    _, state = s.load(v["session_id"])
+    data = payload(s.db, s.scope, v["session_id"], state["planning"])
+    raw = proposal(data)
+    raw["proposals"][0]["unknowns"] = [text]
+    assert validate(raw, data)["accepted_count"] == 1
+    for assertion in ("但票价已核实", "但保证可订", "但公交20分钟可达", "但门票100元"):
+        raw["proposals"][0]["unknowns"] = [text.rstrip("。") + assertion]
+        result = validate(raw, data)
+        assert result["accepted_count"] == 0
+        assert result["decisions"][0]["reason"] == "PLANNING_UNSUPPORTED_FACT"
+
+
+@pytest.mark.parametrize("text", [
     "来源中的自驾环线只作历史参考，本方案不假设自驾或租车。",
     "把来源的7天自驾环线当作历史参考，重排为5天不自驾的对照方案。",
     "来源中的自驾条件只作历史参考，非自驾衔接方式与价格未知。",
