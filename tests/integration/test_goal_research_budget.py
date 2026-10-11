@@ -307,8 +307,8 @@ def test_multi_source_feedback_contains_current_selection_exclusion_and_bound_re
     assert final["adopted"] is None
 
 
-@pytest.mark.parametrize("expires_during_answer", [False, True])
-def test_v5_hypothesis_answers_with_two_sources_from_larger_cache_and_keeps_fences(conversation, monkeypatch, expires_during_answer):
+@pytest.mark.parametrize("defect", ["NONE", "EXPIRED", "GUARANTEE"])
+def test_v5_hypothesis_answers_with_two_sources_from_larger_cache_and_keeps_fences(conversation, monkeypatch, defect):
     from copy import deepcopy
     from travel_agent.planning.agent_contract import CURRENT_CONSENT
     from travel_agent.planning.flow_models import PlanAction, PlanDraft
@@ -339,9 +339,9 @@ def test_v5_hypothesis_answers_with_two_sources_from_larger_cache_and_keeps_fenc
         assert data["conditions"]["rental"] == "NO"
         assert data["conditions"]["days"] == 5
         assert data["references"] == minimal["references"]
-        if expires_during_answer:
+        if defect == "EXPIRED":
             s.db.connection.execute("UPDATE source_contents SET expires_at='2000-01-01T00:00:00+00:00'")
-        return dict(advice="三天可只讨论一个片区；当前五天采用版保持。", citation_ids=[data["references"][0]["citation_id"]], gaps=["当地交通未知"], intent="QUESTION", proposed_conditions={})
+        return dict(advice="保证交通可行。" if defect == "GUARANTEE" else "三天可只讨论一个片区；不能完全保证交通，当前五天采用版保持。", citation_ids=[data["references"][0]["citation_id"]], gaps=["当地交通未知"], intent="QUESTION", proposed_conditions={})
     wire.respond = respond
     wire.sent.clear()
     v = send(s, v, "submit", text="如果只有3天呢", consent=CURRENT_CONSENT)
@@ -350,9 +350,13 @@ def test_v5_hypothesis_answers_with_two_sources_from_larger_cache_and_keeps_fenc
     final = s.plans.get(v["session_id"])
     assert not wire.errors and [r["task"] for r in wire.sent] == ["travel_intake_v1", "travel_supervisor_v1", "cached_travel_question_v1"]
     assert reader.calls == [] and final["draft"] == before[0] and final["adopted"] == before[1]
-    expected = "AGENT_MATERIAL_CHANGED" if expires_during_answer else "QUESTION_ANSWERED"
+    expected = {"NONE": "QUESTION_ANSWERED", "EXPIRED": "AGENT_MATERIAL_CHANGED", "GUARANTEE": "QUESTION_UNSUPPORTED_OR_SENSITIVE_OUTPUT"}[defect]
     assert final["automatic_task"]["reason"] == expected
     assert final["automatic_task"]["budget"]["used"]["model"] == 3
+    if defect == "GUARANTEE":
+        import json
+        summary = json.loads(s.db.connection.execute("SELECT summary_json FROM preview_jobs WHERE session_id=? ORDER BY created_at DESC LIMIT 1", (v["session_id"],)).fetchone()[0])
+        assert summary["failure"] == dict(field="advice", category="GUARANTEED_FACT", rule_version="cached-question-1.1")
 
 
 def test_empty_failed_candidate_is_skipped_when_later_search_observes_it_again(service, monkeypatch):

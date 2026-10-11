@@ -96,6 +96,22 @@ class FakeResponse:
         return self.body[:limit]
 
 
+def test_cached_question_uses_answer_prompt_instead_of_extraction_prompt(monkeypatch):
+    calls = []
+    class Opener:
+        def open(self, request, timeout):
+            calls.append(json.loads(request.data))
+            return FakeResponse(json.dumps({"choices": [{"finish_reason": "stop", "message": {
+                "content": '{"ok": true}'}}]}).encode())
+    monkeypatch.setattr("travel_agent.providers.llm.build_opener", lambda *args: Opener())
+    provider = OpenAICompatibleProvider("https://model.invalid/v1", "synthetic", SecretStr("key"), response_format="json_object")
+    provider.structured("cached_travel_question_v1", {"references": []}, SCHEMA)
+    prompt = calls[0]["messages"][0]["content"]
+    assert "Answer this cached travel question" in prompt
+    assert "proposed_conditions {}" in prompt and "arrival_transport" in prompt
+    assert "claim and quote must be identical" not in prompt and len(calls) == 1
+
+
 def test_reference_prompt_does_not_require_old_duplicate_text_fields(monkeypatch):
     calls = []
     class Opener:

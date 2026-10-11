@@ -4,6 +4,10 @@
 
 ## 问题与实现
 
+- 问答提示批验证实际执行：`pytest tests/unit/test_llm_provider.py tests/unit/test_cached_question_validation.py tests/integration/test_cached_questions_and_overview.py tests/integration/test_goal_context.py tests/integration/test_goal_research_budget.py -q --basetemp=<独立临时目录>`，66通过45.98秒、2项依赖弃用警告；Ruff通过、mypy112文件通过。新增测试在真实生产工作线程合成HTTP路径核对：多来源问答正常、资料中途过期仍拒绝、肯定保证拒绝且诊断持久化；专用提示在实际wire请求中存在。未发外部模型/站点请求。
+
+- 2026-10-11：cccc9ce真实假设复验不再误报资料变化，进入回答HTTP；任务`automatic-2da6d5a9408e4d9f8556accbd126b3dc`又被`QUESTION_UNSUPPORTED_OR_SENSITIVE_OUTPUT`拦截。实际模型3次、来源/地图0，五天采用v3未改。旧诊断未保存命中字段或类别，不能猜测具体触发句，未自动重试。代码检查确认问答任务漏配专用提示，实际沿用正文提取提示；本批补充专用问答提示、字段/规则类别/版本的非原文诊断，并回归窄范围否定保证与同句肯定保证。敏感内容、URL、私址与肯定保证仍拒绝，未关闭校验或提交私有回复。
+
 - 2026-10-11：577f600部署后，A五天真实回复经页面明确标示的LOCAL_REVALIDATION接纳1；实际预览、取消恢复、重新预览采用v3，五天/AIR/UNKNOWN/NO/NO与草稿、采用hash一致，旧七天v2及原生导出保留。参考条目排除再恢复只改变选择版本，不改变草稿、采用版或业务用量；B当前v3原生32735字节再次与生产导出精确一致。
 - 随后三天假设实测FAIL：`automatic-a35047c40c1a44c69312e74248a13c9c`在ANSWER误报`AGENT_MATERIAL_CHANGED`。V5问答派发选2篇来源，预检误按20篇重选，实际资料没有变化；理解与监督2次真实HTTP、模型预留3次，回答HTTP未发出。A采用v3与草稿hash仍一致且未改，历史失败和预留全部保留。
 - 本批修复符号：`agent_contract.reference_policy/QUESTION_SOURCE_LIMIT`统一按用途选材；`agent.decision_payload`和`agent_model.run.current`共用此规则；`questions.payload`传入arrival_transport与rental当前条件。资料真实过期、版本、范围和引用绑定检查保留。无公开domain/OpenAPI/SQL变更，无正文再读取或再外发。

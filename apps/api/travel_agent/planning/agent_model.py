@@ -143,8 +143,9 @@ def run(database: Path, jid: str, provider: Any = None) -> None:
         except Exception as exc:
             code = str(exc) if re.fullmatch(r"[A-Z0-9_]+", str(exc)) else "AGENT_MODEL_FAILED"
             from .intake_values import IntakeError
+            from .questions import AnswerRejected
             summary = dict(reason=code, purpose=request["task"], model_executed=response_received)
-            if isinstance(exc, IntakeError):
+            if isinstance(exc, (IntakeError, AnswerRejected)):
                 summary["failure"] = exc.failure
             if isinstance(provider, OpenAICompatibleProvider) and provider.last_diagnostic:
                 summary["diagnostic"] = provider.last_diagnostic.safe_dict()
