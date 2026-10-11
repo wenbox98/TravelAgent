@@ -210,6 +210,7 @@ onMounted(async () => {
   }, 1000)
 })
 onUnmounted(() => { disposed = true; ++generation; clearInterval(poll); clearTimeout(saveTimer);window.removeEventListener('beforeunload',protectLeave) })
+function mapPending(value:boolean){if(value)++generation;busy.value=value}
 const showSavedGuide=ref(false)
 </script>
 <template>
@@ -225,7 +226,7 @@ const showSavedGuide=ref(false)
       <TripConditions :plan="data" :busy="busy||externalRunning||edited" @editing="conditionEditing=$event" @save="extra=>act('save',extra)" />
       <fieldset class="condition-guard" :disabled="conditionEditing">
       <AutomaticPlanning v-if="!data.demo" :plan="data" :busy="busy||connectionLost" :connection-lost="connectionLost" :blocked-reason="conditionEditing?'请先保存或取消条件草稿，再发送；消息已保留。':edited?'请先保存当前编辑，再发送；输入已保留。':''" :submitting="submission==='conversation'" :feedback="talkFeedback" :failure="talkFailure" :unconfirmed="talkUnconfirmed||intakeUnconfirmed" :resumable="talkResumable||intakeResumable" :acknowledgment="messageAcknowledgment" @resume="resumeSubmission('conversation')" @recover="load(data.session_id)" @run="automatic" @talk="talk" @browse="showSavedGuide=true" @export-reference="exportReference" @preview="i=>act('use_proposal',{proposal_index:i})" @adopt="adoptAutomatic" />
-      <CriticalMap v-if="!data.demo&&data.critical_map" :plan="data" :busy="busy||edited||externalRunning" @updated="apply" @mode="mapMode" />
+      <CriticalMap v-if="!data.demo&&data.critical_map" :plan="data" :busy="busy||edited||externalRunning" @updated="apply" @mode="mapMode" @pending="mapPending" />
       <details v-if="data.guide_view && data.draft.activities.length" class="card" :open="showSavedGuide||data.proposal_preview_active"><summary>已保存攻略、修改与导出</summary><AdvisoryGuide :plan="data" :busy="busy" @action="act" /></details>
       <details class="card"><summary>高级：本地选材、手动操作与详细条件</summary>
       <LocalMaterials v-if="!data.demo" :plan="data" :busy="busy || edited" @action="act" @refresh="load" @newtrip="creating=true" />

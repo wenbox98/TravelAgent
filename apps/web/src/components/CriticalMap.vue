@@ -5,14 +5,15 @@ import {mapLabel} from '../route-api'
 import type {PlanView} from '../planning-api'
 import PlaceChoices from './PlaceChoices.vue'
 const props=defineProps<{plan:PlanView;busy:boolean}>()
-const emit=defineEmits<{updated:[value:PlanView];mode:[value:string]}>()
+const emit=defineEmits<{updated:[value:PlanView];mode:[value:string];pending:[value:boolean]}>()
 const busy=ref(false),error=ref(''),pair=ref(''),confirmed=ref(false),date=ref('')
 const value=computed(()=>props.plan.critical_map!)
 watch(()=>value.value.intent_key,key=>{try{const pending=JSON.parse(localStorage.getItem('ta-key-leg-intent')||'null');if(pending?.key===key)localStorage.removeItem('ta-key-leg-intent')}catch{}},{immediate:true})
-watch(()=>[props.plan.session_id,props.plan.revision],()=>{if(!value.value.pairs.some(p=>p.leg_id===pair.value))pair.value=value.value.pairs[0]?.leg_id||'';confirmed.value=false},{immediate:true})
+watch(()=>JSON.stringify([props.plan.session_id,props.plan.draft,value.value.pairs]),()=>{if(!value.value.pairs.some(p=>p.leg_id===pair.value))pair.value=value.value.pairs[0]?.leg_id||'';confirmed.value=false},{immediate:true})
+watch(pair,()=>{confirmed.value=false})
 async function act(action:string,patch:Record<string,unknown>={}){
  if(busy.value||props.busy)return
- busy.value=true;error.value=''
+ busy.value=true;emit('pending',true);error.value=''
  const body={action,expected_revision:props.plan.revision,...patch}
  const url='/api/v1/preview/key-leg/'+props.plan.session_id
  const signature=JSON.stringify([url,body]);let key:string=crypto.randomUUID()
@@ -21,13 +22,14 @@ async function act(action:string,patch:Record<string,unknown>={}){
   if(pending&&pending.signature===signature)key=pending.key
   else if(pending){error.value='上次结果尚未确认，请先刷新本地状态；不会重复查询。';return}
   localStorage.setItem('ta-key-leg-intent',JSON.stringify({signature,key}))
-  emit('updated',await request<PlanView>(url,body,key));localStorage.removeItem('ta-key-leg-intent')
+  // Two provider requests may each wait 25s, in addition to source validation.
+  emit('updated',await request<PlanView>(url,body,key,{timeoutMs:120000}));localStorage.removeItem('ta-key-leg-intent')
  }catch(e){error.value=e instanceof Error?e.message:'结果尚未确认，请读取已保存状态。';if(e instanceof Error&&'status' in e&&Number(e.status)>0)localStorage.removeItem('ta-key-leg-intent')}
- finally{busy.value=false}
+ finally{busy.value=false;emit('pending',false)}
 }
 </script>
 <template><section class="card" aria-label="关键路段核实"><h2>先核实一段关键移动</h2><p>{{value.meaning}}</p>
- <p v-if="error" class="warning" role="alert">{{error}}</p><p v-for="g in value.gaps" :key="g">待补充：{{g}}</p>
+ <p v-if="busy" role="status">正在核实并保存这段参考，请稍候；不会自动重试，完成后显示实际结果。</p><p v-if="error" class="warning" role="alert">{{error}}</p><p v-for="g in value.gaps" :key="g">待补充：{{g}}</p>
  <label v-if="plan.draft.activities.length>=2">本次核实哪种交通<select :value="plan.draft.inputs.mode" :disabled="busy||props.busy" @change="emit('mode',($event.target as HTMLSelectElement).value)"><option value="UNKNOWN">先保持未知</option><option value="TRANSIT">公共交通</option><option value="WALKING">步行</option><option value="DRIVING">自己驾车</option></select></label>
  <p v-if="!value.configured">高德服务尚未配置。可以先选择玩法；本页不会为此探测Key。</p>
  <template v-if="value.ready&&!value.active"><label>先查看哪一段<select v-model="pair" :disabled="busy||props.busy"><option v-for="p in value.pairs" :key="p.leg_id" :value="p.leg_id">第{{p.day}}天 · {{p.names.join(' → ')}}</option></select></label><label><input v-model="confirmed" type="checkbox" />确认这个公共地点顺序；本次允许向高德发送必要公共名称与适用时间，最多地点2次、路径1次，旧账本保留，无自动重试。</label><button :disabled="busy||props.busy||!confirmed||!value.configured" @click="act('start',{leg_id:pair,consent:'PRIVATE_KEY_LEG_V1'})">核实这段地点（最多2次）</button></template>

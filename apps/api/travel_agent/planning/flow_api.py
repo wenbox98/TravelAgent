@@ -65,13 +65,15 @@ def install_flow(app: FastAPI, config: PreviewConfig) -> None:
     @app.post("/api/v1/preview/key-leg/{session_id}", response_model=PlanView)
     def key_leg(session_id: str, body: CriticalMapAction, request: Request) -> Any:
         from .critical_map import action
+        from travel_agent.preview.service import view_cache
 
         try:
             if not config.daily_workbench:
                 raise ValueError("DAILY_TRIP_REQUIRED")
-            action(private_maps, session_id, body, request.headers.get("idempotency-key", ""))
-            with Database(config.database) as db:
-                return present(PlanningService(db, config.account_scope).get(session_id))
+            with view_cache():
+                action(private_maps, session_id, body, request.headers.get("idempotency-key", ""))
+                with Database(config.database) as db:
+                    return present(PlanningService(db, config.account_scope).get(session_id))
         except ValueError as exc:
             return error(str(exc), 409)
 
