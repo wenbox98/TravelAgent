@@ -26,10 +26,10 @@ normal = normal_fixture
 ])
 def test_lodging_area_is_exact_location_without_advice_prefix(text, name):
     from travel_agent.planning.lodging import researched_areas
-    row = dict(claim_id="authored-area", text=text, conditions=[], reference_kind="GUIDE_SUGGESTION", source_id="synthetic:area")
+    row = dict(claim_id="authored-area", text=text, conditions=[], reference_kind="GUIDE_SUGGESTION", source_id="synthetic:area", review_status="MODEL_CONTEXT_REVIEWED")
     areas = researched_areas([row])
     assert [a["name"] for a in areas] == [name]
-    assert areas[0]["references"] == [row]
+    assert areas[0]["references"] == [{k: v for k, v in row.items() if k != "review_status"}]
 
 
 def test_lodging_list_requires_reviewed_heading_and_exact_named_statement():
@@ -54,10 +54,10 @@ def test_lodging_list_requires_reviewed_heading_and_exact_named_statement():
 
 def test_reviewed_area_advice_keeps_role_conditions_and_current_citation_boundary():
     from travel_agent.planning.lodging import researched_areas
-    row = dict(claim_id="authored-lodging", text="去年住在合成青谷老城片区，前往展馆较方便。", conditions=["去年秋季自驾"], reference_kind="AUTHOR_RECORDED_TRIP", source_id="synthetic:area")
+    row = dict(claim_id="authored-lodging", text="去年住在合成青谷老城片区，前往展馆较方便。", conditions=["去年秋季自驾"], reference_kind="AUTHOR_RECORDED_TRIP", source_id="synthetic:area", review_status="MODEL_CONTEXT_REVIEWED")
     areas = researched_areas([row, dict(row, claim_id="authored-negative", text="不建议住在合成北园附近。"), dict(row, text="建议住在市中心。")])
     assert len(areas) == 1 and areas[0]["name"] == "合成青谷老城片区"
-    assert areas[0]["references"] == [row]
+    assert areas[0]["references"] == [{k: v for k, v in row.items() if k != "review_status"}]
     d = PlanDraft(days=3)
     d.guide.lodging.area_ids = [areas[0]["area_id"]]
     p = dict(draft=d.model_dump(), lodging_areas=areas)
@@ -282,3 +282,16 @@ def test_unknown_paid_lodging_never_disappears_from_payment_total():
         "old-room" in result["unknown_line_ids"] and "old-room" not in result["excluded_line_ids"]
     )
     assert result["known_total"]["min_fen"] is None
+# Existing reviewed continue-stay statements still name an area, not a hotel booking.
+def test_reviewed_continue_stay_preserves_area_without_current_availability():
+    from travel_agent.planning.lodging import researched_areas
+    row = dict(claim_id="authored-continue", text="当晚继续住合成木鱼镇，",
+        topic="TRADEOFF", conditions=["仅作者拟定行程"],
+        review_status="MODEL_CONTEXT_REVIEWED", reference_kind="AUTHOR_PROPOSED_PLAN",
+        source_id="synthetic:continue")
+    areas = researched_areas([row])
+    assert [a["name"] for a in areas] == ["合成木鱼镇"]
+    assert areas[0]["references"][0]["conditions"] == row["conditions"]
+    for changed in [dict(review_status="PENDING"), dict(text="不建议继续住合成木鱼镇。"),
+                    dict(text="如果继续住合成木鱼镇。"), dict(text="当晚继续住市区。")]:
+        assert not researched_areas([dict(row, **changed)])

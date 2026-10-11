@@ -10,7 +10,7 @@ from .guide_models import GuideProposal, GuideContent, BudgetLine
 from .arrangements import Rejected, _safety, _check, required_citation_ids
 from .guide_context import walking, budget_context
 
-VERSION = "advisory-guide-1.10"
+VERSION = "advisory-guide-1.11"
 SYNTHETIC = "GUIDE_MULTI_DAY"
 PROMPT = (
     "Return JSON only, protocol_version 4, Simplified Chinese, matching the supplied schema. "

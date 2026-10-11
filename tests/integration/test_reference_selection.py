@@ -179,6 +179,40 @@ def test_preceding_reviewed_subject_creates_play_candidate_without_later_stop():
         assert activities([dict(row, clause_context=context)], "合成区域", limit=None) == []
 
 
+@pytest.mark.parametrize("premise,play,name", [
+    ("上午 8 点出发合成青谷景区📍，", "登顶后群山云海尽收眼底，", "合成青谷景区"),
+    ("上午 8 点打卡合成青谷自然保护区，", "走进古树参天的原始森林，", "合成青谷自然保护区"),
+])
+def test_audited_action_premise_projects_exact_public_subject_without_adopting_clock(premise, play, name):
+    from travel_agent.planning.materials import activities
+    from travel_agent.planning.activity_content import content_references
+    from travel_agent.knowledge.planning import templates
+    row = dict(claim_id="authored-timed-play", source_id="synthetic:timed-play", source_version="v1",
+        locator="v1:chars:1-30", text=play, topic="EXPERIENCE", conditions=[premise],
+        clause_context=[premise], reference_kind="GUIDE_SUGGESTION",
+        review_status="MODEL_CONTEXT_REVIEWED", route_association=None)
+    projected = activities([row], "合成区域", limit=None)
+    assert [a.name for a in projected] == [name]
+    assert projected[0].locked_start is None
+    assert projected[0].stay_min is None
+    assert content_references(projected[0].model_dump(), [row]) == [row]
+    transfer = dict(row, claim_id="authored-generic-transfer", topic="ROUTE",
+                    text="索道上山", clause_context=[])
+    with_transfer = dict(row, clause_context=[premise, "先坐景区大巴再换乘索道上山，"])
+    assert content_references(projected[0].model_dump(), [with_transfer, transfer]) == [with_transfer]
+    card = dict(card_id="card-" + "a" * 28, version=1, card_hash="a" * 64,
+        kind="SOURCE_REFERENCE", tags=["EXPERIENCE"], text=play,
+        destination="合成区域", spatial_status="UNKNOWN", entities=[], activities=[],
+        conditions=[premise], review_scope="GUIDE_SUGGESTION", review_method="MODEL_CONTEXT_REVIEWED",
+        evidence_links=[row["claim_id"]], scoped_references=[row],
+        sources=[dict(source_id="synthetic:timed-play")])
+    assert [a.name for a in templates(card)] == [name]
+    for context in [[], ["如果" + premise], ["未" + premise],
+                    ["Day1 " + premise], ["去合成青谷景区与合成南馆，"]]:
+        assert not activities([dict(row, clause_context=context)], "合成区域", limit=None)
+    assert not activities([dict(row, review_status="PENDING")], "合成区域", limit=None)
+
+
 def test_program_union_second_occurrence_persistence_and_zero_access_recovery(tmp_path,clock):
     path=tmp_path/"reference.sqlite3"
     with Database(path,clock=clock) as db:

@@ -5,8 +5,26 @@ from typing import Any
 
 from .scoped_context import REVIEWED, same_document
 
-PLAY = r"散步|观赏|欣赏|参观|徒步|品尝|看展|漫步|拍照|体验|观鸟|看花|重点看|追随|感受|建筑|吊脚楼|文化|登高|远眺|登楼|俯瞰|骑行|吹.{0,3}风|看日出|看日落|江景|过早|闲逛|慢慢走|看海|老房子|洋房|手作|镇馆之宝"
-_PUBLIC_END = r"(?:公园|街区|景区|风景区|古镇|小镇|湿地|步道|广场|博物馆|纪念馆|大坝|画廊|洞|湖|寺|山|谷|街|路|桥|码头|大学|门|坊|林|坛|家|河|台|滩|园|馆)$"
+PLAY = r"散步|观赏|欣赏|参观|徒步|品尝|看展|漫步|拍照|体验|观鸟|看花|重点看|追随|感受|建筑|吊脚楼|文化|登高|登顶|云海|走进|穿行|远眺|登楼|俯瞰|骑行|吹.{0,3}风|看日出|看日落|江景|过早|闲逛|慢慢走|看海|老房子|洋房|手作|镇馆之宝"
+_PUBLIC_END = r"(?:公园|街区|景区|风景区|保护区|古镇|小镇|湿地|步道|广场|博物馆|纪念馆|大坝|画廊|洞|湖|寺|山|谷|街|路|桥|码头|大学|门|坊|林|坛|家|河|台|滩|园|馆)$"
+
+
+def preceding_subject(text: str) -> str | None:
+    """One exact destination after an action in an audited same-parent premise.
+
+    Source clocks and trailing icons are formatting, never an adopted appointment.
+    No multi-stop/day/conditional inference or geographic aliasing is permitted.
+    """
+    from .materials import place_name, activity_subject
+
+    if re.search(r"不|没|未|如果|假设|→|➡|->|\+|(?:公园|景区|馆)(?:和|与|及|、)|Day\s*\d|D\s*\d|第.{1,3}天", text, re.I):
+        return None
+    match = re.search(
+        r"(?:前往|打卡|出发|到|去|在|沿)(?:免费的)?([\u4e00-\u9fffA-Za-z·]{2,24})"
+        r"[\s，。；📍]*$", text,
+    )
+    name = place_name(match[1]) if match else None
+    return name if name and activity_subject(name) and re.search(_PUBLIC_END, name) else None
 
 
 def heading_subject(text: str) -> str | None:
@@ -25,7 +43,6 @@ def reviewed_subject_names(row: dict[str, Any]) -> list[str]:
     """Exact nouns from audited preceding subject premises, never day headers."""
     if row.get("review_status") not in REVIEWED:
         return []
-    from .materials import place_name, activity_subject
     own = heading_subject(row["text"])
     names = [own] if own and explicit_subject(own, row["text"]) else []
     if not re.search(PLAY, row["text"]):
@@ -36,9 +53,8 @@ def reviewed_subject_names(row: dict[str, Any]) -> list[str]:
         header = heading_subject(clause)
         if header:
             names.append(header)
-        match = re.search(r"(?:前往|打卡|到|去|在|沿)(?:免费的)?([\u4e00-\u9fffA-Za-z·]{2,24})[，。；\s]*$", clause)
-        name = place_name(match[1]) if match else None
-        if name and activity_subject(name) and re.search(_PUBLIC_END, name):
+        name = preceding_subject(clause)
+        if name:
             names.append(name)
     return list(dict.fromkeys(names))
 
@@ -80,9 +96,7 @@ def reviewed_clause_subject(name: str, row: dict[str, Any]) -> bool:
         PLAY, row["text"]
     ) or re.search(r"→|➜|➡|->", row["text"]):
         return False
-    subject = re.compile(r"(?:前往|打卡|到|去|在|沿)(?:免费的)?" + re.escape(name)
-        + r"(?:风景区|景区)?[，。；\s]*$")
-    return any((subject.search(c) or heading_subject(c) == name) and not re.search(r"不|没|未|如果|假设|→|➡|->", c)
+    return any((preceding_subject(c) in {name, name + "风景区", name + "景区"} or heading_subject(c) == name) and not re.search(r"不|没|未|如果|假设|→|➡|->", c)
                for c in row["clause_context"])
 
 
@@ -90,14 +104,14 @@ def content_references(
     activity: dict[str, Any], refs: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     from .scoped_context import ids
-    from .materials import activities
+    from .materials import activities, activity_subject
 
     if activity.get("provenance") != "SOURCE_REFERENCE":
         return []
     by_id = {r["claim_id"]: r for r in refs}
     bound = [by_id[i] for i in ids(activity) if i in by_id]
     other_subjects = {a.name for a in activities(refs, "", limit=None)
-                      if a.name not in activity["name"]}
+                      if activity_subject(a.name) and a.name not in activity["name"]}
     return [
         r
         for r in refs
